@@ -15,6 +15,18 @@ env/
 data/downloads/
 *.log
 
+# ---------------------------------------------------------------------------
+# Configuracao e dados sensiveis (APENAS locais / ambiente Petrobras)
+# O repo publico guarda somente os modelos *.example. Nada abaixo volta ao repo.
+# ---------------------------------------------------------------------------
+settings.json
+data/catalog.json
+
+# Imagens reais dos apps (mantem apenas README e .gitkeep)
+assets/images/*
+!assets/images/README.md
+!assets/images/.gitkeep
+
 # IDE / OS
 .vscode/
 .idea/

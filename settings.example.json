@@ -1,0 +1,23 @@
+{
+  "app": {
+    "name": "Suite (exemplo)",
+    "version": "0.1.0"
+  },
+  "sector": {
+    "name": "Nome do Setor (edite aqui)",
+    "tagline": "Nossos aplicativos, em um so lugar.",
+    "description": "Escreva aqui a apresentacao do seu setor. Este texto aparece na tela inicial da Suite. Copie este arquivo para 'settings.json' e substitua pelos textos internos - o settings.json NAO e versionado, entao suas informacoes nao voltam para o repositorio publico."
+  },
+  "theme": {
+    "primary": "#008542",
+    "primary_dark": "#00522A",
+    "accent": "#FFD000",
+    "bg": "#0E1512",
+    "surface": "#16211C",
+    "text": "#EAF3EE"
+  },
+  "catalog": {
+    "local_file": "data/catalog.json",
+    "remote_url": null
+  }
+}

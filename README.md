@@ -5,6 +5,11 @@ A Suite apresenta o setor na tela inicial e, no menu lateral, lista os programas
 (`.exe` e `.xlsx`). Cada aplicativo tem uma tela de detalhe com imagem, descricao e botao de
 Baixar / Instalar / Executar.
 
+> **Casca configuravel:** este repositorio e publico e NAO contem dados internos. Toda a
+> personalizacao (textos, cores, aplicativos, links e imagens) fica em arquivos locais que
+> nao sao versionados. Consulte **[CONFIGURACAO.md](CONFIGURACAO.md)** para saber exatamente
+> onde atribuir cada parametro.
+
 ## Recursos
 
 - Tela inicial com apresentacao do setor.
@@ -14,16 +19,21 @@ Baixar / Instalar / Executar.
   1. Download direto via `requests`.
   2. Fallback: abre o link no navegador para download manual e permite apontar o arquivo baixado.
 - Catalogo local (`data/catalog.json`) com camada preparada para catalogo remoto (SharePoint) no futuro.
+- Configuracao 100% externa ao codigo, via `settings.json` (com modelo `settings.example.json`).
 
 ## Estrutura
 
 ```
 Suite-steam/
-  data/catalog.json        # catalogo de apps (local)
-  assets/images/           # logo e imagens dos apps
+  settings.example.json    # modelo publico de configuracao (copie p/ settings.json)
+  CONFIGURACAO.md          # guia de onde atribuir cada parametro
+  data/
+    catalog.example.json   # modelo publico do catalogo (copie p/ catalog.json)
+    catalog.json           # catalogo real (LOCAL, nao versionado)
+  assets/images/           # imagens dos apps (LOCAIS, nao versionadas)
   src/
     main.py                # entrada da aplicacao Flet
-    config.py              # constantes e textos do setor
+    config.py              # loader de settings.json (sem dados internos)
     models.py              # modelos de dados
     catalog/provider.py    # provedores de catalogo (Local + Remoto/stub)
     services/
@@ -42,6 +52,11 @@ Suite-steam/
 python -m venv .venv
 .venv\Scripts\activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+
+# configuracao (copie os modelos e edite - ver CONFIGURACAO.md)
+copy settings.example.json settings.json
+copy data\catalog.example.json data\catalog.json
+
 python src/main.py
 ```
 
@@ -57,9 +72,16 @@ pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r req
 O pacote `flet-desktop` (cliente da janela nativa) e baixado junto e tambem precisa do
 acesso ao PyPI na primeira execucao.
 
-## Configurando o catalogo
+## Configurando (textos, cores, apps, imagens)
 
-Edite `data/catalog.json`. Cada app:
+A configuracao e feita em arquivos locais, fora do codigo. Passo a passo detalhado em
+**[CONFIGURACAO.md](CONFIGURACAO.md)**. Em resumo:
+
+- `settings.json` (copie de `settings.example.json`): nome do app, textos do setor e cores.
+- `data/catalog.json` (copie de `data/catalog.example.json`): lista de apps e links do SharePoint.
+- `assets/images/`: imagens de cada app (nome igual ao campo `imagem` do catalogo).
+
+Exemplo de app no catalogo:
 
 ```json
 {
@@ -68,7 +90,7 @@ Edite `data/catalog.json`. Cada app:
   "descricao": "Descricao do aplicativo...",
   "imagem": "assets/images/meu-app.png",
   "tipo": "exe",
-  "download_url": "https://petrobras.sharepoint.com/.../arquivo.exe?download=1",
+  "download_url": "https://SEU-SITE.sharepoint.com/.../arquivo.exe?download=1",
   "versao": "1.0.0"
 }
 ```
