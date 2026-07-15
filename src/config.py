@@ -78,7 +78,10 @@ COLOR_TEXT = _theme.get("text", "#EAF3EE")
 # Catalogo de aplicativos  ->  settings.json > "catalog"
 # ---------------------------------------------------------------------------
 _local_file = _catalog.get("local_file", "data/catalog.json")
-CATALOG_FILE = (ROOT_DIR / _local_file).resolve()
+# Protege contra configuracao invalida (ex.: null, numero): usa o padrao se nao for texto.
+if not isinstance(_local_file, str) or not _local_file.strip():
+    _local_file = "data/catalog.json"
+CATALOG_FILE = (ROOT_DIR / _local_file.strip()).resolve()
 # URL de um catalog.json remoto (ex.: SharePoint). Deixe vazio/nulo para usar so o local.
 REMOTE_CATALOG_URL: str | None = _catalog.get("remote_url") or None
 
