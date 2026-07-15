@@ -16,7 +16,7 @@ def app_badge(size: int = 40) -> ft.Control:
         height=size,
         border_radius=size // 4,
         bgcolor=config.COLOR_PRIMARY,
-        alignment=ft.alignment.center,
+        alignment=ft.Alignment.CENTER,
         content=ft.Text("SP", size=size // 2, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
     )
 
@@ -29,7 +29,7 @@ def _sidebar_item(
     return ft.Container(
         on_click=lambda e, aid=app.id: on_click(aid),
         border_radius=8,
-        padding=ft.padding.symmetric(horizontal=12, vertical=10),
+        padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         bgcolor=config.COLOR_PRIMARY if selected else None,
         ink=True,
         content=ft.Row(
@@ -63,7 +63,7 @@ def build_sidebar(
     home_selected = selected_id is None
     items: list[ft.Control] = [
         ft.Container(
-            padding=ft.padding.only(left=8, top=8, bottom=16),
+            padding=ft.Padding.only(left=8, top=8, bottom=16),
             content=ft.Row(
                 spacing=10,
                 controls=[
@@ -81,7 +81,7 @@ def build_sidebar(
         ft.Container(
             on_click=lambda e: on_home(),
             border_radius=8,
-            padding=ft.padding.symmetric(horizontal=12, vertical=10),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             bgcolor=config.COLOR_PRIMARY if home_selected else None,
             ink=True,
             content=ft.Row(
@@ -94,7 +94,7 @@ def build_sidebar(
             ),
         ),
         ft.Container(
-            padding=ft.padding.only(left=12, top=16, bottom=6),
+            padding=ft.Padding.only(left=12, top=16, bottom=6),
             content=ft.Text("APLICATIVOS", size=11, color="#8AA797", weight=ft.FontWeight.BOLD),
         ),
     ]

@@ -1,7 +1,6 @@
 """Tela de detalhe de um aplicativo: imagem, descricao e acoes."""
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 
 import flet as ft
@@ -29,11 +28,13 @@ class AppDetailView:
         app: AppInfo,
         storage: Storage,
         manager: DownloadManager,
+        file_picker: ft.FilePicker,
     ) -> None:
         self.page = page
         self.app = app
         self.storage = storage
         self.manager = manager
+        self.file_picker = file_picker
 
         self.progress = ft.ProgressBar(value=0, visible=False, color=config.COLOR_ACCENT, bgcolor="#0A0F0C")
         self.status_text = ft.Text("", size=13, color="#B9CEC3")
@@ -45,10 +46,6 @@ class AppDetailView:
             on_click=self._on_locate,
         )
 
-        self.file_picker = ft.FilePicker(on_result=self._on_file_picked)
-        if self.file_picker not in self.page.overlay:
-            self.page.overlay.append(self.file_picker)
-
         self._refresh_action_button()
 
     # ------------------------------------------------------------------
@@ -59,10 +56,10 @@ class AppDetailView:
             height=300,
             border_radius=12,
             bgcolor=config.COLOR_SURFACE,
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment.CENTER,
             content=ft.Image(
                 src=img_src,
-                fit=ft.ImageFit.COVER,
+                fit=ft.BoxFit.COVER,
                 width=520,
                 height=300,
                 border_radius=12,
@@ -106,7 +103,7 @@ class AppDetailView:
                 header,
                 image,
                 ft.Container(
-                    padding=ft.padding.only(top=4),
+                    padding=ft.Padding.only(top=4),
                     content=ft.Text("Descricao", size=16, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
                 ),
                 ft.Text(self.app.descricao or "Sem descricao.", size=15, color="#D6E5DC"),
@@ -151,15 +148,16 @@ class AppDetailView:
     def _execute(self) -> None:
         state = self.storage.get_state(self.app.id)
         if not state.local_path:
-            self._notify("Arquivo nao encontrado. Baixe novamente.")
+            self.status_text.value = "Arquivo nao encontrado. Baixe novamente."
             self._refresh_action_button()
             self._safe_update()
             return
         try:
             run_file(state.local_path)
-            self._notify(f"Abrindo {self.app.nome}...")
+            self.status_text.value = f"Abrindo {self.app.nome}..."
         except RunError as exc:
-            self._notify(str(exc))
+            self.status_text.value = str(exc)
+        self._safe_update()
 
     def _start_download(self) -> None:
         self.action_button.disabled = True
@@ -169,8 +167,8 @@ class AppDetailView:
         self.secondary_button.visible = False
         self._safe_update()
 
-        thread = threading.Thread(target=self._download_worker, daemon=True)
-        thread.start()
+        # roda o download bloqueante em uma thread gerenciada pelo Flet
+        self.page.run_thread(self._download_worker)
 
     def _download_worker(self) -> None:
         def on_progress(pct: float, msg: str) -> None:
@@ -197,29 +195,25 @@ class AppDetailView:
         self._safe_update()
 
     # ------------------------------------------------------------------
-    def _on_locate(self, e: ft.ControlEvent) -> None:
+    async def _on_locate(self, e: ft.ControlEvent) -> None:
         ext = "xlsx" if self.app.tipo.value == "xlsx" else "exe"
-        self.file_picker.pick_files(
+        files = await self.file_picker.pick_files(
             dialog_title=f"Selecione o arquivo baixado ({self.app.nome})",
             allow_multiple=False,
             allowed_extensions=[ext],
         )
-
-    def _on_file_picked(self, e: ft.FilePickerResultEvent) -> None:
-        if not e.files:
+        if not files:
             return
-        source = Path(e.files[0].path)
-        result = self.manager.register_manual_file(self.app, source)
+        source_path = files[0].path
+        if not source_path:
+            self.status_text.value = "Nao foi possivel obter o caminho do arquivo."
+            self._safe_update()
+            return
+        result = self.manager.register_manual_file(self.app, Path(source_path))
         if result.outcome == DownloadOutcome.SUCCESS:
             self.status_text.value = "Arquivo registrado com sucesso."
             self.secondary_button.visible = False
         else:
             self.status_text.value = f"Erro: {result.message}"
         self._refresh_action_button()
-        self._safe_update()
-
-    # ------------------------------------------------------------------
-    def _notify(self, message: str) -> None:
-        self.page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=config.COLOR_PRIMARY_DARK)
-        self.page.snack_bar.open = True
         self._safe_update()

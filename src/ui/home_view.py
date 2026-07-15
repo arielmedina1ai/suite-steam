@@ -15,8 +15,8 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None]) -> ft.Cont
         border_radius=16,
         padding=32,
         gradient=ft.LinearGradient(
-            begin=ft.alignment.top_left,
-            end=ft.alignment.bottom_right,
+            begin=ft.Alignment.TOP_LEFT,
+            end=ft.Alignment.BOTTOM_RIGHT,
             colors=[config.COLOR_PRIMARY_DARK, config.COLOR_PRIMARY],
         ),
         content=ft.Column(
@@ -63,7 +63,7 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None]) -> ft.Cont
                                 ft.Container(
                                     bgcolor=config.COLOR_PRIMARY_DARK,
                                     border_radius=6,
-                                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                                     content=ft.Text(app.tipo.value.upper(), size=11, color=config.COLOR_ACCENT),
                                 ),
                                 ft.Text(f"v{app.versao}", size=12, color="#8AA797"),

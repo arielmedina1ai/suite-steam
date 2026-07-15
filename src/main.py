@@ -25,20 +25,25 @@ class SuiteApp:
         self.sidebar_holder = ft.Container()
         self.content_holder = ft.Container(expand=True, padding=28)
 
+        # FilePicker e um servico (registrado uma unica vez em page.services)
+        self.file_picker = ft.FilePicker()
+
         self._setup_page()
         self._render()
 
     # ------------------------------------------------------------------
     def _setup_page(self) -> None:
         self.page.title = config.APP_NAME
-        self.page.window_width = 1180
-        self.page.window_height = 760
-        self.page.window_min_width = 900
-        self.page.window_min_height = 600
+        self.page.window.width = 1180
+        self.page.window.height = 760
+        self.page.window.min_width = 900
+        self.page.window.min_height = 600
         self.page.bgcolor = config.COLOR_BG
         self.page.theme_mode = ft.ThemeMode.DARK
         self.page.theme = ft.Theme(color_scheme_seed=config.COLOR_PRIMARY)
         self.page.padding = 0
+
+        self.page.services.append(self.file_picker)
 
         self.page.add(
             ft.Row(
@@ -75,7 +80,7 @@ class SuiteApp:
                 self.content_holder.content = ft.Text("Aplicativo nao encontrado.", color=config.COLOR_TEXT)
             else:
                 self.content_holder.content = AppDetailView(
-                    self.page, app, self.storage, self.manager
+                    self.page, app, self.storage, self.manager, self.file_picker
                 ).build()
 
         self.page.update()
@@ -86,4 +91,4 @@ def main(page: ft.Page) -> None:
 
 
 if __name__ == "__main__":
-    ft.app(target=main, assets_dir=str(config.ASSETS_DIR))
+    ft.run(main, assets_dir=str(config.ASSETS_DIR))
