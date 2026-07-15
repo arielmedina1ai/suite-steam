@@ -121,12 +121,12 @@ class AppDetailView:
     def _refresh_action_button(self) -> None:
         status = self._current_status()
         if status == InstallStatus.INSTALLED:
-            self.action_button.text = "Executar"
+            self.action_button.content = "Executar"
             self.action_button.icon = ft.Icons.PLAY_ARROW
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
         else:
-            self.action_button.text = "Baixar / Instalar"
+            self.action_button.content = "Baixar / Instalar"
             self.action_button.icon = ft.Icons.DOWNLOAD
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
