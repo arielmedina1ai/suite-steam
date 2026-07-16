@@ -72,13 +72,13 @@ class SuiteApp:
             controls=[
                 ft.ProgressRing(color=config.COLOR_ACCENT, width=48, height=48),
                 ft.Text(
-                    "Sincronizando catalogo com SharePoint...",
+                    "Sincronizando catalogo...",
                     size=18,
                     weight=ft.FontWeight.BOLD,
                     color=config.COLOR_TEXT,
                 ),
                 ft.Text(
-                    "Pode abrir uma janela de login (WebLogin).",
+                    "Baixando catalog.json e imagens (download direto).",
                     size=13,
                     color="#8AA797",
                 ),

@@ -41,14 +41,17 @@ imagens e links) vive no **SharePoint** e e sincronizado a cada abertura do prog
     "text": "#EAF3EE"
   },
   "catalog": {
-    "remote_url": "https://empresa.sharepoint.com/:u:/r/sites/.../catalog.json"
+    "remote_url": "https://empresa.sharepoint.com/.../catalog.json?download=1"
   }
 }
 ```
 
 O unico link sensivel necessario no PC e `catalog.remote_url`.
-Os scripts SharePoint (`scripts/template_sp_*.ps1`) sao fixos no codigo — nao precisam
-estar no settings.
+Use o **link de download direto** do `catalog.json` (com `?download=1` se o SharePoint
+oferecer). A Suite baixa esse JSON por HTTP — **sem** PowerShell/PnP.
+
+Os scripts PnP (`scripts/template_sp_*.ps1`) continuam sendo usados so para baixar/enviar
+os **aplicativos** (exe/xlsx/xlsm).
 
 ---
 
@@ -80,8 +83,8 @@ Campos:
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
 
 A cada abertura, a Suite:
-1. Baixa o `catalog.json` via PnP.
-2. Baixa as imagens dos apps.
+1. Baixa o `catalog.json` pelo link de download direto (HTTP).
+2. Baixa as imagens dos apps (tambem por download direto, se forem URLs).
 3. Guarda cache em `%LOCALAPPDATA%/SuitePetrobras/catalog/`.
 4. Se a sincronizacao falhar, usa o ultimo cache.
 

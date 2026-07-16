@@ -1,7 +1,10 @@
 """Provedores de catalogo de aplicativos.
 
-Fonte principal: catalog.json no SharePoint (PnP), baixado a cada abertura.
+Fonte principal: catalog.json via link de download direto (HTTP).
+Imagens do catalogo tambem preferem download direto.
 Fallback: ultimo cache em %LOCALAPPDATA%/SuitePetrobras/catalog/.
+
+Os apps em si (exe/xlsx/xlsm) continuam sendo baixados via PnP/PowerShell.
 """
 from __future__ import annotations
 
@@ -10,11 +13,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 import config
 from models import AppInfo
-from services.sharepoint_manager import baixar_do_sharepoint, parsear_link_sharepoint
 
 ProgressCb = Callable[[float, str], None]
 
@@ -46,31 +48,77 @@ def _parse_catalog(raw: str) -> list[AppInfo]:
     return apps
 
 
-def _is_sharepoint_url(value: str) -> bool:
+def _is_http_url(value: str) -> bool:
     v = (value or "").strip().lower()
     return v.startswith("http://") or v.startswith("https://")
 
 
+def _ensure_download_param(url: str) -> str:
+    """Garante ?download=1 em links SharePoint, quando ainda nao existir."""
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if "download" not in {k.lower() for k in query}:
+        query["download"] = "1"
+    new_query = urlencode(query)
+    return urlunparse(parsed._replace(query=new_query))
+
+
 def _image_filename(app: AppInfo) -> str:
-    """Nome do arquivo de imagem no cache local."""
     raw = (app.imagem or "").strip()
-    if _is_sharepoint_url(raw):
-        try:
-            info = parsear_link_sharepoint(raw)
-            nome = info.get("nome_arquivo")
-            if nome:
-                return nome
-        except ValueError:
-            pass
-        # fallback pela URL
+    if _is_http_url(raw):
         name = unquote(Path(urlparse(raw).path).name)
+        # remove query residue from path-style names
+        if name and "." in name:
+            return name.split("?")[0]
         if name:
             return name
-    # caminho relativo tipo assets/images/foo.png
     name = Path(raw.replace("\\", "/")).name
     if name:
         return name
     return f"{app.id}.png"
+
+
+def _download_direct(url: str, destino: Path) -> tuple[bool, str]:
+    """Baixa um arquivo por link HTTP direto (ex.: SharePoint ?download=1)."""
+    try:
+        import requests
+    except ImportError:
+        return False, "Biblioteca 'requests' nao instalada."
+
+    download_url = _ensure_download_param(url)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with requests.get(
+            download_url,
+            stream=True,
+            allow_redirects=True,
+            timeout=60,
+            headers={"User-Agent": "SuitePetrobras/1.0"},
+        ) as resp:
+            if resp.status_code in (401, 403):
+                return False, f"Acesso negado (HTTP {resp.status_code}). Link exige autenticacao."
+            if resp.status_code >= 400:
+                return False, f"Falha no download (HTTP {resp.status_code})."
+
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            # SharePoint devolve HTML de login quando o link nao e realmente direto
+            if "text/html" in content_type or "application/xhtml" in content_type:
+                return False, (
+                    "O servidor retornou HTML (provavel pagina de login). "
+                    "Use um link de download direto do arquivo."
+                )
+
+            with open(destino, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        fh.write(chunk)
+    except Exception as exc:
+        return False, f"Erro no download direto: {exc}"
+
+    if not destino.exists() or destino.stat().st_size == 0:
+        return False, "Arquivo vazio ou nao encontrado apos o download."
+    return True, "OK"
 
 
 def _load_cached_catalog() -> list[AppInfo]:
@@ -81,7 +129,6 @@ def _load_cached_catalog() -> list[AppInfo]:
         apps = _parse_catalog(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return []
-    # reaponta imagens para o cache local se existirem
     for app in apps:
         local_img = config.CATALOG_IMAGES_DIR / _image_filename(app)
         if local_img.exists():
@@ -90,7 +137,7 @@ def _load_cached_catalog() -> list[AppInfo]:
 
 
 class LocalCatalogProvider(CatalogProvider):
-    """Le um JSON local (usado como fallback de desenvolvimento)."""
+    """Le um JSON local (fallback de desenvolvimento)."""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or (config.DATA_DIR / "catalog.example.json")
@@ -102,7 +149,7 @@ class LocalCatalogProvider(CatalogProvider):
 
 
 class SharePointCatalogProvider(CatalogProvider):
-    """Baixa catalog.json + imagens via PnP e mantem cache local."""
+    """Baixa catalog.json (e imagens) por link de download direto e mantem cache."""
 
     def __init__(self, url: str | None = None) -> None:
         self.url = url or config.REMOTE_CATALOG_URL
@@ -124,13 +171,12 @@ class SharePointCatalogProvider(CatalogProvider):
                     from_cache=True,
                     ok=False,
                 )
-            # ultimo recurso: exemplo do repo
             apps = LocalCatalogProvider().load()
             return CatalogSyncResult(
                 apps=apps,
                 message=(
                     "Configure catalog.remote_url no settings.json com o link "
-                    "SharePoint do catalog.json."
+                    "de download direto do catalog.json no SharePoint."
                 ),
                 from_cache=False,
                 ok=False,
@@ -139,62 +185,63 @@ class SharePointCatalogProvider(CatalogProvider):
         config.CATALOG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         config.CATALOG_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-        report(0.05, "Baixando catalog.json do SharePoint...")
-        result = baixar_do_sharepoint(
-            link=self.url,
-            pasta_destino=config.CATALOG_CACHE_DIR,
-            nome_arquivo="catalog.json",
-            progress=lambda p, m: report(0.05 + p * 0.4, m),
-        )
+        report(0.1, "Baixando catalog.json (download direto)...")
+        dest = config.CATALOG_CACHE_FILE
+        ok, detail = _download_direct(self.url, dest)
 
-        if not result.ok or not result.path or not result.path.exists():
+        if not ok:
             cached = _load_cached_catalog()
             if cached:
                 return CatalogSyncResult(
                     apps=cached,
-                    message=f"Falha ao sincronizar catalogo ({result.message}). Usando cache.",
+                    message=f"Falha ao sincronizar catalogo ({detail}). Usando cache.",
                     from_cache=True,
                     ok=False,
                 )
             return CatalogSyncResult(
                 apps=[],
-                message=f"Falha ao sincronizar catalogo: {result.message}",
+                message=f"Falha ao sincronizar catalogo: {detail}",
                 from_cache=False,
                 ok=False,
             )
 
         try:
-            apps = _parse_catalog(result.path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
+            # valida que o conteudo e JSON (nao HTML salvo com nome .json)
+            text = dest.read_text(encoding="utf-8")
+            if text.lstrip().startswith("<"):
+                raise json.JSONDecodeError("Conteudo parece HTML, nao JSON.", text, 0)
+            apps = _parse_catalog(text)
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
             cached = _load_cached_catalog()
+            # remove arquivo invalido para nao poluir o cache
+            try:
+                dest.unlink(missing_ok=True)
+            except OSError:
+                pass
             return CatalogSyncResult(
                 apps=cached,
-                message=f"Catalogo invalido: {exc}",
+                message=(
+                    f"Arquivo baixado nao e um catalog.json valido ({exc}). "
+                    "Confira se o link e de download direto."
+                ),
                 from_cache=bool(cached),
                 ok=False,
             )
 
         total = max(len(apps), 1)
         for idx, app in enumerate(apps):
-            if not _is_sharepoint_url(app.imagem):
-                # caminho local relativo: tenta no cache de imagens se existir
+            if not _is_http_url(app.imagem):
                 local_img = config.CATALOG_IMAGES_DIR / _image_filename(app)
                 if local_img.exists():
                     app.imagem = str(local_img)
                 continue
 
-            report(0.5 + 0.5 * (idx / total), f"Baixando imagem: {app.nome}...")
+            report(0.4 + 0.6 * (idx / total), f"Baixando imagem: {app.nome}...")
             nome_img = _image_filename(app)
-            img_result = baixar_do_sharepoint(
-                link=app.imagem,
-                pasta_destino=config.CATALOG_IMAGES_DIR,
-                nome_arquivo=nome_img,
-            )
-            if img_result.ok and img_result.path and img_result.path.exists():
-                app.imagem = str(img_result.path)
-            else:
-                # mantem URL; UI mostra placeholder se falhar
-                pass
+            img_path = config.CATALOG_IMAGES_DIR / nome_img
+            img_ok, _ = _download_direct(app.imagem, img_path)
+            if img_ok:
+                app.imagem = str(img_path)
 
         report(1.0, "Catalogo sincronizado.")
         return CatalogSyncResult(
@@ -206,7 +253,6 @@ class SharePointCatalogProvider(CatalogProvider):
 
 
 def get_default_provider() -> CatalogProvider:
-    """Retorna o provedor SharePoint (com cache) quando houver remote_url."""
     if config.REMOTE_CATALOG_URL:
         return SharePointCatalogProvider(config.REMOTE_CATALOG_URL)
     return SharePointCatalogProvider(None)
