@@ -98,6 +98,7 @@ Campos:
 - `download_url`: link do arquivo (PnP baixa ao clicar em Baixar/Instalar).
 - `imagem`: link SharePoint da imagem (cacheada localmente).
 - `imagem_versao`: bump ao trocar a arte (invalida so aquele cache).
+- `versao`: bump ao publicar arquivo novo do app (mostra **Atualizar versao** nos PCs).
 - `upload_url` (opcional): pasta de envio — habilita "Enviar para SharePoint".
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
 
@@ -112,7 +113,7 @@ A cada abertura, a Suite:
 ## 3. Acoes na tela do aplicativo
 
 - **Baixar / Instalar** ou **Executar**
-- **Baixar novamente / Atualizar versao** (quando ja instalado)
+- **Atualizar versao** (aparece so quando `versao` do catalogo difere da instalada; rebaixa o arquivo)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar** (remove arquivos locais e o registro)
 

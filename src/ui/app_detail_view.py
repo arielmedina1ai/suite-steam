@@ -45,10 +45,10 @@ class AppDetailView:
 
         self.action_button = ft.FilledButton(on_click=self._on_action)
         self.update_button = ft.OutlinedButton(
-            "Baixar novamente",
-            icon=ft.Icons.REFRESH,
+            "Atualizar versao",
+            icon=ft.Icons.SYSTEM_UPDATE,
             visible=False,
-            on_click=self._on_redownload,
+            on_click=self._on_update,
         )
         self.upload_button = ft.OutlinedButton(
             "Enviar para SharePoint",
@@ -149,6 +149,10 @@ class AppDetailView:
     def _current_status(self) -> InstallStatus:
         return self.storage.get_state(self.app.id).status
 
+    def _has_version_update(self, state) -> bool:
+        """Mesmo criterio das imagens: bump de versao no catalogo invalida o local."""
+        return str(state.versao or "") != str(self.app.versao or "")
+
     def _refresh_action_buttons(self) -> None:
         state = self.storage.get_state(self.app.id)
         installed = state.status == InstallStatus.INSTALLED
@@ -159,25 +163,24 @@ class AppDetailView:
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
 
-            self.update_button.visible = True
+            needs_update = self._has_version_update(state)
+            self.update_button.visible = needs_update
+            self.update_button.content = "Atualizar versao"
             self.upload_button.visible = bool(self.app.upload_url)
             self.uninstall_button.visible = True
 
             local_name = Path(state.local_path).name if state.local_path else "?"
             installed_ver = state.versao or "?"
             catalog_ver = self.app.versao
-            if installed_ver != catalog_ver:
+            if needs_update:
                 self.local_info.value = (
                     f"Instalado: {local_name} (v{installed_ver})  |  "
-                    f"Catalogo: v{catalog_ver}  —  ha uma versao diferente no catalogo. "
-                    f"Use 'Atualizar versao'."
+                    f"Catalogo: v{catalog_ver}  —  nova versao disponivel."
                 )
                 self.local_info.color = config.COLOR_ACCENT
-                self.update_button.content = "Atualizar versao"
             else:
                 self.local_info.value = f"Arquivo local: {local_name} (v{installed_ver})"
                 self.local_info.color = "#8AA797"
-                self.update_button.content = "Baixar novamente"
         else:
             self.action_button.content = "Baixar / Instalar"
             self.action_button.icon = ft.Icons.DOWNLOAD
@@ -203,7 +206,8 @@ class AppDetailView:
         else:
             self._start_download()
 
-    def _on_redownload(self, e: ft.ControlEvent) -> None:
+    def _on_update(self, e: ft.ControlEvent) -> None:
+        """Baixa de novo o arquivo do catalogo e grava a versao atual no manifesto."""
         self._start_download()
 
     def _on_uninstall(self, e: ft.ControlEvent) -> None:
@@ -220,7 +224,7 @@ class AppDetailView:
     def _execute(self) -> None:
         state = self.storage.get_state(self.app.id)
         if not state.local_path:
-            self.status_text.value = "Arquivo nao encontrado. Baixe novamente."
+            self.status_text.value = "Arquivo nao encontrado. Use Baixar / Instalar."
             self._refresh_action_buttons()
             self._safe_update()
             return
@@ -255,7 +259,7 @@ class AppDetailView:
             return
         state = self.storage.get_state(self.app.id)
         if not state.local_path or not Path(state.local_path).exists():
-            self.status_text.value = "Nao ha arquivo local para enviar. Baixe novamente primeiro."
+            self.status_text.value = "Nao ha arquivo local para enviar. Baixe / Instale primeiro."
             self._safe_update()
             return
         self._set_busy(True)

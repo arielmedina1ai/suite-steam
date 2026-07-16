@@ -88,7 +88,6 @@ class DownloadManager:
             DownloadOutcome.NEEDS_BROWSER,
             message=(
                 f"{reason}\n\nAbrimos o link no navegador. "
-                "Tente novamente pelo botao de download apos autenticar, "
-                "ou use 'Baixar novamente'."
+                "Tente novamente pelo botao de download apos autenticar."
             ),
         )
