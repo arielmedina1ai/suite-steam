@@ -81,10 +81,11 @@ def parsear_link_download_aspx(url: str) -> dict:
     if not unique_raw:
         raise ValueError("Link download.aspx sem parametro UniqueId.")
 
+    # Mantem o UniqueId como veio na URL; o PowerShell normaliza o Guid.
     return {
         "tipo": "unique_id",
         "site_url": site_url,
-        "unique_id": _format_unique_id(unique_raw),
+        "unique_id": unique_raw.strip(),
         "nome_arquivo": None,
         "caminho_sp": None,
     }
