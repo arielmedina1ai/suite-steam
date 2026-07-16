@@ -38,15 +38,25 @@ class AppDetailView:
 
         self.progress = ft.ProgressBar(value=0, visible=False, color=config.COLOR_ACCENT, bgcolor="#0A0F0C")
         self.status_text = ft.Text("", size=13, color="#B9CEC3")
+        self.local_info = ft.Text("", size=12, color="#8AA797")
+
         self.action_button = ft.FilledButton(on_click=self._on_action)
-        self.secondary_button = ft.OutlinedButton(
-            "Localizar arquivo baixado",
+        self.replace_button = ft.OutlinedButton(
+            "Trocar arquivo",
             icon=ft.Icons.FOLDER_OPEN,
             visible=False,
             on_click=self._on_locate,
         )
+        self.update_button = ft.OutlinedButton(
+            "Baixar novamente",
+            icon=ft.Icons.REFRESH,
+            visible=False,
+            on_click=self._on_redownload,
+        )
+        # Alias usado no fluxo de fallback do navegador (mesmo handler do Trocar arquivo)
+        self.secondary_button = self.replace_button
 
-        self._refresh_action_button()
+        self._refresh_action_buttons()
 
     # ------------------------------------------------------------------
     def build(self) -> ft.Control:
@@ -87,13 +97,21 @@ class AppDetailView:
                     spacing=2,
                     controls=[
                         ft.Text(self.app.nome, size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
-                        ft.Text(f"Tipo: {self.app.tipo.value.upper()}  -  Versao {self.app.versao}", size=13, color="#8AA797"),
+                        ft.Text(
+                            f"Tipo: {self.app.tipo.value.upper()}  -  Versao no catalogo: {self.app.versao}",
+                            size=13,
+                            color="#8AA797",
+                        ),
                     ],
                 ),
             ],
         )
 
-        actions = ft.Row(spacing=12, controls=[self.action_button, self.secondary_button])
+        actions = ft.Row(
+            spacing=12,
+            wrap=True,
+            controls=[self.action_button, self.replace_button, self.update_button],
+        )
 
         return ft.Column(
             expand=True,
@@ -109,6 +127,7 @@ class AppDetailView:
                 ft.Text(self.app.descricao or "Sem descricao.", size=15, color="#D6E5DC"),
                 ft.Divider(color="#22332B"),
                 actions,
+                self.local_info,
                 self.progress,
                 self.status_text,
             ],
@@ -118,18 +137,45 @@ class AppDetailView:
     def _current_status(self) -> InstallStatus:
         return self.storage.get_state(self.app.id).status
 
-    def _refresh_action_button(self) -> None:
-        status = self._current_status()
-        if status == InstallStatus.INSTALLED:
+    def _refresh_action_buttons(self) -> None:
+        state = self.storage.get_state(self.app.id)
+        installed = state.status == InstallStatus.INSTALLED
+
+        if installed:
             self.action_button.content = "Executar"
             self.action_button.icon = ft.Icons.PLAY_ARROW
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
+
+            self.replace_button.visible = True
+            self.replace_button.content = "Trocar arquivo"
+            self.update_button.visible = True
+
+            local_name = Path(state.local_path).name if state.local_path else "?"
+            installed_ver = state.versao or "?"
+            catalog_ver = self.app.versao
+            if installed_ver != catalog_ver:
+                self.local_info.value = (
+                    f"Instalado: {local_name} (v{installed_ver})  |  "
+                    f"Catalogo: v{catalog_ver}  —  ha uma versao diferente no catalogo. "
+                    f"Use 'Baixar novamente' ou 'Trocar arquivo'."
+                )
+                self.local_info.color = config.COLOR_ACCENT
+                self.update_button.content = "Atualizar versao"
+            else:
+                self.local_info.value = f"Arquivo local: {local_name} (v{installed_ver})"
+                self.local_info.color = "#8AA797"
+                self.update_button.content = "Baixar novamente"
         else:
             self.action_button.content = "Baixar / Instalar"
             self.action_button.icon = ft.Icons.DOWNLOAD
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
+
+            # Botoes secundarios ficam ocultos ate o fallback do navegador ou apos instalar
+            self.replace_button.visible = False
+            self.update_button.visible = False
+            self.local_info.value = ""
 
     def _safe_update(self) -> None:
         try:
@@ -145,11 +191,14 @@ class AppDetailView:
         else:
             self._start_download()
 
+    def _on_redownload(self, e: ft.ControlEvent) -> None:
+        self._start_download()
+
     def _execute(self) -> None:
         state = self.storage.get_state(self.app.id)
         if not state.local_path:
-            self.status_text.value = "Arquivo nao encontrado. Baixe novamente."
-            self._refresh_action_button()
+            self.status_text.value = "Arquivo nao encontrado. Baixe novamente ou troque o arquivo."
+            self._refresh_action_buttons()
             self._safe_update()
             return
         try:
@@ -161,10 +210,11 @@ class AppDetailView:
 
     def _start_download(self) -> None:
         self.action_button.disabled = True
+        self.replace_button.disabled = True
+        self.update_button.disabled = True
         self.progress.visible = True
         self.progress.value = None  # indeterminado ate ter %
         self.status_text.value = "Iniciando download..."
-        self.secondary_button.visible = False
         self._safe_update()
 
         # roda o download bloqueante em uma thread gerenciada pelo Flet
@@ -185,13 +235,21 @@ class AppDetailView:
         elif result.outcome == DownloadOutcome.NEEDS_BROWSER:
             self.progress.visible = False
             self.status_text.value = result.message
-            self.secondary_button.visible = True
+            # Exibe o botao de apontar arquivo mesmo se ainda nao estiver instalado
+            self.replace_button.visible = True
+            self.replace_button.content = "Localizar arquivo baixado"
         else:
             self.progress.visible = False
             self.status_text.value = f"Erro: {result.message}"
 
         self.action_button.disabled = False
-        self._refresh_action_button()
+        self.replace_button.disabled = False
+        self.update_button.disabled = False
+        self._refresh_action_buttons()
+        # Se o fallback do navegador pediu localizar, mantem o botao visivel
+        if result.outcome == DownloadOutcome.NEEDS_BROWSER and self._current_status() != InstallStatus.INSTALLED:
+            self.replace_button.visible = True
+            self.replace_button.content = "Localizar arquivo baixado"
         self._safe_update()
 
     # ------------------------------------------------------------------
@@ -202,7 +260,7 @@ class AppDetailView:
         else:
             allowed = [self.app.tipo.value]
         files = await self.file_picker.pick_files(
-            dialog_title=f"Selecione o arquivo baixado ({self.app.nome})",
+            dialog_title=f"Selecione o arquivo ({self.app.nome})",
             allow_multiple=False,
             allowed_extensions=allowed,
         )
@@ -215,9 +273,8 @@ class AppDetailView:
             return
         result = self.manager.register_manual_file(self.app, Path(source_path))
         if result.outcome == DownloadOutcome.SUCCESS:
-            self.status_text.value = "Arquivo registrado com sucesso."
-            self.secondary_button.visible = False
+            self.status_text.value = "Arquivo registrado/atualizado com sucesso."
         else:
             self.status_text.value = f"Erro: {result.message}"
-        self._refresh_action_button()
+        self._refresh_action_buttons()
         self._safe_update()
