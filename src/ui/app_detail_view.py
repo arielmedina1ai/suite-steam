@@ -6,7 +6,7 @@ from pathlib import Path
 import flet as ft
 
 import config
-from models import AppInfo, AppType, InstallStatus
+from models import AppInfo, InstallStatus
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.runner import RunError, run_file
 from services.sharepoint_manager import enviar_para_sharepoint
@@ -15,8 +15,13 @@ from ui.components import app_badge
 
 
 def _image_src(imagem: str) -> str:
-    """Converte o caminho do catalogo para um src relativo ao assets_dir do Flet."""
+    """Aceita caminho de assets, caminho absoluto do cache ou URL residual."""
     imagem = (imagem or "").replace("\\", "/")
+    if not imagem:
+        return ""
+    # Caminhos absolutos do cache local (Windows / POSIX)
+    if Path(imagem).is_absolute() or (len(imagem) > 2 and imagem[1] == ":"):
+        return imagem
     if imagem.startswith("assets/"):
         return imagem[len("assets/"):]
     return imagem
@@ -29,25 +34,19 @@ class AppDetailView:
         app: AppInfo,
         storage: Storage,
         manager: DownloadManager,
-        file_picker: ft.FilePicker,
+        on_uninstalled=None,
     ) -> None:
         self.page = page
         self.app = app
         self.storage = storage
         self.manager = manager
-        self.file_picker = file_picker
+        self.on_uninstalled = on_uninstalled
 
         self.progress = ft.ProgressBar(value=0, visible=False, color=config.COLOR_ACCENT, bgcolor="#0A0F0C")
         self.status_text = ft.Text("", size=13, color="#B9CEC3")
         self.local_info = ft.Text("", size=12, color="#8AA797")
 
         self.action_button = ft.FilledButton(on_click=self._on_action)
-        self.replace_button = ft.OutlinedButton(
-            "Trocar arquivo",
-            icon=ft.Icons.FOLDER_OPEN,
-            visible=False,
-            on_click=self._on_locate,
-        )
         self.update_button = ft.OutlinedButton(
             "Baixar novamente",
             icon=ft.Icons.REFRESH,
@@ -60,8 +59,12 @@ class AppDetailView:
             visible=False,
             on_click=self._on_upload,
         )
-        # Alias usado no fluxo de fallback do navegador (mesmo handler do Trocar arquivo)
-        self.secondary_button = self.replace_button
+        self.uninstall_button = ft.OutlinedButton(
+            "Desinstalar",
+            icon=ft.Icons.DELETE_OUTLINE,
+            visible=False,
+            on_click=self._on_uninstall,
+        )
 
         self._refresh_action_buttons()
 
@@ -119,9 +122,9 @@ class AppDetailView:
             wrap=True,
             controls=[
                 self.action_button,
-                self.replace_button,
                 self.update_button,
                 self.upload_button,
+                self.uninstall_button,
             ],
         )
 
@@ -159,10 +162,9 @@ class AppDetailView:
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
 
-            self.replace_button.visible = True
-            self.replace_button.content = "Trocar arquivo"
             self.update_button.visible = True
             self.upload_button.visible = bool(self.app.upload_url)
+            self.uninstall_button.visible = True
 
             local_name = Path(state.local_path).name if state.local_path else "?"
             installed_ver = state.versao or "?"
@@ -171,7 +173,7 @@ class AppDetailView:
                 self.local_info.value = (
                     f"Instalado: {local_name} (v{installed_ver})  |  "
                     f"Catalogo: v{catalog_ver}  —  ha uma versao diferente no catalogo. "
-                    f"Use 'Baixar novamente' ou 'Trocar arquivo'."
+                    f"Use 'Atualizar versao'."
                 )
                 self.local_info.color = config.COLOR_ACCENT
                 self.update_button.content = "Atualizar versao"
@@ -185,10 +187,9 @@ class AppDetailView:
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
 
-            # Botoes secundarios ficam ocultos ate o fallback do navegador ou apos instalar
-            self.replace_button.visible = False
             self.update_button.visible = False
             self.upload_button.visible = False
+            self.uninstall_button.visible = False
             self.local_info.value = ""
 
     def _safe_update(self) -> None:
@@ -208,10 +209,21 @@ class AppDetailView:
     def _on_redownload(self, e: ft.ControlEvent) -> None:
         self._start_download()
 
+    def _on_uninstall(self, e: ft.ControlEvent) -> None:
+        try:
+            self.storage.uninstall(self.app.id)
+            self.status_text.value = f"{self.app.nome} desinstalado."
+        except Exception as exc:
+            self.status_text.value = f"Erro ao desinstalar: {exc}"
+        self._refresh_action_buttons()
+        self._safe_update()
+        if self.on_uninstalled:
+            self.on_uninstalled(self.app.id)
+
     def _execute(self) -> None:
         state = self.storage.get_state(self.app.id)
         if not state.local_path:
-            self.status_text.value = "Arquivo nao encontrado. Baixe novamente ou troque o arquivo."
+            self.status_text.value = "Arquivo nao encontrado. Baixe novamente."
             self._refresh_action_buttons()
             self._safe_update()
             return
@@ -224,21 +236,19 @@ class AppDetailView:
 
     def _set_busy(self, busy: bool) -> None:
         self.action_button.disabled = busy
-        self.replace_button.disabled = busy
         self.update_button.disabled = busy
         self.upload_button.disabled = busy
+        self.uninstall_button.disabled = busy
 
     def _start_download(self) -> None:
         self._set_busy(True)
         self.progress.visible = True
-        self.progress.value = None  # indeterminado ate ter %
+        self.progress.value = None
         self.status_text.value = (
             "Iniciando download via SharePoint... "
             "Pode abrir uma janela de login (WebLogin)."
         )
         self._safe_update()
-
-        # roda o download bloqueante em uma thread gerenciada pelo Flet
         self.page.run_thread(self._download_worker)
 
     def _on_upload(self, e: ft.ControlEvent) -> None:
@@ -248,7 +258,7 @@ class AppDetailView:
             return
         state = self.storage.get_state(self.app.id)
         if not state.local_path or not Path(state.local_path).exists():
-            self.status_text.value = "Nao ha arquivo local para enviar. Baixe ou troque o arquivo primeiro."
+            self.status_text.value = "Nao ha arquivo local para enviar. Baixe novamente primeiro."
             self._safe_update()
             return
         self._set_busy(True)
@@ -289,47 +299,10 @@ class AppDetailView:
             self.progress.value = 1.0
             self.status_text.value = result.message
             self.progress.visible = False
-        elif result.outcome == DownloadOutcome.NEEDS_BROWSER:
-            self.progress.visible = False
-            self.status_text.value = result.message
-            # Exibe o botao de apontar arquivo mesmo se ainda nao estiver instalado
-            self.replace_button.visible = True
-            self.replace_button.content = "Localizar arquivo baixado"
         else:
             self.progress.visible = False
-            self.status_text.value = f"Erro: {result.message}"
+            self.status_text.value = result.message or f"Erro: {result.message}"
 
         self._set_busy(False)
-        self._refresh_action_buttons()
-        # Se o fallback do navegador pediu localizar, mantem o botao visivel
-        if result.outcome == DownloadOutcome.NEEDS_BROWSER and self._current_status() != InstallStatus.INSTALLED:
-            self.replace_button.visible = True
-            self.replace_button.content = "Localizar arquivo baixado"
-        self._safe_update()
-
-    # ------------------------------------------------------------------
-    async def _on_locate(self, e: ft.ControlEvent) -> None:
-        # Planilhas: aceita xlsx e xlsm no seletor; exe usa a extensao do tipo.
-        if self.app.tipo.is_spreadsheet:
-            allowed = [AppType.XLSX.value, AppType.XLSM.value]
-        else:
-            allowed = [self.app.tipo.value]
-        files = await self.file_picker.pick_files(
-            dialog_title=f"Selecione o arquivo ({self.app.nome})",
-            allow_multiple=False,
-            allowed_extensions=allowed,
-        )
-        if not files:
-            return
-        source_path = files[0].path
-        if not source_path:
-            self.status_text.value = "Nao foi possivel obter o caminho do arquivo."
-            self._safe_update()
-            return
-        result = self.manager.register_manual_file(self.app, Path(source_path))
-        if result.outcome == DownloadOutcome.SUCCESS:
-            self.status_text.value = "Arquivo registrado/atualizado com sucesso."
-        else:
-            self.status_text.value = f"Erro: {result.message}"
         self._refresh_action_buttons()
         self._safe_update()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import config
@@ -79,3 +80,10 @@ class Storage:
     def clear(self, app_id: str) -> None:
         self._states.pop(app_id, None)
         self._save_manifest()
+
+    def uninstall(self, app_id: str) -> None:
+        """Remove o app do manifesto e apaga a pasta local de arquivos baixados."""
+        app_path = self.downloads_dir / app_id
+        if app_path.exists():
+            shutil.rmtree(app_path, ignore_errors=True)
+        self.clear(app_id)

@@ -3,30 +3,21 @@
     {
       "id": "relatorio-producao",
       "nome": "Relatorio de Producao",
-      "descricao": "Planilha automatizada para consolidacao e analise dos dados de producao do setor. Gera graficos e indicadores automaticamente a partir dos dados importados, reduzindo o trabalho manual de fechamento mensal.",
-      "imagem": "assets/images/relatorio-producao.png",
-      "tipo": "xlsx",
-      "download_url": "https://empresa.sharepoint.com/:x:/r/sites/seu-site/Documentos%20Compartilhados/relatorio-producao.xlsx",
+      "descricao": "Planilha automatizada para consolidacao e analise dos dados de producao do setor.",
+      "imagem": "https://empresa.sharepoint.com/:i:/r/sites/seu-site/Documentos%20Compartilhados/imagens/relatorio-producao.png",
+      "tipo": "xlsm",
+      "download_url": "https://empresa.sharepoint.com/:x:/r/sites/seu-site/Documentos%20Compartilhados/relatorio-producao.xlsm",
       "upload_url": "https://empresa.sharepoint.com/sites/seu-site/Documentos%20Compartilhados/Forms/AllItems.aspx?id=%2Fsites%2Fseu-site%2FDocumentos%20Compartilhados%2Fpasta-envio",
       "versao": "1.2.0"
     },
     {
       "id": "monitor-ativos",
       "nome": "Monitor de Ativos",
-      "descricao": "Aplicativo desktop para acompanhamento em tempo real do status dos ativos operacionais. Exibe alertas, historico e permite exportar relatorios de disponibilidade.",
-      "imagem": "assets/images/monitor-ativos.png",
+      "descricao": "Aplicativo desktop para acompanhamento do status dos ativos operacionais.",
+      "imagem": "https://empresa.sharepoint.com/:i:/r/sites/seu-site/Documentos%20Compartilhados/imagens/monitor-ativos.png",
       "tipo": "exe",
-      "download_url": "https://exemplo.sharepoint.com/sites/seu-site/monitor-ativos.exe?download=1",
+      "download_url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/monitor-ativos.exe",
       "versao": "2.0.1"
-    },
-    {
-      "id": "calculadora-logistica",
-      "nome": "Calculadora Logistica",
-      "descricao": "Ferramenta para dimensionamento e otimizacao de rotas e custos logisticos. Calcula cenarios comparativos e sugere a melhor combinacao de recursos.",
-      "imagem": "assets/images/calculadora-logistica.png",
-      "tipo": "exe",
-      "download_url": "https://exemplo.sharepoint.com/sites/seu-site/calculadora-logistica.exe?download=1",
-      "versao": "1.0.0"
     }
   ]
 }

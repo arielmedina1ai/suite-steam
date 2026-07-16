@@ -1,11 +1,4 @@
-"""Download de aplicativos a partir de links SharePoint.
-
-Estrategia principal (validada no ambiente Petrobras):
-1. PowerShell + PnP (``sharepoint_manager.baixar_do_sharepoint``) com WebLogin.
-
-Fallback:
-2. Abre o link no navegador e permite apontar o arquivo baixado manualmente.
-"""
+"""Download de aplicativos a partir de links SharePoint (PnP + PowerShell)."""
 from __future__ import annotations
 
 import webbrowser
@@ -48,12 +41,6 @@ class DownloadManager:
             if progress:
                 progress(pct, msg)
 
-        if not config.SHAREPOINT_ENABLED:
-            return self._browser_fallback(
-                app,
-                "Download SharePoint/PnP desabilitado em settings.json (sharepoint.enabled=false).",
-            )
-
         pasta = self.storage.app_dir(app.id)
         nome = self._guess_filename(app)
 
@@ -66,9 +53,7 @@ class DownloadManager:
                 progress=report,
             )
         except Exception as exc:
-            return self._browser_fallback(
-                app, f"Falha ao chamar o SharePoint Manager: {exc}"
-            )
+            return self._browser_fallback(app, f"Falha ao chamar o SharePoint Manager: {exc}")
 
         if result.ok and result.path and result.path.exists():
             self.storage.set_installed(app.id, result.path, app.versao)
@@ -78,7 +63,6 @@ class DownloadManager:
                 message=result.message or "Download concluido.",
             )
 
-        # PnP falhou (auth cancelada, link invalido, modulo ausente, etc.)
         return self._browser_fallback(
             app,
             result.message or "Nao foi possivel baixar via SharePoint/PnP.",
@@ -86,7 +70,6 @@ class DownloadManager:
 
     # ------------------------------------------------------------------
     def _guess_filename(self, app: AppInfo) -> str:
-        """Tenta obter o nome do arquivo pelo link; senao usa id + extensao do tipo."""
         try:
             info = parsear_link_sharepoint(app.download_url)
             nome = info.get("nome_arquivo")
@@ -104,22 +87,8 @@ class DownloadManager:
         return DownloadResult(
             DownloadOutcome.NEEDS_BROWSER,
             message=(
-                f"{reason}\n\nAbrimos o link no navegador. Apos baixar o arquivo, use "
-                "'Localizar arquivo baixado' / 'Trocar arquivo' para aponta-lo na Suite."
+                f"{reason}\n\nAbrimos o link no navegador. "
+                "Tente novamente pelo botao de download apos autenticar, "
+                "ou use 'Baixar novamente'."
             ),
         )
-
-    # ------------------------------------------------------------------
-    def register_manual_file(self, app: AppInfo, source: Path) -> DownloadResult:
-        """Registra um arquivo baixado manualmente (fallback do navegador)."""
-        source = Path(source)
-        if not source.exists():
-            return DownloadResult(DownloadOutcome.ERROR, message="Arquivo nao encontrado.")
-        target = self.storage.app_dir(app.id) / source.name
-        try:
-            if source.resolve() != target.resolve():
-                target.write_bytes(source.read_bytes())
-        except Exception as exc:
-            return DownloadResult(DownloadOutcome.ERROR, message=f"Falha ao copiar: {exc}")
-        self.storage.set_installed(app.id, target, app.versao)
-        return DownloadResult(DownloadOutcome.SUCCESS, local_path=target, message="Arquivo registrado.")

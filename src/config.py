@@ -1,12 +1,11 @@
 """Configuracao da Suite.
 
-Este arquivo e a "casca" publica: NAO contem dados internos. Todos os parametros
-personalizaveis (textos do setor, cores, catalogo, links) sao lidos de um arquivo
-``settings.json`` na raiz do projeto. Se ele nao existir, usamos ``settings.example.json``
-(placeholders publicos), de forma que o projeto roda de imediato apos o clone.
+Este arquivo e a "casca" publica: NAO contem dados internos. Textos/cores/URL do
+catalogo remoto sao lidos de ``settings.json`` (local). Scripts SharePoint ficam
+fixos no codigo (sempre PnP).
 
 Ordem de carga:
-    1. settings.json          (LOCAL - nao versionado; valores reais Petrobras)
+    1. settings.json          (LOCAL - nao versionado)
     2. settings.example.json  (PUBLICO - placeholders)
 
 Consulte CONFIGURACAO.md para saber exatamente onde atribuir cada parametro.
@@ -46,7 +45,6 @@ _app = _S.get("app", {}) if isinstance(_S.get("app"), dict) else {}
 _sector = _S.get("sector", {}) if isinstance(_S.get("sector"), dict) else {}
 _theme = _S.get("theme", {}) if isinstance(_S.get("theme"), dict) else {}
 _catalog = _S.get("catalog", {}) if isinstance(_S.get("catalog"), dict) else {}
-_sharepoint = _S.get("sharepoint", {}) if isinstance(_S.get("sharepoint"), dict) else {}
 
 # ---------------------------------------------------------------------------
 # Identificacao do app  ->  settings.json > "app"
@@ -56,7 +54,6 @@ APP_VERSION = _app.get("version", "0.1.0")
 
 # ---------------------------------------------------------------------------
 # Textos institucionais do setor  ->  settings.json > "sector"
-# (aparecem na tela inicial)
 # ---------------------------------------------------------------------------
 SECTOR_NAME = _sector.get("name", "Nome do Setor")
 SECTOR_TAGLINE = _sector.get("tagline", "Nossos aplicativos, em um so lugar.")
@@ -68,26 +65,23 @@ SECTOR_DESCRIPTION = _sector.get(
 # ---------------------------------------------------------------------------
 # Identidade visual  ->  settings.json > "theme"
 # ---------------------------------------------------------------------------
-COLOR_PRIMARY = _theme.get("primary", "#008542")       # verde
+COLOR_PRIMARY = _theme.get("primary", "#008542")
 COLOR_PRIMARY_DARK = _theme.get("primary_dark", "#00522A")
-COLOR_ACCENT = _theme.get("accent", "#FFD000")         # amarelo
-COLOR_BG = _theme.get("bg", "#0E1512")                 # fundo escuro
-COLOR_SURFACE = _theme.get("surface", "#16211C")       # superficie/cards
+COLOR_ACCENT = _theme.get("accent", "#FFD000")
+COLOR_BG = _theme.get("bg", "#0E1512")
+COLOR_SURFACE = _theme.get("surface", "#16211C")
 COLOR_TEXT = _theme.get("text", "#EAF3EE")
 
 # ---------------------------------------------------------------------------
-# Catalogo de aplicativos  ->  settings.json > "catalog"
+# Catalogo  ->  settings.json > "catalog.remote_url" (link SharePoint do catalog.json)
 # ---------------------------------------------------------------------------
-_local_file = _catalog.get("local_file", "data/catalog.json")
-# Protege contra configuracao invalida (ex.: null, numero): usa o padrao se nao for texto.
-if not isinstance(_local_file, str) or not _local_file.strip():
-    _local_file = "data/catalog.json"
-CATALOG_FILE = (ROOT_DIR / _local_file.strip()).resolve()
-# URL de um catalog.json remoto (ex.: SharePoint). Deixe vazio/nulo para usar so o local.
-REMOTE_CATALOG_URL: str | None = _catalog.get("remote_url") or None
+_remote = _catalog.get("remote_url")
+REMOTE_CATALOG_URL: str | None = (
+    _remote.strip() if isinstance(_remote, str) and _remote.strip() else None
+)
 
 # ---------------------------------------------------------------------------
-# Pasta de dados do usuario (downloads e manifesto de instalados)
+# Pasta de dados do usuario
 # ---------------------------------------------------------------------------
 def _user_data_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
@@ -97,24 +91,14 @@ def _user_data_dir() -> Path:
 USER_DATA_DIR = _user_data_dir()
 DOWNLOADS_DIR = USER_DATA_DIR / "apps"
 INSTALLED_MANIFEST = USER_DATA_DIR / "installed.json"
+CATALOG_CACHE_DIR = USER_DATA_DIR / "catalog"
+CATALOG_CACHE_FILE = CATALOG_CACHE_DIR / "catalog.json"
+CATALOG_IMAGES_DIR = CATALOG_CACHE_DIR / "images"
 
 # ---------------------------------------------------------------------------
-# SharePoint (PowerShell + PnP)  ->  settings.json > "sharepoint"
+# SharePoint (sempre PnP) — caminhos fixos, nao vao no settings.json
 # ---------------------------------------------------------------------------
-_scripts_rel = _sharepoint.get("scripts_dir", "scripts")
-if not isinstance(_scripts_rel, str) or not _scripts_rel.strip():
-    _scripts_rel = "scripts"
-SHAREPOINT_SCRIPTS_DIR = (ROOT_DIR / _scripts_rel.strip()).resolve()
-
-_dl_script = _sharepoint.get("download_script", "template_sp_download.ps1")
-SHAREPOINT_DOWNLOAD_SCRIPT = (
-    _dl_script.strip() if isinstance(_dl_script, str) and _dl_script.strip() else "template_sp_download.ps1"
-)
-
-_up_script = _sharepoint.get("upload_script", "template_sp_upload.ps1")
-SHAREPOINT_UPLOAD_SCRIPT = (
-    _up_script.strip() if isinstance(_up_script, str) and _up_script.strip() else "template_sp_upload.ps1"
-)
-
-# Se True (padrao), o download usa PnP/PowerShell. Se False, so fallback do navegador.
-SHAREPOINT_ENABLED = bool(_sharepoint.get("enabled", True))
+SHAREPOINT_ENABLED = True
+SHAREPOINT_SCRIPTS_DIR = ROOT_DIR / "scripts"
+SHAREPOINT_DOWNLOAD_SCRIPT = "template_sp_download.ps1"
+SHAREPOINT_UPLOAD_SCRIPT = "template_sp_upload.ps1"

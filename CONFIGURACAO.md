@@ -1,87 +1,71 @@
 # Guia de Configuracao da Suite
 
-Este repositorio e uma **casca publica**: o codigo nao contem nenhuma informacao interna.
-Todos os textos, cores, aplicativos, links e imagens sao definidos em **arquivos locais que
-NAO sao versionados** (nao voltam para o repositorio publico).
+Este repositorio e uma **casca publica**: o codigo nao contem informacoes internas.
+Textos/cores ficam no `settings.json` local. O **catalogo oficial** (apps, versoes,
+imagens e links) vive no **SharePoint** e e sincronizado a cada abertura do programa.
 
-## Modelo: arquivos de exemplo -> arquivos locais
+## Modelo
 
-| Publico (versionado, no repo) | Local (voce cria, NAO versionado) | Para que serve                         |
-| ----------------------------- | --------------------------------- | -------------------------------------- |
-| `settings.example.json`       | `settings.json`                   | Nome do app, textos do setor, cores    |
-| `data/catalog.example.json`   | `data/catalog.json`               | Lista de aplicativos e links           |
-| `assets/images/README.md`     | `assets/images/*.png`             | Imagens de cada aplicativo             |
+| Publico (versionado) | Local / SharePoint | Para que serve |
+| -------------------- | ------------------ | -------------- |
+| `settings.example.json` | `settings.json` | Nome, textos do setor, cores, **URL do catalog.json** |
+| `data/catalog.example.json` | `catalog.json` no SharePoint | Lista real de aplicativos |
+| `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
-Regra do carregamento: se o arquivo **local** existir, ele e usado; senao, cai no
-`*.example`. Ou seja, apos clonar, o programa ja roda com os placeholders.
-
-## Passo a passo (primeira configuracao)
+## Passo a passo
 
 1. Copie `settings.example.json` para `settings.json`.
-2. Copie `data/catalog.example.json` para `data/catalog.json`.
-3. Edite os dois arquivos com as informacoes reais (veja secoes abaixo).
-4. Coloque as imagens em `assets/images/`.
-5. Rode `python src/main.py`.
-
-Nada do que voce editar nesses arquivos locais vai para o repositorio publico
-(estao no `.gitignore`).
+2. Edite textos/cores e preencha `catalog.remote_url` com o link SharePoint do `catalog.json`.
+3. Publique no SharePoint um `catalog.json` no formato do exemplo (com links reais).
+4. Publique as imagens no SharePoint e use os links no campo `imagem` de cada app.
+5. Rode `python src/main.py` — a Suite sincroniza o catalogo (pode abrir WebLogin).
 
 ---
 
-## 1. Textos do setor, nome e cores -> `settings.json`
+## 1. settings.json (local)
 
 ```json
 {
-  "app": {
-    "name": "Suite Petrobras",        // titulo da janela e do cabecalho lateral
-    "version": "0.1.0"                 // versao exibida abaixo do titulo
-  },
+  "app": { "name": "Suite Petrobras", "version": "0.1.0" },
   "sector": {
-    "name": "Nome do seu setor",       // titulo grande na tela inicial
-    "tagline": "Frase de efeito",      // subtitulo em destaque (amarelo)
-    "description": "Texto de apresentacao do setor..."  // paragrafo da tela inicial
+    "name": "Nome do setor",
+    "tagline": "Frase de efeito",
+    "description": "Apresentacao..."
   },
   "theme": {
-    "primary": "#008542",              // verde principal (botoes, item selecionado)
-    "primary_dark": "#00522A",         // verde escuro (gradiente do banner)
-    "accent": "#FFD000",               // amarelo (destaques/icones)
-    "bg": "#0E1512",                   // cor de fundo da janela
-    "surface": "#16211C",              // cor dos cards/menu lateral
-    "text": "#EAF3EE"                  // cor do texto
+    "primary": "#008542",
+    "primary_dark": "#00522A",
+    "accent": "#FFD000",
+    "bg": "#0E1512",
+    "surface": "#16211C",
+    "text": "#EAF3EE"
   },
   "catalog": {
-    "local_file": "data/catalog.json", // de onde ler o catalogo local
-    "remote_url": null                 // opcional: URL de um catalog.json remoto (SharePoint)
+    "remote_url": "https://empresa.sharepoint.com/:u:/r/sites/.../catalog.json"
   }
 }
 ```
 
-> Observacao: JSON nao aceita comentarios `//`. Eles estao aqui apenas para explicacao;
-> no arquivo real remova-os.
-
-Onde cada campo aparece na tela:
-- `app.name` / `app.version`: cabecalho do menu lateral e titulo da janela.
-- `sector.name`: titulo principal da tela inicial.
-- `sector.tagline`: subtitulo em amarelo logo abaixo.
-- `sector.description`: paragrafo de apresentacao.
-- `theme.*`: cores de toda a interface.
+O unico link sensivel necessario no PC e `catalog.remote_url`.
+Os scripts SharePoint (`scripts/template_sp_*.ps1`) sao fixos no codigo — nao precisam
+estar no settings.
 
 ---
 
-## 2. Aplicativos e links -> `data/catalog.json`
+## 2. catalog.json no SharePoint
 
-Cada item da lista `apps` e um aplicativo que aparece no menu lateral e na home.
+Hospede este arquivo no SharePoint (e cole o link em `catalog.remote_url`):
 
 ```json
 {
   "apps": [
     {
-      "id": "relatorio-producao",                         // identificador unico (sem espacos)
-      "nome": "Relatorio de Producao",                    // nome exibido
-      "descricao": "Texto que aparece na tela de detalhe do app.",
-      "imagem": "assets/images/relatorio-producao.png",   // caminho da imagem (ver secao 3)
-      "tipo": "xlsx",                                      // "exe", "xlsx" ou "xlsm"
-      "download_url": "https://empresa.sharepoint.com/:x:/r/sites/.../arquivo.xlsx",
+      "id": "relatorio-producao",
+      "nome": "Relatorio de Producao",
+      "descricao": "Descricao do app...",
+      "imagem": "https://empresa.sharepoint.com/:i:/r/sites/.../relatorio.png",
+      "tipo": "xlsm",
+      "download_url": "https://empresa.sharepoint.com/:x:/r/sites/.../arquivo.xlsm",
       "upload_url": "https://empresa.sharepoint.com/.../AllItems.aspx?id=...",
       "versao": "1.2.0"
     }
@@ -90,64 +74,33 @@ Cada item da lista `apps` e um aplicativo que aparece no menu lateral e na home.
 ```
 
 Campos:
-- `id`: unico, sem espacos (usado para criar a pasta de download).
-- `nome`, `descricao`, `versao`: textos exibidos.
-- `tipo`: `"exe"` (executa), `"xlsx"` ou `"xlsm"` (abre no Excel).
-- `imagem`: caminho relativo comecando por `assets/images/`.
-- `download_url`: **link do arquivo no SharePoint** (formato `/:x:/r/...` ou similar).
-  A Suite baixa via PowerShell + PnP (WebLogin).
-- `upload_url` (opcional): **link da pasta** de destino no SharePoint. Se preenchido,
-  aparece o botao "Enviar para SharePoint" apos o app estar instalado.
+- `download_url`: link do arquivo (PnP baixa ao clicar em Baixar/Instalar).
+- `imagem`: link SharePoint da imagem (baixada no startup para cache local).
+- `upload_url` (opcional): pasta de envio — habilita "Enviar para SharePoint".
+- `tipo`: `exe`, `xlsx` ou `xlsm`.
 
-Para adicionar um app: copie um bloco `{ ... }` dentro de `apps` e ajuste os campos.
-
----
-
-## 3. Imagens dos aplicativos -> `assets/images/`
-
-- Coloque uma imagem para cada app; o nome do arquivo deve bater com o campo `imagem`
-  do catalogo (ex.: `assets/images/relatorio-producao.png`).
-- Formato recomendado: PNG ou JPG, proporcao ~16:9 (ex.: 1040x600).
-- Se a imagem nao existir, a Suite mostra automaticamente um placeholder (nada quebra).
+A cada abertura, a Suite:
+1. Baixa o `catalog.json` via PnP.
+2. Baixa as imagens dos apps.
+3. Guarda cache em `%LOCALAPPDATA%/SuitePetrobras/catalog/`.
+4. Se a sincronizacao falhar, usa o ultimo cache.
 
 ---
 
-## 4. SharePoint (PowerShell + PnP) -> `settings.json`
+## 3. Acoes na tela do aplicativo
 
-```json
-"sharepoint": {
-  "enabled": true,
-  "scripts_dir": "scripts",
-  "download_script": "template_sp_download.ps1",
-  "upload_script": "template_sp_upload.ps1"
-}
-```
+- **Baixar / Instalar** ou **Executar**
+- **Baixar novamente / Atualizar versao** (quando ja instalado)
+- **Enviar para SharePoint** (se houver `upload_url`)
+- **Desinstalar** (remove arquivos locais e o registro)
 
-Na primeira execucao o PowerShell pode instalar o modulo `SharePointPnPPowerShellOnline`
-e abrir uma janela de login (WebLogin). Os arquivos baixados ficam em
-`%LOCALAPPDATA%/SuitePetrobras/apps/<id>/`.
-
-Se o PnP falhar, a Suite abre o link no navegador e permite apontar o arquivo manualmente
-("Localizar arquivo baixado" / "Trocar arquivo").
-
----
-
-## 5. Catalogo remoto (opcional)
-
-Se um dia voce hospedar um `catalog.json` acessivel por URL (ex.: SharePoint), basta
-preencher em `settings.json`:
-
-```json
-"catalog": { "local_file": "data/catalog.json", "remote_url": "https://.../catalog.json" }
-```
-
-A Suite passa a ler a lista de apps da URL (com o arquivo local como fallback), permitindo
-atualizar o catalogo sem redistribuir o programa.
+Arquivos dos apps: `%LOCALAPPDATA%/SuitePetrobras/apps/<id>/`
 
 ---
 
 ## Resumo da privacidade
 
-- Repo publico = codigo + `*.example` + este guia. **Sem dados internos.**
-- Seus dados reais ficam em `settings.json`, `data/catalog.json` e `assets/images/*`,
-  todos no `.gitignore`. Eles **nunca** sao enviados ao repositorio.
+- Repo publico = codigo + exemplos + este guia.
+- No PC: `settings.json` (textos + URL do catalogo).
+- No SharePoint: catalogo, imagens e arquivos dos programas.
+- Nada disso volta ao repositorio publico.

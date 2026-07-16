@@ -1,13 +1,15 @@
 from .provider import (
     CatalogProvider,
+    CatalogSyncResult,
     LocalCatalogProvider,
-    RemoteCatalogProvider,
+    SharePointCatalogProvider,
     get_default_provider,
 )
 
 __all__ = [
     "CatalogProvider",
+    "CatalogSyncResult",
     "LocalCatalogProvider",
-    "RemoteCatalogProvider",
+    "SharePointCatalogProvider",
     "get_default_provider",
 ]

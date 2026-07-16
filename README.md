@@ -2,120 +2,90 @@
 
 Hub de aplicativos internos no estilo "Steam", desenvolvido em Python + [Flet](https://flet.dev).
 A Suite apresenta o setor na tela inicial e, no menu lateral, lista os programas disponiveis
-(`.exe`, `.xlsx` e `.xlsm`). Cada aplicativo tem uma tela de detalhe com imagem, descricao e botao de
-Baixar / Instalar / Executar.
+(`.exe`, `.xlsx` e `.xlsm`). Cada aplicativo tem tela de detalhe com imagem, descricao e
+Baixar / Instalar / Executar / Desinstalar.
 
-> **Casca configuravel:** este repositorio e publico e NAO contem dados internos. Toda a
-> personalizacao (textos, cores, aplicativos, links e imagens) fica em arquivos locais que
-> nao sao versionados. Consulte **[CONFIGURACAO.md](CONFIGURACAO.md)** para saber exatamente
-> onde atribuir cada parametro.
+> **Casca configuravel:** repositorio publico sem dados internos. Textos/cores e a URL do
+> `catalog.json` ficam no `settings.json` local. O catalogo oficial (apps, versoes, imagens
+> e links) vive no **SharePoint** e e sincronizado a cada abertura.
+> Veja **[CONFIGURACAO.md](CONFIGURACAO.md)**.
 
 ## Recursos
 
-- Tela inicial com apresentacao do setor.
-- Menu lateral com os aplicativos do catalogo.
-- Tela de detalhe: imagem, versao, descricao e acao dinamica (Baixar -> Executar).
-- Download a partir de link (inicialmente SharePoint) com **duas estrategias**:
-  1. Download direto via `requests`.
-  2. Fallback: abre o link no navegador para download manual e permite apontar o arquivo baixado.
-- Catalogo local (`data/catalog.json`) com camada preparada para catalogo remoto (SharePoint) no futuro.
-- Configuracao 100% externa ao codigo, via `settings.json` (com modelo `settings.example.json`).
+- Catalogo sincronizado do SharePoint (PnP) a cada execucao, com cache local.
+- Download/upload de apps via PowerShell + PnP (`Connect-PnPOnline -UseWebLogin`).
+- Desinstalar remove arquivos locais e o registro.
+- Identidade visual e textos do setor via `settings.json`.
 
 ## Estrutura
 
 ```
 Suite-steam/
-  settings.example.json    # modelo publico de configuracao (copie p/ settings.json)
-  CONFIGURACAO.md          # guia de onde atribuir cada parametro
-  data/
-    catalog.example.json   # modelo publico do catalogo (copie p/ catalog.json)
-    catalog.json           # catalogo real (LOCAL, nao versionado)
-  assets/images/           # imagens dos apps (LOCAIS, nao versionadas)
+  settings.example.json      # modelo (copie p/ settings.json)
+  CONFIGURACAO.md
+  data/catalog.example.json  # modelo do catalogo para publicar no SharePoint
+  scripts/
+    template_sp_download.ps1
+    template_sp_upload.ps1
   src/
-    main.py                # entrada da aplicacao Flet
-    config.py              # loader de settings.json (sem dados internos)
-    models.py              # modelos de dados
-    catalog/provider.py    # provedores de catalogo (Local + Remoto/stub)
+    main.py                  # startup + sync do catalogo
+    config.py
+    catalog/provider.py      # SharePointCatalogProvider (PnP + cache)
     services/
-      storage.py           # pastas de dados e manifesto de instalados
-      download_manager.py  # download (direto + fallback navegador)
-      runner.py            # execucao/abertura dos arquivos
+      sharepoint_manager.py
+      download_manager.py
+      storage.py
+      runner.py
     ui/
-      home_view.py         # tela inicial
-      app_detail_view.py   # tela de detalhe do app
-      components.py         # componentes (sidebar, cards)
 ```
 
 ## Como rodar
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+.venv\Scripts\activate
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
 
-# configuracao (copie os modelos e edite - ver CONFIGURACAO.md)
 copy settings.example.json settings.json
-copy data\catalog.example.json data\catalog.json
+# edite settings.json e preencha catalog.remote_url
 
 python src/main.py
 ```
 
-### Ambiente corporativo (proxy com inspecao SSL)
+## Configurando
 
-Na rede Petrobras o `pip` pode falhar com `CERTIFICATE_VERIFY_FAILED` (certificado
-self-signed do proxy). Nesse caso, instale marcando os hosts do PyPI como confiaveis:
+1. Em `settings.json`, preencha `catalog.remote_url` com o link SharePoint do `catalog.json`.
+2. Publique no SharePoint o `catalog.json` (formato em `data/catalog.example.json`).
+3. Cada app no JSON deve ter `download_url` e `imagem` como links SharePoint.
 
-```bash
-pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
-```
-
-O pacote `flet-desktop` (cliente da janela nativa) e baixado junto e tambem precisa do
-acesso ao PyPI na primeira execucao.
-
-## Configurando (textos, cores, apps, imagens)
-
-A configuracao e feita em arquivos locais, fora do codigo. Passo a passo detalhado em
-**[CONFIGURACAO.md](CONFIGURACAO.md)**. Em resumo:
-
-- `settings.json` (copie de `settings.example.json`): nome do app, textos do setor e cores.
-- `data/catalog.json` (copie de `data/catalog.example.json`): lista de apps e links do SharePoint.
-- `assets/images/`: imagens de cada app (nome igual ao campo `imagem` do catalogo).
-
-Exemplo de app no catalogo:
+Exemplo de app:
 
 ```json
 {
   "id": "meu-app",
   "nome": "Meu App",
-  "descricao": "Descricao do aplicativo...",
-  "imagem": "assets/images/meu-app.png",
+  "descricao": "...",
+  "imagem": "https://empresa.sharepoint.com/:i:/r/sites/.../foto.png",
   "tipo": "exe",
-  "download_url": "https://SEU-SITE.sharepoint.com/.../arquivo.exe?download=1",
+  "download_url": "https://empresa.sharepoint.com/:u:/r/sites/.../app.exe",
+  "upload_url": "https://empresa.sharepoint.com/.../AllItems.aspx?id=...",
   "versao": "1.0.0"
 }
 ```
 
-- `tipo`: `exe`, `xlsx` ou `xlsm`.
-- `download_url`: link do arquivo no SharePoint (ex.: `/:x:/r/sites/...`).
-- `upload_url` (opcional): link da pasta SharePoint para envio de volta.
-
 ## SharePoint (PnP + PowerShell)
 
-O download/upload usa o fluxo validado no ambiente Petrobras:
+1. No startup, a Suite baixa `catalog.json` + imagens via PnP.
+2. Ao baixar um app, usa o mesmo fluxo (`template_sp_download.ps1`).
+3. Upload opcional com `template_sp_upload.ps1` quando houver `upload_url`.
 
-1. [`src/services/sharepoint_manager.py`](src/services/sharepoint_manager.py) interpreta o link e
-   preenche os templates em [`scripts/`](scripts/).
-2. Executa `template_sp_download.ps1` / `template_sp_upload.ps1` com
-   `Connect-PnPOnline -UseWebLogin` (abre login no navegador).
-3. Se o PnP falhar, abre o link no navegador e permite apontar o arquivo manualmente.
-
-Requisito: PowerShell no Windows e permissao para instalar/usar
-`SharePointPnPPowerShellOnline` (escopo CurrentUser).
+Requisito: PowerShell e modulo `SharePointPnPPowerShellOnline` (CurrentUser).
 
 ## Dados locais
 
-Arquivos baixados e o manifesto de instalacao ficam em:
-
 ```
 %LOCALAPPDATA%/SuitePetrobras/
+  apps/           # arquivos baixados dos programas
+  catalog/        # cache do catalog.json e imagens
+  installed.json  # manifesto de instalacao
 ```

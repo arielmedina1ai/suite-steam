@@ -6,7 +6,7 @@
   "sector": {
     "name": "Nome do Setor (edite aqui)",
     "tagline": "Nossos aplicativos, em um so lugar.",
-    "description": "Escreva aqui a apresentacao do seu setor. Este texto aparece na tela inicial da Suite. Copie este arquivo para 'settings.json' e substitua pelos textos internos - o settings.json NAO e versionado, entao suas informacoes nao voltam para o repositorio publico."
+    "description": "Escreva aqui a apresentacao do seu setor. Este texto aparece na tela inicial da Suite. Copie este arquivo para 'settings.json' e substitua pelos textos internos - o settings.json NAO e versionado."
   },
   "theme": {
     "primary": "#008542",
@@ -17,13 +17,6 @@
     "text": "#EAF3EE"
   },
   "catalog": {
-    "local_file": "data/catalog.json",
-    "remote_url": null
-  },
-  "sharepoint": {
-    "enabled": true,
-    "scripts_dir": "scripts",
-    "download_script": "template_sp_download.ps1",
-    "upload_script": "template_sp_upload.ps1"
+    "remote_url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/catalog.json"
   }
 }
