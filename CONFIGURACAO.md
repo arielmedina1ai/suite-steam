@@ -41,14 +41,14 @@ imagens e links) vive no **SharePoint** e e sincronizado a cada abertura do prog
     "text": "#EAF3EE"
   },
   "catalog": {
-    "remote_url": "https://empresa.sharepoint.com/.../catalog.json?download=1"
+    "remote_url": "https://empresa.sharepoint.com/teams/.../_layouts/15/download.aspx?UniqueId=..."
   }
 }
 ```
 
 O unico link sensivel necessario no PC e `catalog.remote_url`.
-Use o **link de download direto** do `catalog.json` (com `?download=1` se o SharePoint
-oferecer). A Suite baixa esse JSON por HTTP — **sem** PowerShell/PnP.
+Cole o **link de download direto** do SharePoint **sem alterar** (ex.: `.../_layouts/15/download.aspx?UniqueId=...`).
+A Suite usa a URL exatamente como esta — **nao** adiciona `?download=1`.
 
 Os scripts PnP (`scripts/template_sp_*.ps1`) continuam sendo usados so para baixar/enviar
 os **aplicativos** (exe/xlsx/xlsm).

@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import unquote, urlparse
 
 import config
 from models import AppInfo
@@ -53,21 +53,13 @@ def _is_http_url(value: str) -> bool:
     return v.startswith("http://") or v.startswith("https://")
 
 
-def _ensure_download_param(url: str) -> str:
-    """Garante ?download=1 em links SharePoint, quando ainda nao existir."""
-    parsed = urlparse(url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    if "download" not in {k.lower() for k in query}:
-        query["download"] = "1"
-    new_query = urlencode(query)
-    return urlunparse(parsed._replace(query=new_query))
-
-
 def _image_filename(app: AppInfo) -> str:
     raw = (app.imagem or "").strip()
     if _is_http_url(raw):
         name = unquote(Path(urlparse(raw).path).name)
-        # remove query residue from path-style names
+        # download.aspx?UniqueId=... -> usa id do app como nome
+        if name.lower() in ("download.aspx", "download"):
+            return f"{app.id}.png"
         if name and "." in name:
             return name.split("?")[0]
         if name:
@@ -79,18 +71,17 @@ def _image_filename(app: AppInfo) -> str:
 
 
 def _download_direct(url: str, destino: Path) -> tuple[bool, str]:
-    """Baixa um arquivo por link HTTP direto (ex.: SharePoint ?download=1)."""
+    """Baixa um arquivo pelo link exatamente como informado (ex.: download.aspx?UniqueId=...)."""
     try:
         import requests
     except ImportError:
         return False, "Biblioteca 'requests' nao instalada."
 
-    download_url = _ensure_download_param(url)
     destino.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         with requests.get(
-            download_url,
+            url,
             stream=True,
             allow_redirects=True,
             timeout=60,

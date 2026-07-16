@@ -55,7 +55,7 @@ python src/main.py
 ## Configurando
 
 1. Em `settings.json`, preencha `catalog.remote_url` com o **link de download direto**
-   do `catalog.json` (ex.: com `?download=1`).
+   do `catalog.json` (ex.: `.../_layouts/15/download.aspx?UniqueId=...`), sem alterar a URL.
 2. Publique no SharePoint o `catalog.json` (formato em `data/catalog.example.json`).
 3. Cada app no JSON deve ter `download_url` (PnP) e `imagem` (link de download direto).
 
