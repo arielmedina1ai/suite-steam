@@ -47,11 +47,14 @@ imagens e links) vive no **SharePoint** e e sincronizado a cada abertura do prog
 ```
 
 O unico link sensivel necessario no PC e `catalog.remote_url`.
-Cole o **link de download direto** do SharePoint **sem alterar** (ex.: `.../_layouts/15/download.aspx?UniqueId=...`).
-A Suite usa a URL exatamente como esta — **nao** adiciona `?download=1`.
+Cole o link do SharePoint **sem alterar**, tipicamente:
 
-Os scripts PnP (`scripts/template_sp_*.ps1`) continuam sendo usados so para baixar/enviar
-os **aplicativos** (exe/xlsx/xlsm).
+`https://.../teams/.../_layouts/15/download.aspx?UniqueId=...`
+
+Esse link exige autenticacao (HTTP 401 sem login). Por isso a Suite baixa o catalogo
+via **PnP + WebLogin** (mesma solucao dos apps), nao por HTTP puro.
+
+Os scripts PnP tambem baixam/enviam os aplicativos (exe/xlsx/xlsm).
 
 ---
 
@@ -83,8 +86,8 @@ Campos:
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
 
 A cada abertura, a Suite:
-1. Baixa o `catalog.json` pelo link de download direto (HTTP).
-2. Baixa as imagens dos apps (tambem por download direto, se forem URLs).
+1. Baixa o `catalog.json` via PnP/WebLogin (aceita `download.aspx?UniqueId=...`).
+2. Baixa as imagens dos apps (mesmo fluxo, se forem links SharePoint).
 3. Guarda cache em `%LOCALAPPDATA%/SuitePetrobras/catalog/`.
 4. Se a sincronizacao falhar, usa o ultimo cache.
 

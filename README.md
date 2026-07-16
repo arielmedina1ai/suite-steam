@@ -54,10 +54,10 @@ python src/main.py
 
 ## Configurando
 
-1. Em `settings.json`, preencha `catalog.remote_url` com o **link de download direto**
-   do `catalog.json` (ex.: `.../_layouts/15/download.aspx?UniqueId=...`), sem alterar a URL.
+1. Em `settings.json`, preencha `catalog.remote_url` com o link SharePoint do
+   `catalog.json` (ex.: `.../_layouts/15/download.aspx?UniqueId=...`).
 2. Publique no SharePoint o `catalog.json` (formato em `data/catalog.example.json`).
-3. Cada app no JSON deve ter `download_url` (PnP) e `imagem` (link de download direto).
+3. Cada app no JSON deve ter `download_url` e `imagem` como links SharePoint.
 
 Exemplo de app:
 
@@ -76,8 +76,9 @@ Exemplo de app:
 
 ## SharePoint (PnP + PowerShell)
 
-1. No startup, a Suite baixa `catalog.json` + imagens por **download direto** (HTTP).
-2. Ao baixar um app (exe/xlsx/xlsm), usa PnP (`template_sp_download.ps1` + WebLogin).
+1. No startup, a Suite baixa `catalog.json` + imagens via PnP/WebLogin
+   (inclui links `download.aspx?UniqueId=...`).
+2. Ao baixar um app (exe/xlsx/xlsm), usa o mesmo fluxo PnP.
 3. Upload opcional com `template_sp_upload.ps1` quando houver `upload_url`.
 
 Requisito: PowerShell e modulo `SharePointPnPPowerShellOnline` (CurrentUser).

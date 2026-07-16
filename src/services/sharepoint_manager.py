@@ -32,6 +32,10 @@ def _template_download() -> Path:
     return _scripts_dir() / name
 
 
+def _template_download_by_id() -> Path:
+    return _scripts_dir() / "template_sp_download_by_id.ps1"
+
+
 def _template_upload() -> Path:
     name = getattr(config, "SHAREPOINT_UPLOAD_SCRIPT", "template_sp_upload.ps1")
     return _scripts_dir() / name
@@ -45,9 +49,54 @@ class SharePointResult:
     stdout: str = ""
 
 
+def _format_unique_id(raw: str) -> str:
+    """Normaliza UniqueId para GUID com hifens (8-4-4-4-12)."""
+    cleaned = (raw or "").strip().strip("{}").replace("-", "")
+    if len(cleaned) == 32 and all(c in "0123456789abcdefABCDEF" for c in cleaned):
+        return (
+            f"{cleaned[0:8]}-{cleaned[8:12]}-{cleaned[12:16]}-"
+            f"{cleaned[16:20]}-{cleaned[20:32]}"
+        )
+    return (raw or "").strip()
+
+
+def parsear_link_download_aspx(url: str) -> dict:
+    """Interpreta links do tipo .../_layouts/15/download.aspx?UniqueId=..."""
+    parsed = urlparse(url)
+    path_lower = parsed.path.lower()
+    marker = "/_layouts/"
+    if marker not in path_lower:
+        raise ValueError(f"URL nao e download.aspx: {url}")
+
+    idx = path_lower.index(marker)
+    site_path = parsed.path[:idx].rstrip("/") or ""
+    site_url = f"{parsed.scheme}://{parsed.netloc}{site_path}"
+
+    params = parse_qs(parsed.query)
+    unique_raw = None
+    for key, values in params.items():
+        if key.lower() == "uniqueid" and values:
+            unique_raw = values[0]
+            break
+    if not unique_raw:
+        raise ValueError("Link download.aspx sem parametro UniqueId.")
+
+    return {
+        "tipo": "unique_id",
+        "site_url": site_url,
+        "unique_id": _format_unique_id(unique_raw),
+        "nome_arquivo": None,
+        "caminho_sp": None,
+    }
+
+
 def parsear_link_sharepoint(url: str) -> dict:
     parsed = urlparse(url)
     base = f"{parsed.scheme}://{parsed.netloc}"
+
+    # Formato Petrobras: /_layouts/15/download.aspx?UniqueId=...
+    if "download.aspx" in parsed.path.lower() and "uniqueid=" in url.lower():
+        return parsear_link_download_aspx(url)
 
     if "/:x:/r/" in url or "/:f:/r/" in url or "/r/" in url:
         path = parsed.path
@@ -72,10 +121,12 @@ def parsear_link_sharepoint(url: str) -> dict:
         caminho_pasta = "/".join(partes[2:-1])
 
         return {
+            "tipo": "path",
             "site_url": site_url,
             "caminho_sp": caminho_relativo,
             "caminho_pasta": caminho_pasta,
             "nome_arquivo": nome_arquivo,
+            "unique_id": None,
         }
 
     if "AllItems.aspx" in url:
@@ -86,10 +137,12 @@ def parsear_link_sharepoint(url: str) -> dict:
             site_path = "/" + "/".join(partes[:2])
             site_url = base + site_path
             return {
+                "tipo": "path",
                 "site_url": site_url,
                 "caminho_sp": "/".join(partes[2:]),
                 "caminho_pasta": "/".join(partes[2:]),
                 "nome_arquivo": None,
+                "unique_id": None,
             }
 
     raise ValueError(f"Formato de URL do SharePoint nao reconhecido: {url}")
@@ -174,37 +227,49 @@ def baixar_do_sharepoint(
     nome_arquivo: str | None = None,
     progress: ProgressCb | None = None,
 ) -> SharePointResult:
-    """Baixa um arquivo do SharePoint via template PowerShell (PnP)."""
+    """Baixa um arquivo do SharePoint via template PowerShell (PnP + WebLogin).
+
+    Aceita:
+    - links /:u:/r/... (caminho)
+    - links .../_layouts/15/download.aspx?UniqueId=...
+    """
     try:
         info = parsear_link_sharepoint(link)
     except ValueError as exc:
         return SharePointResult(ok=False, message=str(exc))
 
     site_url = info["site_url"]
-    caminho_sp = info["caminho_sp"]
-    nome_final = nome_arquivo or info["nome_arquivo"]
     pasta_final = str(pasta_destino or config.DOWNLOADS_DIR)
-
-    if not nome_final:
-        return SharePointResult(
-            ok=False,
-            message="Nao foi possivel determinar o nome do arquivo. Informe nome_arquivo.",
-        )
+    nome_final = nome_arquivo or info.get("nome_arquivo") or "download.bin"
 
     if progress:
         progress(0.05, f"Preparando download: {nome_final}")
 
     try:
-        code, stdout, stderr = _run_templated_ps1(
-            _template_download(),
-            {
-                "{{SITE_URL}}": site_url,
-                "{{PASTA_DESTINO}}": pasta_final,
-                "{{NOME_ARQUIVO}}": nome_final,
-                "{{CAMINHO_SP}}": caminho_sp,
-            },
-            progress=progress,
-        )
+        if info.get("tipo") == "unique_id":
+            code, stdout, stderr = _run_templated_ps1(
+                _template_download_by_id(),
+                {
+                    "{{SITE_URL}}": site_url,
+                    "{{PASTA_DESTINO}}": pasta_final,
+                    "{{NOME_ARQUIVO}}": nome_final,
+                    "{{UNIQUE_ID}}": info["unique_id"],
+                },
+                progress=progress,
+            )
+        else:
+            if not info.get("caminho_sp"):
+                return SharePointResult(ok=False, message="Caminho SharePoint nao determinado.")
+            code, stdout, stderr = _run_templated_ps1(
+                _template_download(),
+                {
+                    "{{SITE_URL}}": site_url,
+                    "{{PASTA_DESTINO}}": pasta_final,
+                    "{{NOME_ARQUIVO}}": nome_final,
+                    "{{CAMINHO_SP}}": info["caminho_sp"],
+                },
+                progress=progress,
+            )
     except FileNotFoundError as exc:
         return SharePointResult(ok=False, message=str(exc))
     except Exception as exc:
