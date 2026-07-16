@@ -17,7 +17,12 @@ from urllib.parse import unquote, urlparse
 
 import config
 from models import AppInfo
-from services.sharepoint_manager import baixar_do_sharepoint, parsear_link_sharepoint
+from services.sharepoint_manager import (
+    SharePointBatchItem,
+    baixar_do_sharepoint,
+    baixar_varios_do_sharepoint,
+    parsear_link_sharepoint,
+)
 
 ProgressCb = Callable[[float, str], None]
 
@@ -114,7 +119,7 @@ def _image_cache_hit(app: AppInfo, manifest: dict[str, Any]) -> Path | None:
 
 
 def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int:
-    """Baixa apenas imagens novas/alteradas. Retorna quantas foram baixadas."""
+    """Baixa imagens novas/alteradas em lote (1 WebLogin por site)."""
 
     def report(pct: float, msg: str) -> None:
         if progress:
@@ -123,9 +128,7 @@ def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int
     config.CATALOG_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     manifest = _load_images_manifest()
     downloaded = 0
-    http_apps = [a for a in apps if _is_http_url(a.imagem)]
-    total = max(len(http_apps), 1)
-    done = 0
+    pending: list[tuple[AppInfo, str, str]] = []  # app, remote_url, nome_arquivo
 
     for app in apps:
         remote_url = (app.imagem or "").strip()
@@ -135,20 +138,49 @@ def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int
                 app.imagem = str(local_img)
             continue
 
-        entry = manifest.get(app.id)
-        if isinstance(entry, dict):
-            local = Path(str(entry.get("path", "")))
-            if (
-                local.exists()
-                and str(entry.get("url", "")) == remote_url
-                and str(entry.get("imagem_versao", "")) == str(app.imagem_versao)
-            ):
-                app.imagem = str(local)
-                done += 1
-                continue
+        cached = _image_cache_hit(app, manifest)
+        if cached is not None:
+            app.imagem = str(cached)
+            continue
 
-        report(0.55 + 0.4 * (done / total), f"Baixando imagem: {app.nome}...")
-        nome_img = _image_filename(app)
+        pending.append((app, remote_url, _image_filename(app)))
+
+    if not pending:
+        _save_images_manifest(manifest)
+        return 0
+
+    report(
+        0.55,
+        f"Baixando {len(pending)} imagem(ns) em lote (uma autenticacao)...",
+    )
+    batch = baixar_varios_do_sharepoint(
+        [
+            SharePointBatchItem(id=app.id, link=url, nome_arquivo=nome)
+            for app, url, nome in pending
+        ],
+        pasta_destino=config.CATALOG_IMAGES_DIR,
+        progress=lambda p, m: report(0.55 + p * 0.4, m),
+    )
+
+    by_id = {app.id: (app, url, nome) for app, url, nome in pending}
+    for app_id, local_path in batch.paths.items():
+        meta = by_id.get(app_id)
+        if not meta:
+            continue
+        app, remote_url, _nome = meta
+        app.imagem = str(local_path)
+        manifest[app_id] = {
+            "url": remote_url,
+            "imagem_versao": str(app.imagem_versao),
+            "path": str(local_path),
+        }
+        downloaded += 1
+
+    # Fallback individual para quem falhou no lote
+    failed_ids = [app.id for app, _u, _n in pending if app.id not in batch.paths]
+    for app_id in failed_ids:
+        app, remote_url, nome_img = by_id[app_id]
+        report(0.95, f"Retry individual: {app.nome}...")
         img_result = baixar_do_sharepoint(
             link=remote_url,
             pasta_destino=config.CATALOG_IMAGES_DIR,
@@ -162,7 +194,6 @@ def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int
                 "path": str(img_result.path),
             }
             downloaded += 1
-        done += 1
 
     _save_images_manifest(manifest)
     return downloaded

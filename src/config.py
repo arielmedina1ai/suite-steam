@@ -101,4 +101,5 @@ CATALOG_IMAGES_MANIFEST = CATALOG_CACHE_DIR / "images_manifest.json"
 SHAREPOINT_ENABLED = True
 SHAREPOINT_SCRIPTS_DIR = ROOT_DIR / "scripts"
 SHAREPOINT_DOWNLOAD_SCRIPT = "template_sp_download.ps1"
+SHAREPOINT_DOWNLOAD_BATCH_SCRIPT = "template_sp_download_batch.ps1"
 SHAREPOINT_UPLOAD_SCRIPT = "template_sp_upload.ps1"

@@ -104,7 +104,8 @@ Campos:
 
 A cada abertura, a Suite:
 1. Baixa o `catalog.json` via PnP/WebLogin (aceita `download.aspx?UniqueId=...`).
-2. Para cada imagem: usa cache se `url` + `imagem_versao` baterem; senao baixa via PnP.
+2. Para imagens: usa cache se `url` + `imagem_versao` baterem; as que faltam
+   baixam em **lote** (um WebLogin por site, varias capas na mesma sessao).
 3. Guarda cache em `%LOCALAPPDATA%/SuitePetrobras/catalog/`.
 4. Se a sincronizacao falhar, usa o ultimo cache.
 

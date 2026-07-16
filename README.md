@@ -81,7 +81,7 @@ Exemplo de app:
 ## SharePoint (PnP + PowerShell)
 
 1. No startup, a Suite baixa `catalog.json` via PnP/WebLogin e so baixa imagens
-   novas ou com `imagem_versao` alterada.
+   novas ou com `imagem_versao` alterada (em lote: 1 login por site).
 2. Ao baixar um app (exe/xlsx/xlsm), usa o mesmo fluxo PnP.
 3. Upload opcional com `template_sp_upload.ps1` quando houver `upload_url`.
 

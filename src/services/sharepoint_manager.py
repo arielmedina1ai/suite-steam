@@ -7,12 +7,13 @@ Fluxo validado no ambiente Petrobras:
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
 import config
@@ -36,6 +37,13 @@ def _template_download_by_id() -> Path:
     return _scripts_dir() / "template_sp_download_by_id.ps1"
 
 
+def _template_download_batch() -> Path:
+    name = getattr(
+        config, "SHAREPOINT_DOWNLOAD_BATCH_SCRIPT", "template_sp_download_batch.ps1"
+    )
+    return _scripts_dir() / name
+
+
 def _template_upload() -> Path:
     name = getattr(config, "SHAREPOINT_UPLOAD_SCRIPT", "template_sp_upload.ps1")
     return _scripts_dir() / name
@@ -46,6 +54,24 @@ class SharePointResult:
     ok: bool
     path: Path | None = None
     message: str = ""
+    stdout: str = ""
+
+
+@dataclass
+class SharePointBatchItem:
+    """Item para download em lote (uma sessao PnP por site)."""
+
+    id: str
+    link: str
+    nome_arquivo: str
+
+
+@dataclass
+class SharePointBatchResult:
+    ok: bool
+    message: str = ""
+    paths: dict[str, Path] = field(default_factory=dict)
+    errors: dict[str, str] = field(default_factory=dict)
     stdout: str = ""
 
 
@@ -220,6 +246,150 @@ def _run_templated_ps1(
             os.unlink(tmp_path)
         except OSError:
             pass
+
+
+def baixar_varios_do_sharepoint(
+    itens: list[SharePointBatchItem],
+    pasta_destino: str | Path | None = None,
+    progress: ProgressCb | None = None,
+) -> SharePointBatchResult:
+    """Baixa varios arquivos com 1 Connect-PnPOnline por site (WebLogin).
+
+    Agrupa por site_url. Cada grupo gera um manifesto JSON e executa
+    ``template_sp_download_batch.ps1`` uma unica vez.
+    """
+    if not itens:
+        return SharePointBatchResult(ok=True, message="Nenhum arquivo para baixar.")
+
+    pasta_final = Path(pasta_destino or config.DOWNLOADS_DIR)
+    pasta_final.mkdir(parents=True, exist_ok=True)
+
+    # Agrupa por site
+    grupos: dict[str, list[dict[str, Any]]] = {}
+    parse_errors: dict[str, str] = {}
+    for item in itens:
+        try:
+            info = parsear_link_sharepoint(item.link)
+        except ValueError as exc:
+            parse_errors[item.id] = str(exc)
+            continue
+        site = info["site_url"]
+        entry: dict[str, Any] = {
+            "id": item.id,
+            "nome_arquivo": item.nome_arquivo,
+            "tipo": info.get("tipo") or "path",
+        }
+        if entry["tipo"] == "unique_id":
+            entry["unique_id"] = info["unique_id"]
+        else:
+            entry["caminho_sp"] = info.get("caminho_sp")
+            if not entry["caminho_sp"]:
+                parse_errors[item.id] = "Caminho SharePoint nao determinado."
+                continue
+        grupos.setdefault(site, []).append(entry)
+
+    paths: dict[str, Path] = {}
+    errors: dict[str, str] = dict(parse_errors)
+    logs: list[str] = []
+    template = _template_download_batch()
+
+    total_grupos = max(len(grupos), 1)
+    for g_idx, (site_url, manifesto) in enumerate(grupos.items()):
+        if progress:
+            progress(
+                0.1 + 0.8 * (g_idx / total_grupos),
+                f"Baixando lote ({len(manifesto)} arquivo(s)) — login unico...",
+            )
+
+        man_file = None
+        res_file = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".json",
+                delete=False,
+                encoding="utf-8",
+            ) as mf:
+                json.dump(manifesto, mf, ensure_ascii=False)
+                man_file = mf.name
+            res_fd, res_file = tempfile.mkstemp(suffix=".json")
+            os.close(res_fd)
+
+            code, stdout, stderr = _run_templated_ps1(
+                template,
+                {
+                    "{{SITE_URL}}": site_url,
+                    "{{PASTA_DESTINO}}": str(pasta_final),
+                    "{{MANIFEST_PATH}}": man_file,
+                    "{{RESULT_PATH}}": res_file,
+                },
+                progress=progress,
+            )
+            log = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+            logs.append(log)
+
+            result_rows: list[Any] = []
+            res_path = Path(res_file)
+            if res_path.exists() and res_path.stat().st_size > 0:
+                try:
+                    raw = json.loads(res_path.read_text(encoding="utf-8-sig"))
+                    if isinstance(raw, list):
+                        result_rows = raw
+                    elif isinstance(raw, dict):
+                        result_rows = [raw]
+                except json.JSONDecodeError:
+                    errors["_batch_"] = f"Resultado JSON invalido (rc={code})."
+            else:
+                errors["_batch_"] = (
+                    f"Script em lote nao gerou resultado (rc={code}). {log[:300]}"
+                )
+
+            for row in result_rows:
+                if not isinstance(row, dict):
+                    continue
+                rid = str(row.get("id", ""))
+                if not rid:
+                    continue
+                if row.get("ok"):
+                    p = row.get("path") or str(pasta_final / str(row.get("nome_arquivo", "")))
+                    local = Path(str(p))
+                    if local.exists():
+                        paths[rid] = local
+                    else:
+                        # fallback: procura pelo nome pedido
+                        nome = str(row.get("nome_arquivo") or "")
+                        candidate = pasta_final / nome if nome else None
+                        if candidate and candidate.exists():
+                            paths[rid] = candidate
+                        else:
+                            errors[rid] = "Marcado ok, mas arquivo local ausente."
+                else:
+                    errors[rid] = str(row.get("error") or "falha no download")
+        except FileNotFoundError as exc:
+            errors["_batch_"] = str(exc)
+        except Exception as exc:
+            errors["_batch_"] = f"Falha ao executar lote: {exc}"
+        finally:
+            for tmp in (man_file, res_file):
+                if tmp:
+                    try:
+                        os.unlink(tmp)
+                    except OSError:
+                        pass
+
+    ok_count = len(paths)
+    total = len(itens)
+    if progress:
+        progress(1.0, f"Lote concluido: {ok_count}/{total} arquivo(s).")
+
+    all_ok = ok_count == total and not errors
+    return SharePointBatchResult(
+        ok=all_ok or ok_count > 0,
+        message=f"Lote: {ok_count}/{total} arquivo(s) baixados.",
+        paths=paths,
+        errors=errors,
+        stdout="\n".join(logs),
+    )
 
 
 def baixar_do_sharepoint(
