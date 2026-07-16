@@ -19,5 +19,11 @@
   "catalog": {
     "local_file": "data/catalog.json",
     "remote_url": null
+  },
+  "sharepoint": {
+    "enabled": true,
+    "scripts_dir": "scripts",
+    "download_script": "template_sp_download.ps1",
+    "upload_script": "template_sp_upload.ps1"
   }
 }

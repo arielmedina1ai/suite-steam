@@ -9,6 +9,7 @@ import config
 from models import AppInfo, AppType, InstallStatus
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.runner import RunError, run_file
+from services.sharepoint_manager import enviar_para_sharepoint
 from services.storage import Storage
 from ui.components import app_badge
 
@@ -52,6 +53,12 @@ class AppDetailView:
             icon=ft.Icons.REFRESH,
             visible=False,
             on_click=self._on_redownload,
+        )
+        self.upload_button = ft.OutlinedButton(
+            "Enviar para SharePoint",
+            icon=ft.Icons.CLOUD_UPLOAD,
+            visible=False,
+            on_click=self._on_upload,
         )
         # Alias usado no fluxo de fallback do navegador (mesmo handler do Trocar arquivo)
         self.secondary_button = self.replace_button
@@ -110,7 +117,12 @@ class AppDetailView:
         actions = ft.Row(
             spacing=12,
             wrap=True,
-            controls=[self.action_button, self.replace_button, self.update_button],
+            controls=[
+                self.action_button,
+                self.replace_button,
+                self.update_button,
+                self.upload_button,
+            ],
         )
 
         return ft.Column(
@@ -150,6 +162,7 @@ class AppDetailView:
             self.replace_button.visible = True
             self.replace_button.content = "Trocar arquivo"
             self.update_button.visible = True
+            self.upload_button.visible = bool(self.app.upload_url)
 
             local_name = Path(state.local_path).name if state.local_path else "?"
             installed_ver = state.versao or "?"
@@ -175,6 +188,7 @@ class AppDetailView:
             # Botoes secundarios ficam ocultos ate o fallback do navegador ou apos instalar
             self.replace_button.visible = False
             self.update_button.visible = False
+            self.upload_button.visible = False
             self.local_info.value = ""
 
     def _safe_update(self) -> None:
@@ -208,17 +222,60 @@ class AppDetailView:
             self.status_text.value = str(exc)
         self._safe_update()
 
+    def _set_busy(self, busy: bool) -> None:
+        self.action_button.disabled = busy
+        self.replace_button.disabled = busy
+        self.update_button.disabled = busy
+        self.upload_button.disabled = busy
+
     def _start_download(self) -> None:
-        self.action_button.disabled = True
-        self.replace_button.disabled = True
-        self.update_button.disabled = True
+        self._set_busy(True)
         self.progress.visible = True
         self.progress.value = None  # indeterminado ate ter %
-        self.status_text.value = "Iniciando download..."
+        self.status_text.value = (
+            "Iniciando download via SharePoint... "
+            "Pode abrir uma janela de login (WebLogin)."
+        )
         self._safe_update()
 
         # roda o download bloqueante em uma thread gerenciada pelo Flet
         self.page.run_thread(self._download_worker)
+
+    def _on_upload(self, e: ft.ControlEvent) -> None:
+        if not self.app.upload_url:
+            self.status_text.value = "Este app nao tem upload_url no catalogo."
+            self._safe_update()
+            return
+        state = self.storage.get_state(self.app.id)
+        if not state.local_path or not Path(state.local_path).exists():
+            self.status_text.value = "Nao ha arquivo local para enviar. Baixe ou troque o arquivo primeiro."
+            self._safe_update()
+            return
+        self._set_busy(True)
+        self.progress.visible = True
+        self.progress.value = None
+        self.status_text.value = (
+            "Enviando para SharePoint... Pode abrir uma janela de login (WebLogin)."
+        )
+        self._safe_update()
+        self.page.run_thread(self._upload_worker, state.local_path)
+
+    def _upload_worker(self, local_path: str) -> None:
+        def on_progress(pct: float, msg: str) -> None:
+            self.progress.value = pct if pct > 0 else None
+            self.status_text.value = msg
+            self._safe_update()
+
+        result = enviar_para_sharepoint(
+            arquivo_local=local_path,
+            link_pasta=self.app.upload_url,
+            progress=on_progress,
+        )
+        self.progress.visible = False
+        self.status_text.value = result.message if result.ok else f"Erro no upload: {result.message}"
+        self._set_busy(False)
+        self._refresh_action_buttons()
+        self._safe_update()
 
     def _download_worker(self) -> None:
         def on_progress(pct: float, msg: str) -> None:
@@ -242,9 +299,7 @@ class AppDetailView:
             self.progress.visible = False
             self.status_text.value = f"Erro: {result.message}"
 
-        self.action_button.disabled = False
-        self.replace_button.disabled = False
-        self.update_button.disabled = False
+        self._set_busy(False)
         self._refresh_action_buttons()
         # Se o fallback do navegador pediu localizar, mantem o botao visivel
         if result.outcome == DownloadOutcome.NEEDS_BROWSER and self._current_status() != InstallStatus.INSTALLED:

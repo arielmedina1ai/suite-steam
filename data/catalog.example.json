@@ -6,7 +6,8 @@
       "descricao": "Planilha automatizada para consolidacao e analise dos dados de producao do setor. Gera graficos e indicadores automaticamente a partir dos dados importados, reduzindo o trabalho manual de fechamento mensal.",
       "imagem": "assets/images/relatorio-producao.png",
       "tipo": "xlsx",
-      "download_url": "https://exemplo.sharepoint.com/sites/seu-site/relatorio-producao.xlsx?download=1",
+      "download_url": "https://empresa.sharepoint.com/:x:/r/sites/seu-site/Documentos%20Compartilhados/relatorio-producao.xlsx",
+      "upload_url": "https://empresa.sharepoint.com/sites/seu-site/Documentos%20Compartilhados/Forms/AllItems.aspx?id=%2Fsites%2Fseu-site%2FDocumentos%20Compartilhados%2Fpasta-envio",
       "versao": "1.2.0"
     },
     {

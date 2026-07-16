@@ -46,6 +46,7 @@ _app = _S.get("app", {}) if isinstance(_S.get("app"), dict) else {}
 _sector = _S.get("sector", {}) if isinstance(_S.get("sector"), dict) else {}
 _theme = _S.get("theme", {}) if isinstance(_S.get("theme"), dict) else {}
 _catalog = _S.get("catalog", {}) if isinstance(_S.get("catalog"), dict) else {}
+_sharepoint = _S.get("sharepoint", {}) if isinstance(_S.get("sharepoint"), dict) else {}
 
 # ---------------------------------------------------------------------------
 # Identificacao do app  ->  settings.json > "app"
@@ -96,3 +97,24 @@ def _user_data_dir() -> Path:
 USER_DATA_DIR = _user_data_dir()
 DOWNLOADS_DIR = USER_DATA_DIR / "apps"
 INSTALLED_MANIFEST = USER_DATA_DIR / "installed.json"
+
+# ---------------------------------------------------------------------------
+# SharePoint (PowerShell + PnP)  ->  settings.json > "sharepoint"
+# ---------------------------------------------------------------------------
+_scripts_rel = _sharepoint.get("scripts_dir", "scripts")
+if not isinstance(_scripts_rel, str) or not _scripts_rel.strip():
+    _scripts_rel = "scripts"
+SHAREPOINT_SCRIPTS_DIR = (ROOT_DIR / _scripts_rel.strip()).resolve()
+
+_dl_script = _sharepoint.get("download_script", "template_sp_download.ps1")
+SHAREPOINT_DOWNLOAD_SCRIPT = (
+    _dl_script.strip() if isinstance(_dl_script, str) and _dl_script.strip() else "template_sp_download.ps1"
+)
+
+_up_script = _sharepoint.get("upload_script", "template_sp_upload.ps1")
+SHAREPOINT_UPLOAD_SCRIPT = (
+    _up_script.strip() if isinstance(_up_script, str) and _up_script.strip() else "template_sp_upload.ps1"
+)
+
+# Se True (padrao), o download usa PnP/PowerShell. Se False, so fallback do navegador.
+SHAREPOINT_ENABLED = bool(_sharepoint.get("enabled", True))

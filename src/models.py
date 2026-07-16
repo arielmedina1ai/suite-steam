@@ -51,6 +51,7 @@ class AppInfo:
     imagem: str = ""
     tipo: AppType = AppType.EXE
     download_url: str = ""
+    upload_url: str = ""  # link da pasta SharePoint para envio (opcional)
     versao: str = "1.0.0"
 
     @classmethod
@@ -62,6 +63,7 @@ class AppInfo:
             imagem=str(data.get("imagem", "")),
             tipo=AppType.from_str(str(data.get("tipo", "exe"))),
             download_url=str(data.get("download_url", "")).strip(),
+            upload_url=str(data.get("upload_url", "")).strip(),
             versao=str(data.get("versao", "1.0.0")),
         )
 

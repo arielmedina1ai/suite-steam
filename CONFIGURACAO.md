@@ -81,7 +81,8 @@ Cada item da lista `apps` e um aplicativo que aparece no menu lateral e na home.
       "descricao": "Texto que aparece na tela de detalhe do app.",
       "imagem": "assets/images/relatorio-producao.png",   // caminho da imagem (ver secao 3)
       "tipo": "xlsx",                                      // "exe", "xlsx" ou "xlsm"
-      "download_url": "https://SEU-SITE.sharepoint.com/.../arquivo.xlsx?download=1",
+      "download_url": "https://empresa.sharepoint.com/:x:/r/sites/.../arquivo.xlsx",
+      "upload_url": "https://empresa.sharepoint.com/.../AllItems.aspx?id=...",
       "versao": "1.2.0"
     }
   ]
@@ -93,8 +94,10 @@ Campos:
 - `nome`, `descricao`, `versao`: textos exibidos.
 - `tipo`: `"exe"` (executa), `"xlsx"` ou `"xlsm"` (abre no Excel).
 - `imagem`: caminho relativo comecando por `assets/images/`.
-- `download_url`: **link real do arquivo no SharePoint**. Dica: adicione `?download=1` ao
-  final do link de compartilhamento para forcar o download direto.
+- `download_url`: **link do arquivo no SharePoint** (formato `/:x:/r/...` ou similar).
+  A Suite baixa via PowerShell + PnP (WebLogin).
+- `upload_url` (opcional): **link da pasta** de destino no SharePoint. Se preenchido,
+  aparece o botao "Enviar para SharePoint" apos o app estar instalado.
 
 Para adicionar um app: copie um bloco `{ ... }` dentro de `apps` e ajuste os campos.
 
@@ -109,7 +112,27 @@ Para adicionar um app: copie um bloco `{ ... }` dentro de `apps` e ajuste os cam
 
 ---
 
-## 4. Catalogo remoto (opcional)
+## 4. SharePoint (PowerShell + PnP) -> `settings.json`
+
+```json
+"sharepoint": {
+  "enabled": true,
+  "scripts_dir": "scripts",
+  "download_script": "template_sp_download.ps1",
+  "upload_script": "template_sp_upload.ps1"
+}
+```
+
+Na primeira execucao o PowerShell pode instalar o modulo `SharePointPnPPowerShellOnline`
+e abrir uma janela de login (WebLogin). Os arquivos baixados ficam em
+`%LOCALAPPDATA%/SuitePetrobras/apps/<id>/`.
+
+Se o PnP falhar, a Suite abre o link no navegador e permite apontar o arquivo manualmente
+("Localizar arquivo baixado" / "Trocar arquivo").
+
+---
+
+## 5. Catalogo remoto (opcional)
 
 Se um dia voce hospedar um `catalog.json` acessivel por URL (ex.: SharePoint), basta
 preencher em `settings.json`:

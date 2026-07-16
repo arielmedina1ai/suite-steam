@@ -96,14 +96,21 @@ Exemplo de app no catalogo:
 ```
 
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
-- `download_url`: link direto do arquivo no SharePoint. Dica: adicione `?download=1` ao final do link de compartilhamento para forcar o download direto.
+- `download_url`: link do arquivo no SharePoint (ex.: `/:x:/r/sites/...`).
+- `upload_url` (opcional): link da pasta SharePoint para envio de volta.
 
-## SharePoint
+## SharePoint (PnP + PowerShell)
 
-O acesso via API do SharePoint no ambiente corporativo e restrito. Por isso a Suite tenta o
-download direto e, se detectar uma pagina de login/autenticacao, abre o link no navegador para o
-usuario baixar manualmente e depois apontar o arquivo. Assim e possivel validar na pratica qual
-abordagem funciona no ambiente Petrobras.
+O download/upload usa o fluxo validado no ambiente Petrobras:
+
+1. [`src/services/sharepoint_manager.py`](src/services/sharepoint_manager.py) interpreta o link e
+   preenche os templates em [`scripts/`](scripts/).
+2. Executa `template_sp_download.ps1` / `template_sp_upload.ps1` com
+   `Connect-PnPOnline -UseWebLogin` (abre login no navegador).
+3. Se o PnP falhar, abre o link no navegador e permite apontar o arquivo manualmente.
+
+Requisito: PowerShell no Windows e permissao para instalar/usar
+`SharePointPnPPowerShellOnline` (escopo CurrentUser).
 
 ## Dados locais
 

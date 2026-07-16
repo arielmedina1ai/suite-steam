@@ -1,11 +1,10 @@
-"""Download de aplicativos a partir de um link (inicialmente SharePoint).
+"""Download de aplicativos a partir de links SharePoint.
 
-Duas estrategias, para permitir testar na pratica o que funciona no ambiente:
+Estrategia principal (validada no ambiente Petrobras):
+1. PowerShell + PnP (``sharepoint_manager.baixar_do_sharepoint``) com WebLogin.
 
-1. Download direto via ``requests`` (stream, seguindo redirects).
-2. Fallback: quando a resposta parece ser uma pagina de login/autenticacao (SharePoint
-   costuma responder com HTML nesses casos) ou o status e 401/403, abre o link no
-   navegador padrao para o usuario baixar manualmente e depois apontar o arquivo.
+Fallback:
+2. Abre o link no navegador e permite apontar o arquivo baixado manualmente.
 """
 from __future__ import annotations
 
@@ -14,9 +13,10 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Callable
-from urllib.parse import unquote, urlparse
 
+import config
 from models import AppInfo
+from services.sharepoint_manager import baixar_do_sharepoint, parsear_link_sharepoint
 from services.storage import Storage
 
 ProgressCb = Callable[[float, str], None]
@@ -35,20 +35,6 @@ class DownloadResult:
     message: str = ""
 
 
-# tipos de conteudo que indicam pagina web (login) em vez de arquivo binario
-_HTML_HINTS = ("text/html", "application/xhtml")
-
-
-def _guess_extension(app: AppInfo) -> str:
-    return app.tipo.file_extension
-
-
-def _filename_from_url(url: str, fallback: str) -> str:
-    path = urlparse(url).path
-    name = unquote(Path(path).name)
-    return name or fallback
-
-
 class DownloadManager:
     def __init__(self, storage: Storage) -> None:
         self.storage = storage
@@ -62,73 +48,54 @@ class DownloadManager:
             if progress:
                 progress(pct, msg)
 
-        try:
-            import requests
-        except ImportError:
-            return DownloadResult(
-                DownloadOutcome.ERROR,
-                message="Biblioteca 'requests' nao instalada.",
+        if not config.SHAREPOINT_ENABLED:
+            return self._browser_fallback(
+                app,
+                "Download SharePoint/PnP desabilitado em settings.json (sharepoint.enabled=false).",
             )
 
-        report(0.0, "Conectando...")
+        pasta = self.storage.app_dir(app.id)
+        nome = self._guess_filename(app)
+
+        report(0.0, "Iniciando download via SharePoint (PnP)...")
         try:
-            with requests.get(
-                app.download_url,
-                stream=True,
-                allow_redirects=True,
-                timeout=30,
-                headers={"User-Agent": "SuitePetrobras/1.0"},
-            ) as resp:
-                # autenticacao/permissao negada -> fallback navegador
-                if resp.status_code in (401, 403):
-                    return self._browser_fallback(
-                        app, f"Acesso negado (HTTP {resp.status_code})."
-                    )
-                if resp.status_code >= 400:
-                    return DownloadResult(
-                        DownloadOutcome.ERROR,
-                        message=f"Falha no download (HTTP {resp.status_code}).",
-                    )
+            result = baixar_do_sharepoint(
+                link=app.download_url,
+                pasta_destino=pasta,
+                nome_arquivo=nome,
+                progress=report,
+            )
+        except Exception as exc:
+            return self._browser_fallback(
+                app, f"Falha ao chamar o SharePoint Manager: {exc}"
+            )
 
-                content_type = resp.headers.get("Content-Type", "").lower()
-                if any(hint in content_type for hint in _HTML_HINTS):
-                    # SharePoint devolveu uma pagina (provavelmente login)
-                    return self._browser_fallback(
-                        app,
-                        "O servidor retornou uma pagina web (provavel login). "
-                        "Faca o download pelo navegador.",
-                    )
+        if result.ok and result.path and result.path.exists():
+            self.storage.set_installed(app.id, result.path, app.versao)
+            return DownloadResult(
+                DownloadOutcome.SUCCESS,
+                local_path=result.path,
+                message=result.message or "Download concluido.",
+            )
 
-                ext = _guess_extension(app)
-                default_name = f"{app.id}{ext}"
-                filename = _filename_from_url(resp.url, default_name)
-                if not Path(filename).suffix:
-                    filename += ext
-                target = self.storage.app_dir(app.id) / filename
-
-                total = int(resp.headers.get("Content-Length", 0) or 0)
-                downloaded = 0
-                report(0.02, "Baixando...")
-                with open(target, "wb") as fh:
-                    for chunk in resp.iter_content(chunk_size=64 * 1024):
-                        if not chunk:
-                            continue
-                        fh.write(chunk)
-                        downloaded += len(chunk)
-                        if total > 0:
-                            pct = min(downloaded / total, 0.99)
-                            report(pct, f"Baixando... {int(pct * 100)}%")
-                        else:
-                            report(0.5, "Baixando...")
-
-            report(1.0, "Concluido")
-            self.storage.set_installed(app.id, target, app.versao)
-            return DownloadResult(DownloadOutcome.SUCCESS, local_path=target, message="Download concluido.")
-
-        except Exception as exc:  # rede, timeout, SSL corporativo, etc.
-            return self._browser_fallback(app, f"Nao foi possivel baixar automaticamente: {exc}")
+        # PnP falhou (auth cancelada, link invalido, modulo ausente, etc.)
+        return self._browser_fallback(
+            app,
+            result.message or "Nao foi possivel baixar via SharePoint/PnP.",
+        )
 
     # ------------------------------------------------------------------
+    def _guess_filename(self, app: AppInfo) -> str:
+        """Tenta obter o nome do arquivo pelo link; senao usa id + extensao do tipo."""
+        try:
+            info = parsear_link_sharepoint(app.download_url)
+            nome = info.get("nome_arquivo")
+            if nome:
+                return nome
+        except ValueError:
+            pass
+        return f"{app.id}{app.tipo.file_extension}"
+
     def _browser_fallback(self, app: AppInfo, reason: str) -> DownloadResult:
         try:
             webbrowser.open(app.download_url)
@@ -138,7 +105,7 @@ class DownloadManager:
             DownloadOutcome.NEEDS_BROWSER,
             message=(
                 f"{reason}\n\nAbrimos o link no navegador. Apos baixar o arquivo, use "
-                "'Localizar arquivo baixado' para aponta-lo na Suite."
+                "'Localizar arquivo baixado' / 'Trocar arquivo' para aponta-lo na Suite."
             ),
         )
 
