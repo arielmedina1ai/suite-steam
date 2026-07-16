@@ -6,7 +6,7 @@ from pathlib import Path
 import flet as ft
 
 import config
-from models import AppInfo, InstallStatus
+from models import AppInfo, AppType, InstallStatus
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.runner import RunError, run_file
 from services.storage import Storage
@@ -79,7 +79,7 @@ class AppDetailView:
             spacing=12,
             controls=[
                 ft.Icon(
-                    ft.Icons.TABLE_CHART if self.app.tipo.value == "xlsx" else ft.Icons.APPS,
+                    ft.Icons.TABLE_CHART if self.app.tipo.is_spreadsheet else ft.Icons.APPS,
                     color=config.COLOR_ACCENT,
                     size=32,
                 ),
@@ -196,11 +196,15 @@ class AppDetailView:
 
     # ------------------------------------------------------------------
     async def _on_locate(self, e: ft.ControlEvent) -> None:
-        ext = "xlsx" if self.app.tipo.value == "xlsx" else "exe"
+        # Planilhas: aceita xlsx e xlsm no seletor; exe usa a extensao do tipo.
+        if self.app.tipo.is_spreadsheet:
+            allowed = [AppType.XLSX.value, AppType.XLSM.value]
+        else:
+            allowed = [self.app.tipo.value]
         files = await self.file_picker.pick_files(
             dialog_title=f"Selecione o arquivo baixado ({self.app.nome})",
             allow_multiple=False,
-            allowed_extensions=[ext],
+            allowed_extensions=allowed,
         )
         if not files:
             return

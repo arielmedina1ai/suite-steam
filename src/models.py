@@ -9,6 +9,7 @@ from typing import Any
 class AppType(str, Enum):
     EXE = "exe"
     XLSX = "xlsx"
+    XLSM = "xlsm"
 
     @classmethod
     def from_str(cls, value: str) -> "AppType":
@@ -17,9 +18,20 @@ class AppType(str, Enum):
             if item.value == value:
                 return item
         # fallback baseado na extensao do valor recebido
+        if value.endswith("xlsm"):
+            return cls.XLSM
         if value.endswith("xlsx") or value.endswith("xls"):
             return cls.XLSX
         return cls.EXE
+
+    @property
+    def is_spreadsheet(self) -> bool:
+        """Planilhas Excel (.xlsx / .xlsm) — abertas via Excel, nao executadas."""
+        return self in (AppType.XLSX, AppType.XLSM)
+
+    @property
+    def file_extension(self) -> str:
+        return f".{self.value}"
 
 
 class InstallStatus(str, Enum):

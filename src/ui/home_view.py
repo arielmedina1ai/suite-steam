@@ -45,7 +45,7 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None]) -> ft.Cont
                     spacing=8,
                     controls=[
                         ft.Icon(
-                            ft.Icons.TABLE_CHART if app.tipo.value == "xlsx" else ft.Icons.APPS,
+                            ft.Icons.TABLE_CHART if app.tipo.is_spreadsheet else ft.Icons.APPS,
                             color=config.COLOR_ACCENT,
                             size=28,
                         ),

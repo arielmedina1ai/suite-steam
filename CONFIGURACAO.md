@@ -80,7 +80,7 @@ Cada item da lista `apps` e um aplicativo que aparece no menu lateral e na home.
       "nome": "Relatorio de Producao",                    // nome exibido
       "descricao": "Texto que aparece na tela de detalhe do app.",
       "imagem": "assets/images/relatorio-producao.png",   // caminho da imagem (ver secao 3)
-      "tipo": "xlsx",                                      // "exe" ou "xlsx"
+      "tipo": "xlsx",                                      // "exe", "xlsx" ou "xlsm"
       "download_url": "https://SEU-SITE.sharepoint.com/.../arquivo.xlsx?download=1",
       "versao": "1.2.0"
     }
@@ -91,7 +91,7 @@ Cada item da lista `apps` e um aplicativo que aparece no menu lateral e na home.
 Campos:
 - `id`: unico, sem espacos (usado para criar a pasta de download).
 - `nome`, `descricao`, `versao`: textos exibidos.
-- `tipo`: `"exe"` (executa) ou `"xlsx"` (abre no Excel).
+- `tipo`: `"exe"` (executa), `"xlsx"` ou `"xlsm"` (abre no Excel).
 - `imagem`: caminho relativo comecando por `assets/images/`.
 - `download_url`: **link real do arquivo no SharePoint**. Dica: adicione `?download=1` ao
   final do link de compartilhamento para forcar o download direto.

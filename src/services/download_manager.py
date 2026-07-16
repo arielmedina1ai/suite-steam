@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import unquote, urlparse
 
-from models import AppInfo, AppType
+from models import AppInfo
 from services.storage import Storage
 
 ProgressCb = Callable[[float, str], None]
@@ -40,7 +40,7 @@ _HTML_HINTS = ("text/html", "application/xhtml")
 
 
 def _guess_extension(app: AppInfo) -> str:
-    return ".xlsx" if app.tipo == AppType.XLSX else ".exe"
+    return app.tipo.file_extension
 
 
 def _filename_from_url(url: str, fallback: str) -> str:

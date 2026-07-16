@@ -2,7 +2,7 @@
 
 Hub de aplicativos internos no estilo "Steam", desenvolvido em Python + [Flet](https://flet.dev).
 A Suite apresenta o setor na tela inicial e, no menu lateral, lista os programas disponiveis
-(`.exe` e `.xlsx`). Cada aplicativo tem uma tela de detalhe com imagem, descricao e botao de
+(`.exe`, `.xlsx` e `.xlsm`). Cada aplicativo tem uma tela de detalhe com imagem, descricao e botao de
 Baixar / Instalar / Executar.
 
 > **Casca configuravel:** este repositorio e publico e NAO contem dados internos. Toda a
@@ -95,7 +95,7 @@ Exemplo de app no catalogo:
 }
 ```
 
-- `tipo`: `exe` ou `xlsx`.
+- `tipo`: `exe`, `xlsx` ou `xlsm`.
 - `download_url`: link direto do arquivo no SharePoint. Dica: adicione `?download=1` ao final do link de compartilhamento para forcar o download direto.
 
 ## SharePoint

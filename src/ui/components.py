@@ -36,7 +36,7 @@ def _sidebar_item(
             spacing=10,
             controls=[
                 ft.Icon(
-                    ft.Icons.TABLE_CHART if app.tipo.value == "xlsx" else ft.Icons.APPS,
+                    ft.Icons.TABLE_CHART if app.tipo.is_spreadsheet else ft.Icons.APPS,
                     color=config.COLOR_ACCENT if selected else config.COLOR_TEXT,
                     size=20,
                 ),

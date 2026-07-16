@@ -12,7 +12,7 @@ class RunError(Exception):
 
 
 def run_file(path: str | Path) -> None:
-    """Executa (.exe) ou abre (.xlsx e outros) o arquivo informado.
+    """Executa (.exe) ou abre (.xlsx / .xlsm e outros) o arquivo informado.
 
     No Windows usa ``os.startfile`` (respeita o programa associado, ex.: Excel).
     Em outros sistemas usa o abridor padrao do SO.
