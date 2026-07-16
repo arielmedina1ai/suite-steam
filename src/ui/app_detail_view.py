@@ -15,15 +15,12 @@ from ui.components import app_badge
 
 
 def _image_src(imagem: str) -> str:
-    """Aceita caminho de assets, caminho absoluto do cache ou URL residual."""
+    """Aceita caminho absoluto do cache local (LOCALAPPDATA) ou URL residual."""
     imagem = (imagem or "").replace("\\", "/")
     if not imagem:
         return ""
-    # Caminhos absolutos do cache local (Windows / POSIX)
     if Path(imagem).is_absolute() or (len(imagem) > 2 and imagem[1] == ":"):
         return imagem
-    if imagem.startswith("assets/"):
-        return imagem[len("assets/"):]
     return imagem
 
 

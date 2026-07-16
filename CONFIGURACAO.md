@@ -9,7 +9,7 @@ imagens e links) vive no **SharePoint** e e sincronizado a cada abertura do prog
 | Publico (versionado) | Local / SharePoint | Para que serve |
 | -------------------- | ------------------ | -------------- |
 | `settings.example.json` | `settings.json` | Nome, textos do setor, cores, **URL do catalog.json** |
-| `data/catalog.example.json` | `catalog.json` no SharePoint | Lista real de aplicativos |
+| `catalog.example.json` | `catalog.json` no SharePoint | Lista real de aplicativos |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
 ## Passo a passo
@@ -70,6 +70,7 @@ Hospede este arquivo no SharePoint (e cole o link em `catalog.remote_url`):
       "nome": "Relatorio de Producao",
       "descricao": "Descricao do app...",
       "imagem": "https://empresa.sharepoint.com/:i:/r/sites/.../relatorio.png",
+      "imagem_versao": "1",
       "tipo": "xlsm",
       "download_url": "https://empresa.sharepoint.com/:x:/r/sites/.../arquivo.xlsm",
       "upload_url": "https://empresa.sharepoint.com/.../AllItems.aspx?id=...",
@@ -79,15 +80,30 @@ Hospede este arquivo no SharePoint (e cole o link em `catalog.remote_url`):
 }
 ```
 
+### Imagens e cache
+
+Cada app aponta `imagem` para um link SharePoint. Na primeira sync a Suite baixa
+a capa e grava em `%LOCALAPPDATA%/SuitePetrobras/catalog/images/`, com um
+`images_manifest.json` que guarda `url` + `imagem_versao` por app.
+
+Nas proximas aberturas, se a URL e a `imagem_versao` forem as mesmas e o arquivo
+ainda existir localmente, **nao ha nova consulta/download ao SharePoint** para
+aquela imagem. Ao trocar a arte no SharePoint, incremente `imagem_versao`
+(ex.: `"1"` → `"2"`) — isso invalida so aquele app, sem rebaixar as demais capas.
+
+Isso e mais barato e previsivel do que consultar metadados (ETag/TimeLastModified)
+de dezenas de arquivos no SharePoint a cada startup.
+
 Campos:
 - `download_url`: link do arquivo (PnP baixa ao clicar em Baixar/Instalar).
-- `imagem`: link SharePoint da imagem (baixada no startup para cache local).
+- `imagem`: link SharePoint da imagem (cacheada localmente).
+- `imagem_versao`: bump ao trocar a arte (invalida so aquele cache).
 - `upload_url` (opcional): pasta de envio — habilita "Enviar para SharePoint".
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
 
 A cada abertura, a Suite:
 1. Baixa o `catalog.json` via PnP/WebLogin (aceita `download.aspx?UniqueId=...`).
-2. Baixa as imagens dos apps (mesmo fluxo, se forem links SharePoint).
+2. Para cada imagem: usa cache se `url` + `imagem_versao` baterem; senao baixa via PnP.
 3. Guarda cache em `%LOCALAPPDATA%/SuitePetrobras/catalog/`.
 4. Se a sincronizacao falhar, usa o ultimo cache.
 

@@ -5,6 +5,7 @@
       "nome": "Relatorio de Producao",
       "descricao": "Planilha automatizada para consolidacao e analise dos dados de producao do setor.",
       "imagem": "https://empresa.sharepoint.com/:i:/r/sites/seu-site/Documentos%20Compartilhados/imagens/relatorio-producao.png",
+      "imagem_versao": "1",
       "tipo": "xlsm",
       "download_url": "https://empresa.sharepoint.com/:x:/r/sites/seu-site/Documentos%20Compartilhados/relatorio-producao.xlsm",
       "upload_url": "https://empresa.sharepoint.com/sites/seu-site/Documentos%20Compartilhados/Forms/AllItems.aspx?id=%2Fsites%2Fseu-site%2FDocumentos%20Compartilhados%2Fpasta-envio",
@@ -15,6 +16,7 @@
       "nome": "Monitor de Ativos",
       "descricao": "Aplicativo desktop para acompanhamento do status dos ativos operacionais.",
       "imagem": "https://empresa.sharepoint.com/:i:/r/sites/seu-site/Documentos%20Compartilhados/imagens/monitor-ativos.png",
+      "imagem_versao": "1",
       "tipo": "exe",
       "download_url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/monitor-ativos.exe",
       "versao": "2.0.1"

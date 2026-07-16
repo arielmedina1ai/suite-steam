@@ -13,6 +13,7 @@ Baixar / Instalar / Executar / Desinstalar.
 ## Recursos
 
 - Catalogo sincronizado do SharePoint (PnP) a cada execucao, com cache local.
+- Imagens em cache: so rebaixam se `imagem` ou `imagem_versao` mudarem no catalogo.
 - Download/upload de apps via PowerShell + PnP (`Connect-PnPOnline -UseWebLogin`).
 - Desinstalar remove arquivos locais e o registro.
 - Identidade visual e textos do setor via `settings.json`.
@@ -22,8 +23,8 @@ Baixar / Instalar / Executar / Desinstalar.
 ```
 Suite-steam/
   settings.example.json      # modelo (copie p/ settings.json)
+  catalog.example.json       # modelo do catalogo para publicar no SharePoint
   CONFIGURACAO.md
-  data/catalog.example.json  # modelo do catalogo para publicar no SharePoint
   scripts/
     template_sp_download.ps1
     template_sp_upload.ps1
@@ -56,8 +57,10 @@ python src/main.py
 
 1. Em `settings.json`, preencha `catalog.remote_url` com o link SharePoint do
    `catalog.json` (ex.: `.../_layouts/15/download.aspx?UniqueId=...`).
-2. Publique no SharePoint o `catalog.json` (formato em `data/catalog.example.json`).
+2. Publique no SharePoint o `catalog.json` (formato em `catalog.example.json`).
 3. Cada app no JSON deve ter `download_url` e `imagem` como links SharePoint.
+4. Ao trocar a arte de um app, incremente `imagem_versao` (ex.: `"1"` → `"2"`)
+   para invalidar o cache local sem rebaixar tudo.
 
 Exemplo de app:
 
@@ -67,6 +70,7 @@ Exemplo de app:
   "nome": "Meu App",
   "descricao": "...",
   "imagem": "https://empresa.sharepoint.com/:i:/r/sites/.../foto.png",
+  "imagem_versao": "1",
   "tipo": "exe",
   "download_url": "https://empresa.sharepoint.com/:u:/r/sites/.../app.exe",
   "upload_url": "https://empresa.sharepoint.com/.../AllItems.aspx?id=...",
@@ -76,8 +80,8 @@ Exemplo de app:
 
 ## SharePoint (PnP + PowerShell)
 
-1. No startup, a Suite baixa `catalog.json` + imagens via PnP/WebLogin
-   (inclui links `download.aspx?UniqueId=...`).
+1. No startup, a Suite baixa `catalog.json` via PnP/WebLogin e so baixa imagens
+   novas ou com `imagem_versao` alterada.
 2. Ao baixar um app (exe/xlsx/xlsm), usa o mesmo fluxo PnP.
 3. Upload opcional com `template_sp_upload.ps1` quando houver `upload_url`.
 
@@ -87,7 +91,10 @@ Requisito: PowerShell e modulo `SharePointPnPPowerShellOnline` (CurrentUser).
 
 ```
 %LOCALAPPDATA%/SuitePetrobras/
-  apps/           # arquivos baixados dos programas
-  catalog/        # cache do catalog.json e imagens
-  installed.json  # manifesto de instalacao
+  apps/                    # arquivos baixados dos programas
+  catalog/
+    catalog.json           # cache do catalogo
+    images/                # capas baixadas
+    images_manifest.json   # URL + imagem_versao por app (evita redownload)
+  installed.json           # manifesto de instalacao
 ```

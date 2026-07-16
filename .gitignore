@@ -11,8 +11,7 @@ dist/
 venv/
 env/
 
-# Dados locais / apps baixados (nao versionar binarios baixados)
-data/downloads/
+# Logs
 *.log
 
 # ---------------------------------------------------------------------------
@@ -20,12 +19,6 @@ data/downloads/
 # O repo publico guarda somente os modelos *.example. Nada abaixo volta ao repo.
 # ---------------------------------------------------------------------------
 settings.json
-data/catalog.json
-
-# Imagens reais dos apps (mantem apenas README e .gitkeep)
-assets/images/*
-!assets/images/README.md
-!assets/images/.gitkeep
 
 # IDE / OS
 .vscode/

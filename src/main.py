@@ -93,7 +93,8 @@ class SuiteApp:
         )
         self.apps = result.apps
         self.apps_by_id = {app.id: app for app in self.apps}
-        self.sync_message = result.message
+        # Banner so em falha/aviso — sucesso limpo nao polui a home
+        self.sync_message = result.message if not result.ok else ""
         self.selected_id = None
         self._render()
 
@@ -158,5 +159,4 @@ def main(page: ft.Page) -> None:
 
 
 if __name__ == "__main__":
-    # assets_dir inclui o cache de imagens do catalogo quando necessario
-    ft.run(main, assets_dir=str(config.ASSETS_DIR))
+    ft.run(main)

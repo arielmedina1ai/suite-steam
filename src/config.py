@@ -22,8 +22,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 SRC_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SRC_DIR.parent
-ASSETS_DIR = ROOT_DIR / "assets"
-DATA_DIR = ROOT_DIR / "data"
+CATALOG_EXAMPLE_FILE = ROOT_DIR / "catalog.example.json"
 
 SETTINGS_FILE = ROOT_DIR / "settings.json"
 SETTINGS_EXAMPLE_FILE = ROOT_DIR / "settings.example.json"
@@ -94,6 +93,7 @@ INSTALLED_MANIFEST = USER_DATA_DIR / "installed.json"
 CATALOG_CACHE_DIR = USER_DATA_DIR / "catalog"
 CATALOG_CACHE_FILE = CATALOG_CACHE_DIR / "catalog.json"
 CATALOG_IMAGES_DIR = CATALOG_CACHE_DIR / "images"
+CATALOG_IMAGES_MANIFEST = CATALOG_CACHE_DIR / "images_manifest.json"
 
 # ---------------------------------------------------------------------------
 # SharePoint (sempre PnP) — caminhos fixos, nao vao no settings.json
