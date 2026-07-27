@@ -137,7 +137,7 @@ copy assets\branding\window_icon.example.png assets\branding\window_icon.png
 | `window_icon.png` | `window_icon.example.png` | Icone da janela (gera `.ico`) | **256 x 256** px |
 
 DPI: 72. Proporcao do hero: **2220:1140** (~1,95:1). Na UI o banner fica
-compacto (~480 px de largura, ao lado do texto); 2220x1140 cobre bem HiDPI.
+compacto (~240 px de largura, ao lado do texto); 2220x1140 cobre bem HiDPI.
 
 **Nota Windows:** o icone da janela exige `.ico`. A Suite converte
 `window_icon.png` → `window_icon.ico` automaticamente ao abrir.

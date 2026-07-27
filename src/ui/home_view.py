@@ -12,8 +12,8 @@ from ui.components import app_badge, app_icon
 
 # Proporcao do banner da home: 2220 x 1140 (~1.95:1)
 _HERO_ASPECT = 2220 / 1140
-# Exibicao compacta (~480 px de largura → ~247 px de altura)
-_HERO_DISPLAY_WIDTH = 480
+# Exibicao compacta (~240 px de largura → ~123 px de altura)
+_HERO_DISPLAY_WIDTH = 240
 
 
 def _hero_banner() -> ft.Control:
