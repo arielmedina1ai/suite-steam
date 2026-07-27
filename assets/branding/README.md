@@ -23,10 +23,9 @@ DPI: 72 (padrao de tela). O que importa e o tamanho em **pixels**.
 
 ### Banner da home (`hero.png`)
 
-Proporcao fixa **2220 : 1140**. Na UI a Suite exibe em ~860 px de largura
-(altura ~442 px). Por isso **2220 x 1140** e o ponto ideal (cerca de 2x a
-exibicao, nitido em monitores HiDPI). Pode usar metade (**1110 x 570**) se
-quiser arquivo menor; evite subir muito alem de 2220 (peso sem ganho visual).
+Proporcao fixa **2220 : 1140**. Na UI o banner fica compacto (~480 px de
+largura, ao lado do titulo). **2220 x 1140** continua o master ideal (HiDPI).
+Pode usar metade (**1110 x 570**) se quiser arquivo menor.
 
 O `hero.example.png` do repo esta em **1110 x 570** (mesma proporcao, placeholder leve).
 

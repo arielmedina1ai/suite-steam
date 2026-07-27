@@ -70,6 +70,7 @@ Hospede este arquivo no SharePoint (e cole o link em `catalog.remote_url`):
       "id": "relatorio-producao",
       "nome": "Relatorio de Producao",
       "descricao": "Descricao do app...",
+      "setor": "Setor 1",
       "imagem": "https://empresa.sharepoint.com/:i:/r/sites/.../relatorio.png",
       "imagem_versao": "1",
       "icone": "https://empresa.sharepoint.com/:i:/r/sites/.../relatorio-icon.png",
@@ -97,13 +98,18 @@ Se `imagem` ou `icone` forem `""`, a Suite usa placeholder (badge / icone por ti
 
 Campos:
 - `download_url`: link do arquivo (PnP baixa ao clicar em Baixar/Instalar).
+- `setor`: nome do grupo na sidebar (ex.: `"Setor 1"`). Nomes distintos geram
+  itens de menu automaticamente; apps sem `setor` aparecem so na **Inicio**.
 - `imagem`: link SharePoint da **capa** (tela de detalhe; cacheada localmente).
 - `imagem_versao`: bump ao trocar a capa.
-- `icone`: link SharePoint do **icone** (sidebar / cards; cacheado localmente).
+- `icone`: link SharePoint do **icone** (cards; cacheado localmente).
 - `icone_versao`: bump ao trocar o icone.
 - `versao`: bump ao publicar arquivo novo do app (mostra **Atualizar versao** nos PCs).
 - `upload_url` (opcional): pasta de envio — habilita "Enviar para SharePoint".
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
+
+Navegacao: **Inicio** lista todos os apps; cada valor unico de `setor` vira um
+item na sidebar com os apps daquele grupo.
 
 A cada abertura, a Suite:
 1. Baixa o `catalog.json` via PnP/WebLogin (aceita `download.aspx?UniqueId=...`).
@@ -130,8 +136,8 @@ copy assets\branding\window_icon.example.png assets\branding\window_icon.png
 | `hero.png` | `hero.example.png` | Banner da **tela inicial** | **2220 x 1140** px |
 | `window_icon.png` | `window_icon.example.png` | Icone da janela (gera `.ico`) | **256 x 256** px |
 
-DPI: 72. Proporcao do hero: **2220:1140** (~1,95:1). Na tela ele aparece
-com ~860 px de largura; 2220x1140 cobre bem HiDPI (2x).
+DPI: 72. Proporcao do hero: **2220:1140** (~1,95:1). Na UI o banner fica
+compacto (~480 px de largura, ao lado do texto); 2220x1140 cobre bem HiDPI.
 
 **Nota Windows:** o icone da janela exige `.ico`. A Suite converte
 `window_icon.png` → `window_icon.ico` automaticamente ao abrir.

@@ -48,9 +48,10 @@ class AppInfo:
     id: str
     nome: str
     descricao: str = ""
+    setor: str = ""  # grupo na sidebar; nomes distintos geram itens de menu
     imagem: str = ""  # capa (tela de detalhe) — link SharePoint
     imagem_versao: str = "1"
-    icone: str = ""  # icone pequeno (sidebar/home) — link SharePoint
+    icone: str = ""  # icone pequeno (cards) — link SharePoint
     icone_versao: str = "1"
     tipo: AppType = AppType.EXE
     download_url: str = ""
@@ -63,6 +64,7 @@ class AppInfo:
             id=str(data["id"]).strip(),
             nome=str(data.get("nome", data["id"])).strip(),
             descricao=str(data.get("descricao", "")),
+            setor=str(data.get("setor", "")).strip(),
             imagem=str(data.get("imagem", "")),
             imagem_versao=str(data.get("imagem_versao", "1")),
             icone=str(data.get("icone", "")),
@@ -72,6 +74,21 @@ class AppInfo:
             upload_url=str(data.get("upload_url", "")).strip(),
             versao=str(data.get("versao", "1.0.0")),
         )
+
+
+def setores_do_catalogo(apps: list[AppInfo]) -> list[str]:
+    """Nomes de setor unicos, na ordem da primeira aparicao no catalogo."""
+    seen: list[str] = []
+    for app in apps:
+        nome = (app.setor or "").strip()
+        if nome and nome not in seen:
+            seen.append(nome)
+    return seen
+
+
+def apps_do_setor(apps: list[AppInfo], setor: str) -> list[AppInfo]:
+    alvo = (setor or "").strip()
+    return [a for a in apps if (a.setor or "").strip() == alvo]
 
 
 @dataclass

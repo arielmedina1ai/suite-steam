@@ -15,6 +15,7 @@ Baixar / Instalar / Executar / Desinstalar.
 - Catalogo sincronizado do SharePoint (PnP) a cada execucao, com cache local.
 - Imagens em cache: so rebaixam se `imagem`/`icone` ou suas `*_versao` mudarem no catalogo.
 - Branding local em `assets/branding/` (logo sidebar, banner home, icone da janela).
+- Sidebar por **setor** (campo `setor` no catalogo); Inicio lista todos os apps.
 - Download/upload de apps via PowerShell + PnP (`Connect-PnPOnline -UseWebLogin`).
 - Desinstalar remove arquivos locais e o registro.
 - Identidade visual e textos do setor via `settings.json`.
@@ -73,6 +74,7 @@ Exemplo de app:
   "id": "meu-app",
   "nome": "Meu App",
   "descricao": "...",
+  "setor": "Setor 1",
   "imagem": "https://empresa.sharepoint.com/:i:/r/sites/.../foto.png",
   "imagem_versao": "1",
   "icone": "https://empresa.sharepoint.com/:i:/r/sites/.../icon.png",
