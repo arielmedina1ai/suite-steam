@@ -22,6 +22,14 @@ from typing import Any
 # ---------------------------------------------------------------------------
 SRC_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SRC_DIR.parent
+ASSETS_DIR = ROOT_DIR / "assets"
+BRANDING_DIR = ASSETS_DIR / "branding"
+BRANDING_LOGO = BRANDING_DIR / "logo.png"
+BRANDING_HERO = BRANDING_DIR / "hero.png"
+BRANDING_WINDOW_ICON_PNG = BRANDING_DIR / "window_icon.png"
+BRANDING_WINDOW_ICON_ICO = BRANDING_DIR / "window_icon.ico"
+# legado: alguns docs ainda citam window_icon.png como "icone da janela"
+BRANDING_WINDOW_ICON = BRANDING_WINDOW_ICON_PNG
 CATALOG_EXAMPLE_FILE = ROOT_DIR / "catalog.example.json"
 
 SETTINGS_FILE = ROOT_DIR / "settings.json"
@@ -103,3 +111,49 @@ SHAREPOINT_SCRIPTS_DIR = ROOT_DIR / "scripts"
 SHAREPOINT_DOWNLOAD_SCRIPT = "template_sp_download.ps1"
 SHAREPOINT_DOWNLOAD_BATCH_SCRIPT = "template_sp_download_batch.ps1"
 SHAREPOINT_UPLOAD_SCRIPT = "template_sp_upload.ps1"
+
+
+def _png_to_ico(png_path: Path, ico_path: Path) -> None:
+    """Gera .ico embutindo o PNG (formato aceito pelo Windows moderno / Flet)."""
+    import struct
+
+    png = png_path.read_bytes()
+    if len(png) < 24 or png[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"Arquivo PNG invalido: {png_path}")
+    width = struct.unpack(">I", png[16:20])[0]
+    height = struct.unpack(">I", png[20:24])[0]
+    # ICONDIRENTRY: 0 = dimensao 256
+    w_byte = 0 if width >= 256 else width
+    h_byte = 0 if height >= 256 else height
+    offset = 6 + 16
+    header = struct.pack("<HHH", 0, 1, 1)
+    entry = struct.pack(
+        "<BBBBHHII",
+        w_byte,
+        h_byte,
+        0,
+        0,
+        1,
+        32,
+        len(png),
+        offset,
+    )
+    ico_path.write_bytes(header + entry + png)
+
+
+def resolve_window_icon() -> Path | None:
+    """Caminho absoluto do .ico da janela (exigido pelo Flet no Windows).
+
+    Usa ``window_icon.ico`` se existir; senao converte ``window_icon.png``.
+    """
+    ico = BRANDING_WINDOW_ICON_ICO
+    png = BRANDING_WINDOW_ICON_PNG
+    if ico.exists():
+        return ico.resolve()
+    if not png.exists():
+        return None
+    try:
+        _png_to_ico(png, ico)
+    except (OSError, ValueError):
+        return None
+    return ico.resolve() if ico.exists() else None

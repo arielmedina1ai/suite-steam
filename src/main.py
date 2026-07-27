@@ -5,12 +5,12 @@ import flet as ft
 
 import config
 from catalog import SharePointCatalogProvider
-from models import AppInfo
+from models import AppInfo, apps_do_setor
 from services.download_manager import DownloadManager
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
-from ui.home_view import build_home
+from ui.home_view import build_home, build_setor_view
 
 
 class SuiteApp:
@@ -21,6 +21,7 @@ class SuiteApp:
         self.apps: list[AppInfo] = []
         self.apps_by_id: dict[str, AppInfo] = {}
         self.selected_id: str | None = None
+        self.selected_setor: str | None = None
         self.sync_message = ""
 
         self.sidebar_holder = ft.Container()
@@ -50,6 +51,10 @@ class SuiteApp:
         self.page.theme_mode = ft.ThemeMode.DARK
         self.page.theme = ft.Theme(color_scheme_seed=config.COLOR_PRIMARY)
         self.page.padding = 0
+        icon_path = config.resolve_window_icon()
+        if icon_path is not None:
+            # Windows/Flet: precisa de .ico com caminho absoluto
+            self.page.window.icon = str(icon_path)
         self.page.add(self.root_row)
 
     def _show_sync_screen(self) -> None:
@@ -96,6 +101,7 @@ class SuiteApp:
         # Banner so em falha/aviso — sucesso limpo nao polui a home
         self.sync_message = result.message if not result.ok else ""
         self.selected_id = None
+        self.selected_setor = None
         self._render()
 
     def _update_sync_status(self, msg: str) -> None:
@@ -111,19 +117,48 @@ class SuiteApp:
     # ------------------------------------------------------------------
     def _go_home(self) -> None:
         self.selected_id = None
+        self.selected_setor = None
+        self._render()
+
+    def _select_setor(self, setor: str) -> None:
+        self.selected_setor = setor
+        self.selected_id = None
         self._render()
 
     def _select_app(self, app_id: str) -> None:
         self.selected_id = app_id
+        app = self.apps_by_id.get(app_id)
+        if app is not None and app.setor:
+            self.selected_setor = app.setor
         self._render()
 
     # ------------------------------------------------------------------
     def _render(self) -> None:
+        home_selected = self.selected_id is None and self.selected_setor is None
         self.sidebar_holder.content = build_sidebar(
-            self.apps, self.selected_id, self._go_home, self._select_app
+            self.apps,
+            home_selected=home_selected,
+            selected_setor=self.selected_setor,
+            on_home=self._go_home,
+            on_select_setor=self._select_setor,
         )
 
-        if self.selected_id is None:
+        if self.selected_id is not None:
+            app = self.apps_by_id.get(self.selected_id)
+            if app is None:
+                self.content_holder.content = ft.Text(
+                    "Aplicativo nao encontrado.", color=config.COLOR_TEXT
+                )
+            else:
+                self.content_holder.content = AppDetailView(
+                    self.page, app, self.storage, self.manager
+                ).build()
+        elif self.selected_setor is not None:
+            filtrados = apps_do_setor(self.apps, self.selected_setor)
+            self.content_holder.content = build_setor_view(
+                self.selected_setor, filtrados, self._select_app
+            )
+        else:
             home = build_home(self.apps, self._select_app)
             if self.sync_message:
                 banner = ft.Container(
@@ -140,16 +175,6 @@ class SuiteApp:
                 )
             else:
                 self.content_holder.content = home
-        else:
-            app = self.apps_by_id.get(self.selected_id)
-            if app is None:
-                self.content_holder.content = ft.Text(
-                    "Aplicativo nao encontrado.", color=config.COLOR_TEXT
-                )
-            else:
-                self.content_holder.content = AppDetailView(
-                    self.page, app, self.storage, self.manager
-                ).build()
 
         self.page.update()
 
@@ -159,4 +184,4 @@ def main(page: ft.Page) -> None:
 
 
 if __name__ == "__main__":
-    ft.run(main)
+    ft.run(main, assets_dir=str(config.ASSETS_DIR))

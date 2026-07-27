@@ -13,7 +13,9 @@ Baixar / Instalar / Executar / Desinstalar.
 ## Recursos
 
 - Catalogo sincronizado do SharePoint (PnP) a cada execucao, com cache local.
-- Imagens em cache: so rebaixam se `imagem` ou `imagem_versao` mudarem no catalogo.
+- Imagens em cache: so rebaixam se `imagem`/`icone` ou suas `*_versao` mudarem no catalogo.
+- Branding local em `assets/branding/` (logo sidebar, banner home, icone da janela).
+- Sidebar por **setor** (campo `setor` no catalogo); Inicio lista todos os apps.
 - Download/upload de apps via PowerShell + PnP (`Connect-PnPOnline -UseWebLogin`).
 - Desinstalar remove arquivos locais e o registro.
 - Identidade visual e textos do setor via `settings.json`.
@@ -24,6 +26,7 @@ Baixar / Instalar / Executar / Desinstalar.
 Suite-steam/
   settings.example.json      # modelo (copie p/ settings.json)
   catalog.example.json       # modelo do catalogo para publicar no SharePoint
+  assets/branding/           # logo, hero e icone da janela (locais, nao SharePoint)
   CONFIGURACAO.md
   scripts/
     template_sp_download.ps1
@@ -58,9 +61,11 @@ python src/main.py
 1. Em `settings.json`, preencha `catalog.remote_url` com o link SharePoint do
    `catalog.json` (ex.: `.../_layouts/15/download.aspx?UniqueId=...`).
 2. Publique no SharePoint o `catalog.json` (formato em `catalog.example.json`).
-3. Cada app no JSON deve ter `download_url` e `imagem` como links SharePoint.
-4. Ao trocar a arte de um app, incremente `imagem_versao` (ex.: `"1"` → `"2"`)
-   para invalidar o cache local sem rebaixar tudo.
+3. Cada app no JSON deve ter `download_url`; `imagem` (capa) e `icone` sao opcionais
+   (links SharePoint).
+4. Ao trocar capa ou icone, incremente `imagem_versao` / `icone_versao`.
+5. Copie `assets/branding/*.example.png` para `logo.png` / `hero.png` /
+   `window_icon.png` e substitua pelas artes do setor (ver `assets/branding/README.md`).
 
 Exemplo de app:
 
@@ -69,8 +74,11 @@ Exemplo de app:
   "id": "meu-app",
   "nome": "Meu App",
   "descricao": "...",
+  "setor": "Setor 1",
   "imagem": "https://empresa.sharepoint.com/:i:/r/sites/.../foto.png",
   "imagem_versao": "1",
+  "icone": "https://empresa.sharepoint.com/:i:/r/sites/.../icon.png",
+  "icone_versao": "1",
   "tipo": "exe",
   "download_url": "https://empresa.sharepoint.com/:u:/r/sites/.../app.exe",
   "upload_url": "https://empresa.sharepoint.com/.../AllItems.aspx?id=...",
@@ -80,8 +88,8 @@ Exemplo de app:
 
 ## SharePoint (PnP + PowerShell)
 
-1. No startup, a Suite baixa `catalog.json` via PnP/WebLogin e so baixa imagens
-   novas ou com `imagem_versao` alterada (em lote: 1 login por site).
+1. No startup, a Suite baixa `catalog.json` via PnP/WebLogin e so baixa capas/icones
+   novos ou com `*_versao` alterada (em lote: 1 login por site).
 2. Ao baixar um app (exe/xlsx/xlsm), usa o mesmo fluxo PnP.
 3. Upload opcional com `template_sp_upload.ps1` quando houver `upload_url`.
 
@@ -94,7 +102,7 @@ Requisito: PowerShell e modulo `SharePointPnPPowerShellOnline` (CurrentUser).
   apps/                    # arquivos baixados dos programas
   catalog/
     catalog.json           # cache do catalogo
-    images/                # capas baixadas
-    images_manifest.json   # URL + imagem_versao por app (evita redownload)
+    images/                # capas e icones baixados
+    images_manifest.json   # URL + versoes por app (evita redownload)
   installed.json           # manifesto de instalacao
 ```
