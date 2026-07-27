@@ -10,7 +10,7 @@ imagens e links) vive no **SharePoint** e e sincronizado a cada abertura do prog
 | -------------------- | ------------------ | -------------- |
 | `settings.example.json` | `settings.json` | Nome, textos do setor, cores, **URL do catalog.json** |
 | `catalog.example.json` | `catalog.json` no SharePoint | Lista real de aplicativos |
-| `assets/branding/*.example.png` | `logo.png` / `window_icon.png` (local) | Logo e icone da janela |
+| `assets/branding/*.example.png` | `logo.png` / `hero.png` / `window_icon.png` | Logo sidebar, banner home, icone janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
 ## Passo a passo
@@ -120,17 +120,18 @@ Imagens da casca ficam em `assets/branding/`. Copie os exemplos e troque pela ar
 
 ```text
 copy assets\branding\logo.example.png assets\branding\logo.png
+copy assets\branding\hero.example.png assets\branding\hero.png
 copy assets\branding\window_icon.example.png assets\branding\window_icon.png
 ```
 
 | Arquivo (producao) | Exemplo | Onde aparece | Resolucao |
 |--------------------|---------|--------------|-----------|
-| `logo.png` | `logo.example.png` | Emblema (antigo "SP") | **512 x 512** px (min. 256) |
-| `window_icon.png` | `window_icon.example.png` | Icone da janela (Flet gera `.ico`) | **256 x 256** px |
+| `logo.png` | `logo.example.png` | Emblema da **sidebar** | **512 x 512** px (1:1) |
+| `hero.png` | `hero.example.png` | Banner da **tela inicial** | **2220 x 1140** px |
+| `window_icon.png` | `window_icon.example.png` | Icone da janela (gera `.ico`) | **256 x 256** px |
 
-DPI: use 72 (padrao de tela); o importante e o tamanho em pixels.
-Formato: PNG com transparencia, proporcao 1:1.
-Os PNG/ICO de producao nao sao versionados (`.gitignore`); so os `*.example.png`.
+DPI: 72. Proporcao do hero: **2220:1140** (~1,95:1). Na tela ele aparece
+com ~860 px de largura; 2220x1140 cobre bem HiDPI (2x).
 
 **Nota Windows:** o icone da janela exige `.ico`. A Suite converte
 `window_icon.png` → `window_icon.ico` automaticamente ao abrir.

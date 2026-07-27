@@ -10,6 +10,32 @@ from models import AppInfo
 from ui.components import app_badge, app_icon
 
 
+# Proporcao do banner da home: 2220 x 1140 (~1.95:1)
+_HERO_ASPECT = 2220 / 1140
+
+
+def _hero_banner() -> ft.Control:
+    """Banner largo da home (hero.png) ou fallback ao logo pequeno."""
+    if config.BRANDING_HERO.exists():
+        # Largura tipica da area de conteudo ~860px; altura pela proporcao 2220:1140
+        width = 860
+        height = int(width / _HERO_ASPECT)
+        return ft.Container(
+            width=width,
+            height=height,
+            border_radius=12,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=ft.Image(
+                src="branding/hero.png",
+                width=width,
+                height=height,
+                fit=ft.BoxFit.COVER,
+                error_content=app_badge(56),
+            ),
+        )
+    return app_badge(56)
+
+
 def build_home(apps: list[AppInfo], on_select: Callable[[str], None]) -> ft.Control:
     hero = ft.Container(
         border_radius=16,
@@ -22,7 +48,7 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None]) -> ft.Cont
         content=ft.Column(
             spacing=10,
             controls=[
-                app_badge(56),
+                _hero_banner(),
                 ft.Text(config.SECTOR_NAME, size=30, weight=ft.FontWeight.BOLD, color="white"),
                 ft.Text(config.SECTOR_TAGLINE, size=16, color=config.COLOR_ACCENT, weight=ft.FontWeight.W_600),
                 ft.Container(height=8),

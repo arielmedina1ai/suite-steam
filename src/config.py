@@ -25,6 +25,7 @@ ROOT_DIR = SRC_DIR.parent
 ASSETS_DIR = ROOT_DIR / "assets"
 BRANDING_DIR = ASSETS_DIR / "branding"
 BRANDING_LOGO = BRANDING_DIR / "logo.png"
+BRANDING_HERO = BRANDING_DIR / "hero.png"
 BRANDING_WINDOW_ICON_PNG = BRANDING_DIR / "window_icon.png"
 BRANDING_WINDOW_ICON_ICO = BRANDING_DIR / "window_icon.ico"
 # legado: alguns docs ainda citam window_icon.png como "icone da janela"

@@ -14,7 +14,7 @@ Baixar / Instalar / Executar / Desinstalar.
 
 - Catalogo sincronizado do SharePoint (PnP) a cada execucao, com cache local.
 - Imagens em cache: so rebaixam se `imagem`/`icone` ou suas `*_versao` mudarem no catalogo.
-- Branding local em `assets/branding/` (logo e icone da janela).
+- Branding local em `assets/branding/` (logo sidebar, banner home, icone da janela).
 - Download/upload de apps via PowerShell + PnP (`Connect-PnPOnline -UseWebLogin`).
 - Desinstalar remove arquivos locais e o registro.
 - Identidade visual e textos do setor via `settings.json`.
@@ -25,7 +25,7 @@ Baixar / Instalar / Executar / Desinstalar.
 Suite-steam/
   settings.example.json      # modelo (copie p/ settings.json)
   catalog.example.json       # modelo do catalogo para publicar no SharePoint
-  assets/branding/           # logo + icone da janela (locais, nao SharePoint)
+  assets/branding/           # logo, hero e icone da janela (locais, nao SharePoint)
   CONFIGURACAO.md
   scripts/
     template_sp_download.ps1
@@ -63,8 +63,8 @@ python src/main.py
 3. Cada app no JSON deve ter `download_url`; `imagem` (capa) e `icone` sao opcionais
    (links SharePoint).
 4. Ao trocar capa ou icone, incremente `imagem_versao` / `icone_versao`.
-5. Copie `assets/branding/*.example.png` para `logo.png` / `window_icon.png`
-   e substitua pelas artes do setor (ver `assets/branding/README.md`).
+5. Copie `assets/branding/*.example.png` para `logo.png` / `hero.png` /
+   `window_icon.png` e substitua pelas artes do setor (ver `assets/branding/README.md`).
 
 Exemplo de app:
 

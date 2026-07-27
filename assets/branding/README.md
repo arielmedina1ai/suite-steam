@@ -4,29 +4,35 @@ Estas imagens ficam **no software** (pasta `assets/branding/`), nao no SharePoin
 
 ## Como configurar (mesmo padrao do settings)
 
-1. Copie os exemplos para os nomes de producao:
-
 ```text
 copy logo.example.png logo.png
+copy hero.example.png hero.png
 copy window_icon.example.png window_icon.png
 ```
 
-2. Substitua `logo.png` e `window_icon.png` pelas artes reais do setor.
+Substitua pelos arquivos reais do setor. Os `*.example.*` sao versionados; os de
+producao ficam no `.gitignore`.
 
-Os `*.example.png` sao placeholders versionados. Os arquivos sem `.example`
-ficam no `.gitignore` e nao voltam ao repo publico.
+| Arquivo de producao | Exemplo | Uso | Resolucao recomendada |
+|---------------------|---------|-----|------------------------|
+| `logo.png` | `logo.example.png` | Emblema da **sidebar** (antigo "SP") | **512 x 512** (min. 256), 1:1 |
+| `hero.png` | `hero.example.png` | Banner da **tela inicial** (centro) | **2220 x 1140** (proporcao ~1,95:1) |
+| `window_icon.png` | `window_icon.example.png` | Base do icone da janela | **256 x 256**, 1:1 |
 
-| Arquivo de producao | Exemplo versionado | Uso | Resolucao |
-|---------------------|--------------------|-----|-----------|
-| `logo.png` | `logo.example.png` | Emblema (antigo "SP") | **512 x 512** (min. 256) |
-| `window_icon.png` | `window_icon.example.png` | Base do icone da janela | **256 x 256** |
+DPI: 72 (padrao de tela). O que importa e o tamanho em **pixels**.
 
-Formato: PNG, proporcao 1:1, transparencia ok. DPI: 72 (ou ignore — pixels importam).
+### Banner da home (`hero.png`)
+
+Proporcao fixa **2220 : 1140**. Na UI a Suite exibe em ~860 px de largura
+(altura ~442 px). Por isso **2220 x 1140** e o ponto ideal (cerca de 2x a
+exibicao, nitido em monitores HiDPI). Pode usar metade (**1110 x 570**) se
+quiser arquivo menor; evite subir muito alem de 2220 (peso sem ganho visual).
+
+O `hero.example.png` do repo esta em **1110 x 570** (mesma proporcao, placeholder leve).
 
 ### Icone da janela (Windows / Flet)
 
-No Windows o Flet **so aceita `.ico` com caminho absoluto**. A Suite faz isso
-automaticamente: se existir `window_icon.png`, gera `window_icon.ico` ao lado
-na primeira execucao. Voce tambem pode colocar um `window_icon.ico` pronto.
+O Flet no Windows exige `.ico` com caminho absoluto. A Suite converte
+`window_icon.png` → `window_icon.ico` automaticamente.
 
-Se `logo.png` / `window_icon.png` nao existirem, a Suite usa fallback (texto "SP" / icone padrao do Flet).
+Sem `logo.png` / `hero.png` / `window_icon.png`, a Suite usa fallbacks.
