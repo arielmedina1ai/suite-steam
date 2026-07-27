@@ -1,6 +1,7 @@
 """Componentes reutilizaveis da UI (sidebar, itens de app)."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
 import flet as ft
@@ -9,15 +10,73 @@ import config
 from models import AppInfo
 
 
+def media_src(path: str) -> str:
+    """Caminho absoluto do cache ou relativo a assets/ (ex.: branding/logo.png)."""
+    path = (path or "").replace("\\", "/")
+    if not path:
+        return ""
+    if Path(path).is_absolute() or (len(path) > 2 and path[1] == ":"):
+        return path
+    return path
+
+
 def app_badge(size: int = 40) -> ft.Control:
-    """Emblema/logo simples da Suite (nao depende de asset externo)."""
+    """Logo da Suite (assets/branding/logo.png) ou fallback texto SP."""
+    if config.BRANDING_LOGO.exists():
+        return ft.Container(
+            width=size,
+            height=size,
+            border_radius=size // 4,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=ft.Image(
+                src="branding/logo.png",
+                width=size,
+                height=size,
+                fit=ft.BoxFit.COVER,
+                error_content=_badge_fallback(size),
+            ),
+        )
+    return _badge_fallback(size)
+
+
+def _badge_fallback(size: int) -> ft.Control:
     return ft.Container(
         width=size,
         height=size,
         border_radius=size // 4,
         bgcolor=config.COLOR_PRIMARY,
         alignment=ft.Alignment.CENTER,
-        content=ft.Text("SP", size=size // 2, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
+        content=ft.Text("SP", size=max(size // 2, 10), weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
+    )
+
+
+def _default_app_icon(app: AppInfo, size: int, color: str) -> ft.Control:
+    return ft.Icon(
+        ft.Icons.TABLE_CHART if app.tipo.is_spreadsheet else ft.Icons.APPS,
+        color=color,
+        size=size,
+    )
+
+
+def app_icon(app: AppInfo, size: int = 24, color: str | None = None) -> ft.Control:
+    """Icone do app (campo ``icone`` do catalogo) ou fallback por tipo."""
+    tint = color or config.COLOR_ACCENT
+    src = media_src(app.icone)
+    if not src:
+        return _default_app_icon(app, size, tint)
+
+    return ft.Container(
+        width=size,
+        height=size,
+        border_radius=max(size // 5, 4),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        content=ft.Image(
+            src=src,
+            width=size,
+            height=size,
+            fit=ft.BoxFit.COVER,
+            error_content=_default_app_icon(app, size, tint),
+        ),
     )
 
 
@@ -35,10 +94,10 @@ def _sidebar_item(
         content=ft.Row(
             spacing=10,
             controls=[
-                ft.Icon(
-                    ft.Icons.TABLE_CHART if app.tipo.is_spreadsheet else ft.Icons.APPS,
+                app_icon(
+                    app,
+                    size=22,
                     color=config.COLOR_ACCENT if selected else config.COLOR_TEXT,
-                    size=20,
                 ),
                 ft.Text(
                     app.nome,

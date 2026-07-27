@@ -7,7 +7,7 @@ import flet as ft
 
 import config
 from models import AppInfo
-from ui.components import app_badge
+from ui.components import app_badge, app_icon
 
 
 def build_home(apps: list[AppInfo], on_select: Callable[[str], None]) -> ft.Control:
@@ -44,11 +44,7 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None]) -> ft.Cont
                 content=ft.Column(
                     spacing=8,
                     controls=[
-                        ft.Icon(
-                            ft.Icons.TABLE_CHART if app.tipo.is_spreadsheet else ft.Icons.APPS,
-                            color=config.COLOR_ACCENT,
-                            size=28,
-                        ),
+                        app_icon(app, size=36, color=config.COLOR_ACCENT),
                         ft.Text(app.nome, size=16, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
                         ft.Text(
                             app.descricao,

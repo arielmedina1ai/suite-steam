@@ -11,17 +11,11 @@ from services.download_manager import DownloadManager, DownloadOutcome
 from services.runner import RunError, run_file
 from services.sharepoint_manager import enviar_para_sharepoint
 from services.storage import Storage
-from ui.components import app_badge
+from ui.components import app_badge, app_icon, media_src
 
 
 def _image_src(imagem: str) -> str:
-    """Aceita caminho absoluto do cache local (LOCALAPPDATA) ou URL residual."""
-    imagem = (imagem or "").replace("\\", "/")
-    if not imagem:
-        return ""
-    if Path(imagem).is_absolute() or (len(imagem) > 2 and imagem[1] == ":"):
-        return imagem
-    return imagem
+    return media_src(imagem)
 
 
 class AppDetailView:
@@ -95,11 +89,7 @@ class AppDetailView:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=12,
             controls=[
-                ft.Icon(
-                    ft.Icons.TABLE_CHART if self.app.tipo.is_spreadsheet else ft.Icons.APPS,
-                    color=config.COLOR_ACCENT,
-                    size=32,
-                ),
+                app_icon(self.app, size=36, color=config.COLOR_ACCENT),
                 ft.Column(
                     spacing=2,
                     controls=[

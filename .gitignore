@@ -20,6 +20,10 @@ env/
 # ---------------------------------------------------------------------------
 settings.json
 
+# Branding de producao (mantenha so os *.example.png no repo)
+assets/branding/logo.png
+assets/branding/window_icon.png
+
 # IDE / OS
 .vscode/
 .idea/

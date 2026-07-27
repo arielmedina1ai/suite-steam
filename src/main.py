@@ -50,6 +50,9 @@ class SuiteApp:
         self.page.theme_mode = ft.ThemeMode.DARK
         self.page.theme = ft.Theme(color_scheme_seed=config.COLOR_PRIMARY)
         self.page.padding = 0
+        if config.BRANDING_WINDOW_ICON.exists():
+            # relativo a assets_dir passado em ft.run
+            self.page.window.icon = "branding/window_icon.png"
         self.page.add(self.root_row)
 
     def _show_sync_screen(self) -> None:
@@ -159,4 +162,4 @@ def main(page: ft.Page) -> None:
 
 
 if __name__ == "__main__":
-    ft.run(main)
+    ft.run(main, assets_dir=str(config.ASSETS_DIR))

@@ -48,8 +48,10 @@ class AppInfo:
     id: str
     nome: str
     descricao: str = ""
-    imagem: str = ""
-    imagem_versao: str = "1"  # incremente no catalogo ao trocar a arte (invalida cache local)
+    imagem: str = ""  # capa (tela de detalhe) — link SharePoint
+    imagem_versao: str = "1"
+    icone: str = ""  # icone pequeno (sidebar/home) — link SharePoint
+    icone_versao: str = "1"
     tipo: AppType = AppType.EXE
     download_url: str = ""
     upload_url: str = ""  # link da pasta SharePoint para envio (opcional)
@@ -63,6 +65,8 @@ class AppInfo:
             descricao=str(data.get("descricao", "")),
             imagem=str(data.get("imagem", "")),
             imagem_versao=str(data.get("imagem_versao", "1")),
+            icone=str(data.get("icone", "")),
+            icone_versao=str(data.get("icone_versao", "1")),
             tipo=AppType.from_str(str(data.get("tipo", "exe"))),
             download_url=str(data.get("download_url", "")).strip(),
             upload_url=str(data.get("upload_url", "")).strip(),

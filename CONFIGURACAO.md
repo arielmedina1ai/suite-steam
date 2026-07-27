@@ -10,6 +10,7 @@ imagens e links) vive no **SharePoint** e e sincronizado a cada abertura do prog
 | -------------------- | ------------------ | -------------- |
 | `settings.example.json` | `settings.json` | Nome, textos do setor, cores, **URL do catalog.json** |
 | `catalog.example.json` | `catalog.json` no SharePoint | Lista real de aplicativos |
+| `assets/branding/*.example.png` | `logo.png` / `window_icon.png` (local) | Logo e icone da janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
 ## Passo a passo
@@ -71,6 +72,8 @@ Hospede este arquivo no SharePoint (e cole o link em `catalog.remote_url`):
       "descricao": "Descricao do app...",
       "imagem": "https://empresa.sharepoint.com/:i:/r/sites/.../relatorio.png",
       "imagem_versao": "1",
+      "icone": "https://empresa.sharepoint.com/:i:/r/sites/.../relatorio-icon.png",
+      "icone_versao": "1",
       "tipo": "xlsm",
       "download_url": "https://empresa.sharepoint.com/:x:/r/sites/.../arquivo.xlsm",
       "upload_url": "https://empresa.sharepoint.com/.../AllItems.aspx?id=...",
@@ -82,32 +85,55 @@ Hospede este arquivo no SharePoint (e cole o link em `catalog.remote_url`):
 
 ### Imagens e cache
 
-Cada app aponta `imagem` para um link SharePoint. Na primeira sync a Suite baixa
-a capa e grava em `%LOCALAPPDATA%/SuitePetrobras/catalog/images/`, com um
-`images_manifest.json` que guarda `url` + `imagem_versao` por app.
+Cada app aponta `imagem` (capa) e opcionalmente `icone` para links SharePoint.
+Na primeira sync a Suite baixa e grava em `%LOCALAPPDATA%/SuitePetrobras/catalog/images/`,
+com `images_manifest.json` guardando URL + versao por midia.
 
-Nas proximas aberturas, se a URL e a `imagem_versao` forem as mesmas e o arquivo
-ainda existir localmente, **nao ha nova consulta/download ao SharePoint** para
-aquela imagem. Ao trocar a arte no SharePoint, incremente `imagem_versao`
-(ex.: `"1"` → `"2"`) — isso invalida so aquele app, sem rebaixar as demais capas.
+Nas proximas aberturas, se URL e `*_versao` forem iguais e o arquivo existir,
+**nao ha novo download**. Ao trocar a arte, incremente `imagem_versao` ou
+`icone_versao` (ex.: `"1"` → `"2"`).
 
-Isso e mais barato e previsivel do que consultar metadados (ETag/TimeLastModified)
-de dezenas de arquivos no SharePoint a cada startup.
+Se `imagem` ou `icone` forem `""`, a Suite usa placeholder (badge / icone por tipo).
 
 Campos:
 - `download_url`: link do arquivo (PnP baixa ao clicar em Baixar/Instalar).
-- `imagem`: link SharePoint da imagem (cacheada localmente).
-- `imagem_versao`: bump ao trocar a arte (invalida so aquele cache).
+- `imagem`: link SharePoint da **capa** (tela de detalhe; cacheada localmente).
+- `imagem_versao`: bump ao trocar a capa.
+- `icone`: link SharePoint do **icone** (sidebar / cards; cacheado localmente).
+- `icone_versao`: bump ao trocar o icone.
 - `versao`: bump ao publicar arquivo novo do app (mostra **Atualizar versao** nos PCs).
 - `upload_url` (opcional): pasta de envio — habilita "Enviar para SharePoint".
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
 
 A cada abertura, a Suite:
 1. Baixa o `catalog.json` via PnP/WebLogin (aceita `download.aspx?UniqueId=...`).
-2. Para imagens: usa cache se `url` + `imagem_versao` baterem; as que faltam
-   baixam em **lote** (um WebLogin por site, varias capas na mesma sessao).
+2. Para capas/icones: usa cache se `url` + `*_versao` baterem; o que falta
+   baixa em **lote** (um WebLogin por site).
 3. Guarda cache em `%LOCALAPPDATA%/SuitePetrobras/catalog/`.
 4. Se a sincronizacao falhar, usa o ultimo cache.
+
+---
+
+## 2.1 Branding local (nao vai no SharePoint)
+
+Imagens da casca ficam em `assets/branding/`. Copie os exemplos e troque pela arte real:
+
+```text
+copy assets\branding\logo.example.png assets\branding\logo.png
+copy assets\branding\window_icon.example.png assets\branding\window_icon.png
+```
+
+| Arquivo (producao) | Exemplo | Onde aparece | Resolucao |
+|--------------------|---------|--------------|-----------|
+| `logo.png` | `logo.example.png` | Emblema (antigo "SP") | **512 x 512** px (min. 256) |
+| `window_icon.png` | `window_icon.example.png` | Icone da janela / tarefa | **256 x 256** px |
+
+DPI: use 72 (padrao de tela); o importante e o tamanho em pixels.
+Formato: PNG com transparencia, proporcao 1:1.
+Os PNG de producao nao sao versionados (`.gitignore`); so os `*.example.png`.
+
+Capas de aplicativo (campo `imagem`) continuam no SharePoint — recomendado
+**1040 x 600** (16:9) ou similar. Icones de app (campo `icone`): **256 x 256** px.
 
 ---
 

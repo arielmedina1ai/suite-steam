@@ -22,6 +22,10 @@ from typing import Any
 # ---------------------------------------------------------------------------
 SRC_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SRC_DIR.parent
+ASSETS_DIR = ROOT_DIR / "assets"
+BRANDING_DIR = ASSETS_DIR / "branding"
+BRANDING_LOGO = BRANDING_DIR / "logo.png"
+BRANDING_WINDOW_ICON = BRANDING_DIR / "window_icon.png"
 CATALOG_EXAMPLE_FILE = ROOT_DIR / "catalog.example.json"
 
 SETTINGS_FILE = ROOT_DIR / "settings.json"

@@ -3,8 +3,8 @@
 Fonte oficial: catalog.json no SharePoint (settings.json > catalog.remote_url).
 Cache local: %LOCALAPPDATA%/SuitePetrobras/catalog/
 
-Imagens: baixadas sob demanda e reutilizadas via images_manifest.json.
-So baixam de novo se a URL ou imagem_versao mudarem (ou se o arquivo local sumir).
+Capas (`imagem`) e icones (`icone`): baixados sob demanda e reutilizados via
+images_manifest.json. So rebaixam se URL ou *_versao mudarem.
 """
 from __future__ import annotations
 
@@ -25,6 +25,10 @@ from services.sharepoint_manager import (
 )
 
 ProgressCb = Callable[[float, str], None]
+
+# Chaves no manifest / lote (evita colisao capa vs icone do mesmo app)
+_KIND_IMAGEM = "imagem"
+_KIND_ICONE = "icone"
 
 
 class CatalogProvider(ABC):
@@ -59,13 +63,13 @@ def _is_http_url(value: str) -> bool:
     return v.startswith("http://") or v.startswith("https://")
 
 
-def _image_filename(app: AppInfo) -> str:
-    raw = (app.imagem or "").strip()
+def _remote_filename(url: str, fallback: str) -> str:
+    raw = (url or "").strip()
     if _is_http_url(raw):
         try:
             info = parsear_link_sharepoint(raw)
             if info.get("tipo") == "unique_id":
-                return f"{app.id}.img"
+                return fallback
             nome = info.get("nome_arquivo")
             if nome:
                 return nome
@@ -73,7 +77,7 @@ def _image_filename(app: AppInfo) -> str:
             pass
         name = unquote(Path(urlparse(raw).path).name)
         if name.lower() in ("download.aspx", "download"):
-            return f"{app.id}.img"
+            return fallback
         if name and "." in name:
             return name.split("?")[0]
         if name:
@@ -81,7 +85,19 @@ def _image_filename(app: AppInfo) -> str:
     name = Path(raw.replace("\\", "/")).name
     if name:
         return name
-    return f"{app.id}.img"
+    return fallback
+
+
+def _image_filename(app: AppInfo) -> str:
+    return _remote_filename(app.imagem, f"{app.id}.img")
+
+
+def _icon_filename(app: AppInfo) -> str:
+    return _remote_filename(app.icone, f"{app.id}.ico.img")
+
+
+def _batch_key(app_id: str, kind: str) -> str:
+    return f"{app_id}::{kind}"
 
 
 def _load_images_manifest() -> dict[str, Any]:
@@ -103,23 +119,84 @@ def _save_images_manifest(manifest: dict[str, Any]) -> None:
     )
 
 
-def _image_cache_hit(app: AppInfo, manifest: dict[str, Any]) -> Path | None:
-    """Retorna caminho local se a imagem em cache ainda e valida."""
-    entry = manifest.get(app.id)
+def _media_cache_hit(
+    app_id: str,
+    remote_url: str,
+    versao: str,
+    manifest: dict[str, Any],
+    *,
+    url_key: str,
+    versao_key: str,
+    path_key: str,
+) -> Path | None:
+    entry = manifest.get(app_id)
     if not isinstance(entry, dict):
         return None
-    local = Path(str(entry.get("path", "")))
+    local = Path(str(entry.get(path_key, "")))
     if not local.exists():
         return None
-    if str(entry.get("url", "")) != (app.imagem or "").strip():
+    if str(entry.get(url_key, "")) != remote_url.strip():
         return None
-    if str(entry.get("imagem_versao", "")) != str(app.imagem_versao):
+    if str(entry.get(versao_key, "")) != str(versao):
         return None
     return local
 
 
+def _apply_local_or_cache(
+    apps: list[AppInfo],
+    manifest: dict[str, Any],
+) -> None:
+    """Reaponta imagem/icone para arquivos locais (cache) sem baixar."""
+    for app in apps:
+        # capa
+        remote = (app.imagem or "").strip()
+        if _is_http_url(remote):
+            cached = _media_cache_hit(
+                app.id,
+                remote,
+                app.imagem_versao,
+                manifest,
+                url_key="url",
+                versao_key="imagem_versao",
+                path_key="path",
+            )
+            if cached is not None:
+                app.imagem = str(cached)
+            else:
+                local = config.CATALOG_IMAGES_DIR / _image_filename(app)
+                if local.exists():
+                    app.imagem = str(local)
+        else:
+            local = config.CATALOG_IMAGES_DIR / _image_filename(app)
+            if local.exists():
+                app.imagem = str(local)
+
+        # icone
+        remote_ico = (app.icone or "").strip()
+        if _is_http_url(remote_ico):
+            cached = _media_cache_hit(
+                app.id,
+                remote_ico,
+                app.icone_versao,
+                manifest,
+                url_key="icone_url",
+                versao_key="icone_versao",
+                path_key="icone_path",
+            )
+            if cached is not None:
+                app.icone = str(cached)
+            else:
+                local = config.CATALOG_IMAGES_DIR / _icon_filename(app)
+                if local.exists():
+                    app.icone = str(local)
+        elif remote_ico:
+            local = config.CATALOG_IMAGES_DIR / _icon_filename(app)
+            if local.exists():
+                app.icone = str(local)
+
+
 def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int:
-    """Baixa imagens novas/alteradas em lote (1 WebLogin por site)."""
+    """Baixa capas e icones novos/alterados em lote (1 WebLogin por site)."""
 
     def report(pct: float, msg: str) -> None:
         if progress:
@@ -128,22 +205,68 @@ def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int
     config.CATALOG_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     manifest = _load_images_manifest()
     downloaded = 0
-    pending: list[tuple[AppInfo, str, str]] = []  # app, remote_url, nome_arquivo
+
+    # pending: (batch_id, app, kind, remote_url, nome_arquivo)
+    pending: list[tuple[str, AppInfo, str, str, str]] = []
 
     for app in apps:
+        # --- capa ---
         remote_url = (app.imagem or "").strip()
-        if not _is_http_url(remote_url):
+        if _is_http_url(remote_url):
+            cached = _media_cache_hit(
+                app.id,
+                remote_url,
+                app.imagem_versao,
+                manifest,
+                url_key="url",
+                versao_key="imagem_versao",
+                path_key="path",
+            )
+            if cached is not None:
+                app.imagem = str(cached)
+            else:
+                pending.append(
+                    (
+                        _batch_key(app.id, _KIND_IMAGEM),
+                        app,
+                        _KIND_IMAGEM,
+                        remote_url,
+                        _image_filename(app),
+                    )
+                )
+        else:
             local_img = config.CATALOG_IMAGES_DIR / _image_filename(app)
             if local_img.exists():
                 app.imagem = str(local_img)
-            continue
 
-        cached = _image_cache_hit(app, manifest)
-        if cached is not None:
-            app.imagem = str(cached)
-            continue
-
-        pending.append((app, remote_url, _image_filename(app)))
+        # --- icone ---
+        remote_ico = (app.icone or "").strip()
+        if _is_http_url(remote_ico):
+            cached = _media_cache_hit(
+                app.id,
+                remote_ico,
+                app.icone_versao,
+                manifest,
+                url_key="icone_url",
+                versao_key="icone_versao",
+                path_key="icone_path",
+            )
+            if cached is not None:
+                app.icone = str(cached)
+            else:
+                pending.append(
+                    (
+                        _batch_key(app.id, _KIND_ICONE),
+                        app,
+                        _KIND_ICONE,
+                        remote_ico,
+                        _icon_filename(app),
+                    )
+                )
+        elif remote_ico:
+            local_ico = config.CATALOG_IMAGES_DIR / _icon_filename(app)
+            if local_ico.exists():
+                app.icone = str(local_ico)
 
     if not pending:
         _save_images_manifest(manifest)
@@ -151,49 +274,56 @@ def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int
 
     report(
         0.55,
-        f"Baixando {len(pending)} imagem(ns) em lote (uma autenticacao)...",
+        f"Baixando {len(pending)} midia(s) em lote (capas/icones)...",
     )
     batch = baixar_varios_do_sharepoint(
         [
-            SharePointBatchItem(id=app.id, link=url, nome_arquivo=nome)
-            for app, url, nome in pending
+            SharePointBatchItem(id=bid, link=url, nome_arquivo=nome)
+            for bid, _app, _kind, url, nome in pending
         ],
         pasta_destino=config.CATALOG_IMAGES_DIR,
         progress=lambda p, m: report(0.55 + p * 0.4, m),
     )
 
-    by_id = {app.id: (app, url, nome) for app, url, nome in pending}
-    for app_id, local_path in batch.paths.items():
-        meta = by_id.get(app_id)
-        if not meta:
-            continue
-        app, remote_url, _nome = meta
-        app.imagem = str(local_path)
-        manifest[app_id] = {
-            "url": remote_url,
-            "imagem_versao": str(app.imagem_versao),
-            "path": str(local_path),
-        }
+    by_key = {bid: (app, kind, url, nome) for bid, app, kind, url, nome in pending}
+
+    def _store(app: AppInfo, kind: str, remote_url: str, local_path: Path) -> None:
+        nonlocal downloaded
+        entry = manifest.get(app.id)
+        if not isinstance(entry, dict):
+            entry = {}
+            manifest[app.id] = entry
+        if kind == _KIND_IMAGEM:
+            app.imagem = str(local_path)
+            entry["url"] = remote_url
+            entry["imagem_versao"] = str(app.imagem_versao)
+            entry["path"] = str(local_path)
+        else:
+            app.icone = str(local_path)
+            entry["icone_url"] = remote_url
+            entry["icone_versao"] = str(app.icone_versao)
+            entry["icone_path"] = str(local_path)
         downloaded += 1
 
-    # Fallback individual para quem falhou no lote
-    failed_ids = [app.id for app, _u, _n in pending if app.id not in batch.paths]
-    for app_id in failed_ids:
-        app, remote_url, nome_img = by_id[app_id]
-        report(0.95, f"Retry individual: {app.nome}...")
-        img_result = baixar_do_sharepoint(
+    for bid, local_path in batch.paths.items():
+        meta = by_key.get(bid)
+        if not meta:
+            continue
+        app, kind, remote_url, _nome = meta
+        _store(app, kind, remote_url, local_path)
+
+    failed = [bid for bid, *_rest in pending if bid not in batch.paths]
+    for bid in failed:
+        app, kind, remote_url, nome = by_key[bid]
+        label = "icone" if kind == _KIND_ICONE else "imagem"
+        report(0.95, f"Retry individual ({label}): {app.nome}...")
+        result = baixar_do_sharepoint(
             link=remote_url,
             pasta_destino=config.CATALOG_IMAGES_DIR,
-            nome_arquivo=nome_img,
+            nome_arquivo=nome,
         )
-        if img_result.ok and img_result.path and img_result.path.exists():
-            app.imagem = str(img_result.path)
-            manifest[app.id] = {
-                "url": remote_url,
-                "imagem_versao": str(app.imagem_versao),
-                "path": str(img_result.path),
-            }
-            downloaded += 1
+        if result.ok and result.path and result.path.exists():
+            _store(app, kind, remote_url, result.path)
 
     _save_images_manifest(manifest)
     return downloaded
@@ -207,15 +337,7 @@ def _load_cached_catalog() -> list[AppInfo]:
         apps = _parse_catalog(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return []
-    manifest = _load_images_manifest()
-    for app in apps:
-        cached = _image_cache_hit(app, manifest)
-        if cached is not None:
-            app.imagem = str(cached)
-        else:
-            local_img = config.CATALOG_IMAGES_DIR / _image_filename(app)
-            if local_img.exists():
-                app.imagem = str(local_img)
+    _apply_local_or_cache(apps, _load_images_manifest())
     return apps
 
 
@@ -232,7 +354,7 @@ class LocalCatalogProvider(CatalogProvider):
 
 
 class SharePointCatalogProvider(CatalogProvider):
-    """Baixa catalog.json via PnP; imagens so quando mudam (manifest local)."""
+    """Baixa catalog.json via PnP; capas/icones so quando mudam (manifest local)."""
 
     def __init__(self, url: str | None = None) -> None:
         self.url = url or config.REMOTE_CATALOG_URL
@@ -307,7 +429,7 @@ class SharePointCatalogProvider(CatalogProvider):
                 ok=False,
             )
 
-        report(0.55, "Verificando imagens em cache...")
+        report(0.55, "Verificando capas e icones em cache...")
         _sync_images(apps, progress=report)
         report(1.0, "Catalogo sincronizado.")
 
