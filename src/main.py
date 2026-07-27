@@ -50,9 +50,10 @@ class SuiteApp:
         self.page.theme_mode = ft.ThemeMode.DARK
         self.page.theme = ft.Theme(color_scheme_seed=config.COLOR_PRIMARY)
         self.page.padding = 0
-        if config.BRANDING_WINDOW_ICON.exists():
-            # relativo a assets_dir passado em ft.run
-            self.page.window.icon = "branding/window_icon.png"
+        icon_path = config.resolve_window_icon()
+        if icon_path is not None:
+            # Windows/Flet: precisa de .ico com caminho absoluto
+            self.page.window.icon = str(icon_path)
         self.page.add(self.root_row)
 
     def _show_sync_screen(self) -> None:

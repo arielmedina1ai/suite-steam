@@ -126,11 +126,14 @@ copy assets\branding\window_icon.example.png assets\branding\window_icon.png
 | Arquivo (producao) | Exemplo | Onde aparece | Resolucao |
 |--------------------|---------|--------------|-----------|
 | `logo.png` | `logo.example.png` | Emblema (antigo "SP") | **512 x 512** px (min. 256) |
-| `window_icon.png` | `window_icon.example.png` | Icone da janela / tarefa | **256 x 256** px |
+| `window_icon.png` | `window_icon.example.png` | Icone da janela (Flet gera `.ico`) | **256 x 256** px |
 
 DPI: use 72 (padrao de tela); o importante e o tamanho em pixels.
 Formato: PNG com transparencia, proporcao 1:1.
-Os PNG de producao nao sao versionados (`.gitignore`); so os `*.example.png`.
+Os PNG/ICO de producao nao sao versionados (`.gitignore`); so os `*.example.png`.
+
+**Nota Windows:** o icone da janela exige `.ico`. A Suite converte
+`window_icon.png` → `window_icon.ico` automaticamente ao abrir.
 
 Capas de aplicativo (campo `imagem`) continuam no SharePoint — recomendado
 **1040 x 600** (16:9) ou similar. Icones de app (campo `icone`): **256 x 256** px.
