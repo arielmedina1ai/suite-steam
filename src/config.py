@@ -57,10 +57,10 @@ _catalog = _S.get("catalog", {}) if isinstance(_S.get("catalog"), dict) else {}
 # Identificacao do app  ->  settings.json > "app"
 # ---------------------------------------------------------------------------
 APP_NAME = _app.get("name", "Suite")
-APP_VERSION = _app.get("version", "0.1.0")
+APP_VERSION = str(_app.get("version", "0.1.0")).strip() or "0.1.0"
 
 # ---------------------------------------------------------------------------
-# Textos institucionais do setor  ->  settings.json > "sector"
+# Textos institucionais da home  ->  settings.json > "sector"
 # ---------------------------------------------------------------------------
 SECTOR_NAME = _sector.get("name", "Nome do Setor")
 SECTOR_TAGLINE = _sector.get("tagline", "Nossos aplicativos, em um so lugar.")
@@ -98,10 +98,17 @@ def _user_data_dir() -> Path:
 USER_DATA_DIR = _user_data_dir()
 DOWNLOADS_DIR = USER_DATA_DIR / "apps"
 INSTALLED_MANIFEST = USER_DATA_DIR / "installed.json"
+FAVORITES_FILE = USER_DATA_DIR / "favorites.json"
 CATALOG_CACHE_DIR = USER_DATA_DIR / "catalog"
 CATALOG_CACHE_FILE = CATALOG_CACHE_DIR / "catalog.json"
 CATALOG_IMAGES_DIR = CATALOG_CACHE_DIR / "images"
 CATALOG_IMAGES_MANIFEST = CATALOG_CACHE_DIR / "images_manifest.json"
+
+
+def user_downloads_dir() -> Path:
+    """Pasta Downloads do usuario Windows (destino do update da Suite)."""
+    home = Path(os.environ.get("USERPROFILE") or os.path.expanduser("~"))
+    return home / "Downloads"
 
 # ---------------------------------------------------------------------------
 # SharePoint (sempre PnP) — caminhos fixos, nao vao no settings.json

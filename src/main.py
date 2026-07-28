@@ -1,28 +1,44 @@
 """Suite Petrobras - hub de aplicativos internos (frontend em Flet)."""
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import flet as ft
 
 import config
 from catalog import SharePointCatalogProvider
-from models import AppInfo, apps_do_setor
+from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
 from services.download_manager import DownloadManager
+from services.favorites import FavoritesStore
+from services.preferences import PreferencesStore
+from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
-from ui.home_view import build_home, build_setor_view
+from ui.home_view import build_favoritos_view, build_home, build_setor_view
 
 
 class SuiteApp:
     def __init__(self, page: ft.Page) -> None:
         self.page = page
         self.storage = Storage()
+        self.favorites = FavoritesStore()
+        self.preferences = PreferencesStore()
         self.manager = DownloadManager(self.storage)
+        self.catalog = CatalogData()
+        self.view_catalog = CatalogData()
         self.apps: list[AppInfo] = []
         self.apps_by_id: dict[str, AppInfo] = {}
+        self.selected_gerencia_id = self.preferences.get_gerencia_id()
         self.selected_id: str | None = None
         self.selected_setor: str | None = None
+        self.show_favorites = False
         self.sync_message = ""
+        self.update_busy = False
+        self.update_message = ""
+        self.update_path: str | None = None
 
         self.sidebar_holder = ft.Container()
         self.content_holder = ft.Container(expand=True, padding=28)
@@ -96,12 +112,13 @@ class SuiteApp:
         result = provider.sync(
             progress=lambda _p, msg: self._update_sync_status(msg)
         )
-        self.apps = result.apps
-        self.apps_by_id = {app.id: app for app in self.apps}
+        self.catalog = result.catalog
+        self._apply_gerencia_filter()
         # Banner so em falha/aviso — sucesso limpo nao polui a home
         self.sync_message = result.message if not result.ok else ""
         self.selected_id = None
         self.selected_setor = None
+        self.show_favorites = False
         self._render()
 
     def _update_sync_status(self, msg: str) -> None:
@@ -115,14 +132,56 @@ class SuiteApp:
             pass
 
     # ------------------------------------------------------------------
+    def _apply_gerencia_filter(self) -> None:
+        """Atualiza view_catalog/apps a partir do filtro de gerencia persistido."""
+        gid = self.selected_gerencia_id
+        if gid and self.catalog.gerencia_by_id(gid) is None:
+            # Gerencia salva nao existe mais no catalogo
+            gid = ""
+            self.selected_gerencia_id = ""
+            self.preferences.set_gerencia_id("")
+        self.view_catalog = self.catalog.filter_for_gerencia(gid)
+        self.apps = self.view_catalog.apps
+        self.apps_by_id = {app.id: app for app in self.apps}
+
+    def _favorite_ids(self) -> set[str]:
+        return set(self.favorites.list_ids())
+
+    def _visible_favorite_apps(self) -> list[AppInfo]:
+        favs = self._favorite_ids()
+        return [a for a in self.apps if a.id in favs]
+
+    def _has_visible_favorites(self) -> bool:
+        return bool(self._visible_favorite_apps())
+
+    def _gerencia_atual(self):
+        if not self.selected_gerencia_id:
+            return None
+        return self.catalog.gerencia_by_id(self.selected_gerencia_id)
+
+    def _update_available(self) -> bool:
+        suite = self.catalog.suite
+        if not suite.available:
+            return False
+        return suite.versao != config.APP_VERSION
+
+    # ------------------------------------------------------------------
     def _go_home(self) -> None:
         self.selected_id = None
         self.selected_setor = None
+        self.show_favorites = False
         self._render()
 
-    def _select_setor(self, setor: str) -> None:
-        self.selected_setor = setor
+    def _go_favorites(self) -> None:
         self.selected_id = None
+        self.selected_setor = None
+        self.show_favorites = True
+        self._render()
+
+    def _select_setor(self, setor_id: str) -> None:
+        self.selected_setor = setor_id
+        self.selected_id = None
+        self.show_favorites = False
         self._render()
 
     def _select_app(self, app_id: str) -> None:
@@ -130,17 +189,133 @@ class SuiteApp:
         app = self.apps_by_id.get(app_id)
         if app is not None and app.setor:
             self.selected_setor = app.setor
+        self.show_favorites = False
         self._render()
+
+    def _select_gerencia(self, gerencia_id: str) -> None:
+        gid = (gerencia_id or "").strip()
+        self.selected_gerencia_id = gid
+        self.preferences.set_gerencia_id(gid)
+        self._apply_gerencia_filter()
+        # Ao trocar o filtro, volta ao Inicio e limpa navegacao invalida
+        self.selected_id = None
+        self.selected_setor = None
+        self.show_favorites = False
+        self._render()
+
+    def _toggle_favorite(self, app_id: str) -> None:
+        self.favorites.toggle(app_id)
+        # Se removeu o ultimo favorito enquanto na view Favoritos, volta ao Inicio
+        if self.show_favorites and not self._has_visible_favorites():
+            self.show_favorites = False
+        self._render()
+
+    def _download_suite_update(self) -> None:
+        if self.update_busy:
+            return
+        suite = self.catalog.suite
+        if not suite.available:
+            return
+        self.update_busy = True
+        self.update_path = None
+        self.update_message = "Iniciando download..."
+        self._render()
+        self.page.run_thread(self._download_suite_worker)
+
+    def _download_suite_worker(self) -> None:
+        suite = self.catalog.suite
+        dest = config.user_downloads_dir()
+        dest.mkdir(parents=True, exist_ok=True)
+        nome_final = f"SuiteAPPs_{suite.versao}.exe"
+        self.update_message = "Baixando pelo link do catalogo..."
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+        # Baixa com o nome do link (nao altera o caminho no SharePoint);
+        # so ao salvar renomeia para SuiteAPPs_{versao}.exe
+        result = baixar_do_sharepoint(
+            link=suite.download_url,
+            pasta_destino=dest,
+            nome_arquivo=None,
+        )
+        if result.ok and result.path and result.path.exists():
+            final = dest / nome_final
+            try:
+                if result.path.resolve() != final.resolve():
+                    if final.exists():
+                        final.unlink()
+                    result.path.replace(final)
+                path_show = final if final.exists() else result.path
+            except OSError:
+                path_show = result.path
+            self.update_path = str(path_show)
+            self.update_message = (
+                f'Salvo com sucesso em Downloads com o nome "{path_show.name}".'
+            )
+            self._reveal_in_explorer(path_show)
+        else:
+            self.update_path = None
+            self.update_message = result.message or "Falha no download da atualizacao."
+        self.update_busy = False
+        self._render()
+
+    def _reveal_in_explorer(self, path: Path) -> None:
+        """Abre o Explorer na pasta Downloads com o arquivo selecionado."""
+        try:
+            if not path.exists():
+                return
+            if sys.platform.startswith("win"):
+                subprocess.Popen(["explorer", "/select,", str(path.resolve())])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path.parent)])
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     def _render(self) -> None:
-        home_selected = self.selected_id is None and self.selected_setor is None
+        fav_ids = self._favorite_ids()
+        has_favs = self._has_visible_favorites()
+        if self.show_favorites and not has_favs:
+            self.show_favorites = False
+
+        # Setor selecionado pode sumir apos filtro de gerencia
+        if self.selected_setor is not None:
+            visible_ids = {s.id for s in setores_visiveis(self.view_catalog)}
+            if self.selected_setor not in visible_ids:
+                self.selected_setor = None
+
+        if self.selected_id is not None and self.selected_id not in self.apps_by_id:
+            self.selected_id = None
+
+        home_selected = (
+            self.selected_id is None
+            and self.selected_setor is None
+            and not self.show_favorites
+        )
+        favorites_selected = self.show_favorites and self.selected_id is None
+
         self.sidebar_holder.content = build_sidebar(
-            self.apps,
+            self.view_catalog,
+            gerencias=self.catalog.gerencias,
             home_selected=home_selected,
-            selected_setor=self.selected_setor,
+            favorites_selected=favorites_selected,
+            selected_setor_id=self.selected_setor,
+            selected_gerencia_id=self.selected_gerencia_id,
+            show_favorites=has_favs,
+            suite_update=self.catalog.suite,
+            update_available=self._update_available(),
+            update_busy=self.update_busy,
+            update_message=self.update_message,
+            update_done=bool(self.update_path),
             on_home=self._go_home,
+            on_favorites=self._go_favorites,
             on_select_setor=self._select_setor,
+            on_select_gerencia=self._select_gerencia,
+            on_download_update=self._download_suite_update,
         )
 
         if self.selected_id is not None:
@@ -151,15 +326,46 @@ class SuiteApp:
                 )
             else:
                 self.content_holder.content = AppDetailView(
-                    self.page, app, self.storage, self.manager
+                    self.page,
+                    app,
+                    self.storage,
+                    self.manager,
+                    is_favorite=app.id in fav_ids,
+                    on_toggle_favorite=self._toggle_favorite,
                 ).build()
+        elif self.show_favorites:
+            self.content_holder.content = build_favoritos_view(
+                self._visible_favorite_apps(),
+                self._select_app,
+                favorite_ids=fav_ids,
+                on_toggle_favorite=self._toggle_favorite,
+            )
         elif self.selected_setor is not None:
             filtrados = apps_do_setor(self.apps, self.selected_setor)
+            setor_info = self.catalog.setor_by_id(self.selected_setor)
+            if setor_info is None:
+                from models import SetorInfo
+
+                setor_info = SetorInfo(
+                    id=self.selected_setor,
+                    nome=self.selected_setor,
+                    descricao="",
+                )
             self.content_holder.content = build_setor_view(
-                self.selected_setor, filtrados, self._select_app
+                setor_info,
+                filtrados,
+                self._select_app,
+                favorite_ids=fav_ids,
+                on_toggle_favorite=self._toggle_favorite,
             )
         else:
-            home = build_home(self.apps, self._select_app)
+            home = build_home(
+                self.apps,
+                self._select_app,
+                gerencia=self._gerencia_atual(),
+                favorite_ids=fav_ids,
+                on_toggle_favorite=self._toggle_favorite,
+            )
             if self.sync_message:
                 banner = ft.Container(
                     bgcolor=config.COLOR_SURFACE,

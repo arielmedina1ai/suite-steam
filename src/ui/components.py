@@ -7,7 +7,7 @@ from typing import Callable
 import flet as ft
 
 import config
-from models import AppInfo, setores_do_catalogo
+from models import AppInfo, CatalogData, GerenciaInfo, SuiteUpdateInfo, setores_visiveis
 
 
 def media_src(path: str) -> str:
@@ -115,15 +115,101 @@ def _nav_item(
     )
 
 
-def build_sidebar(
-    apps: list[AppInfo],
+_NONE_GERENCIA = "__todas__"  # valor interno do seletor = sem filtro
+
+
+def _update_banner(
     *,
-    home_selected: bool,
-    selected_setor: str | None,
-    on_home: Callable[[], None],
-    on_select_setor: Callable[[str], None],
+    suite_update: SuiteUpdateInfo,
+    update_busy: bool,
+    update_message: str,
+    update_done: bool,
+    on_download_update: Callable[[], None],
 ) -> ft.Control:
-    setores = setores_do_catalogo(apps)
+    # Sidebar 260 - padding 12*2 = 236 (mesma faixa dos itens de menu)
+    _W = 236
+    controls: list[ft.Control] = [
+        ft.Text(
+            "Atualizacao disponivel" if not update_done else "Download concluido",
+            size=12,
+            weight=ft.FontWeight.BOLD,
+            color=config.COLOR_ACCENT,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            width=_W - 24,
+        ),
+        ft.Text(
+            f"Suite v{suite_update.versao}",
+            size=12,
+            color="#B9CEC3",
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            width=_W - 24,
+        ),
+    ]
+    # Botao some apos download bem-sucedido
+    if not update_done:
+        controls.append(
+            ft.FilledButton(
+                "Baixar atualizacao" if not update_busy else "Baixando...",
+                icon=ft.Icons.DOWNLOAD,
+                disabled=update_busy,
+                on_click=lambda e: on_download_update(),
+                width=_W - 24,
+            )
+        )
+    if update_message:
+        controls.append(
+            ft.Text(
+                update_message,
+                size=11,
+                color="#8AA797",
+                width=_W - 24,
+            )
+        )
+    if update_done:
+        controls.append(
+            ft.Text(
+                "Abrindo a pasta com o arquivo selecionado...",
+                size=11,
+                weight=ft.FontWeight.BOLD,
+                color=config.COLOR_TEXT,
+                width=_W - 24,
+            )
+        )
+    return ft.Container(
+        width=_W,
+        margin=ft.Margin.only(bottom=8),
+        padding=12,
+        border_radius=10,
+        bgcolor=config.COLOR_PRIMARY_DARK,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        content=ft.Column(spacing=8, tight=True, controls=controls),
+    )
+
+
+def build_sidebar(
+    catalog: CatalogData,
+    *,
+    gerencias: list[GerenciaInfo] | None = None,
+    home_selected: bool,
+    favorites_selected: bool,
+    selected_setor_id: str | None,
+    selected_gerencia_id: str,
+    show_favorites: bool,
+    suite_update: SuiteUpdateInfo | None,
+    update_available: bool,
+    update_busy: bool,
+    update_message: str,
+    update_done: bool,
+    on_home: Callable[[], None],
+    on_favorites: Callable[[], None],
+    on_select_setor: Callable[[str], None],
+    on_select_gerencia: Callable[[str], None],
+    on_download_update: Callable[[], None],
+) -> ft.Control:
+    setores = setores_visiveis(catalog)
+    gerencia_list = gerencias if gerencias is not None else catalog.gerencias
     items: list[ft.Control] = [
         ft.Container(
             padding=ft.Padding.only(left=8, top=8, bottom=16),
@@ -141,26 +227,99 @@ def build_sidebar(
                 ],
             ),
         ),
+    ]
+
+    # Atualizacao da Suite — logo acima de Inicio
+    if update_available and suite_update is not None:
+        items.append(
+            _update_banner(
+                suite_update=suite_update,
+                update_busy=update_busy,
+                update_message=update_message,
+                update_done=update_done,
+                on_download_update=on_download_update,
+            )
+        )
+
+    items.append(
         _nav_item(
             label="Inicio",
             icon=ft.Icons.HOME,
             selected=home_selected,
             on_click=on_home,
-        ),
+        )
+    )
+
+    if show_favorites:
+        items.append(
+            _nav_item(
+                label="Favoritos",
+                icon=ft.Icons.STAR,
+                selected=favorites_selected,
+                on_click=on_favorites,
+            )
+        )
+
+    # Filtro por gerencia (acima dos setores)
+    if gerencia_list:
+        gerencia_options = [
+            ft.DropdownOption(key=_NONE_GERENCIA, text="Todas"),
+        ]
+        for g in gerencia_list:
+            gerencia_options.append(ft.DropdownOption(key=g.id, text=g.nome))
+
+        current_gid = selected_gerencia_id.strip() if selected_gerencia_id else _NONE_GERENCIA
+        valid_keys = {o.key for o in gerencia_options}
+        if current_gid not in valid_keys:
+            current_gid = _NONE_GERENCIA
+
+        def _on_gerencia_select(e) -> None:
+            raw = (e.control.value or _NONE_GERENCIA).strip()
+            on_select_gerencia("" if raw == _NONE_GERENCIA else raw)
+
+        items.append(
+            ft.Container(
+                padding=ft.Padding.only(left=4, top=16, bottom=4, right=4),
+                content=ft.Column(
+                    spacing=6,
+                    controls=[
+                        ft.Text("GERENCIA", size=11, color="#8AA797", weight=ft.FontWeight.BOLD),
+                        ft.Dropdown(
+                            value=current_gid,
+                            options=gerencia_options,
+                            dense=True,
+                            filled=True,
+                            fill_color=config.COLOR_BG,
+                            border_color="#22332B",
+                            color=config.COLOR_TEXT,
+                            text_size=13,
+                            width=228,
+                            on_select=_on_gerencia_select,
+                        ),
+                    ],
+                ),
+            )
+        )
+
+    items.append(
         ft.Container(
-            padding=ft.Padding.only(left=12, top=16, bottom=6),
+            padding=ft.Padding.only(left=12, top=12 if gerencia_list else 16, bottom=6),
             content=ft.Text("SETORES", size=11, color="#8AA797", weight=ft.FontWeight.BOLD),
-        ),
-    ]
+        )
+    )
 
     if setores:
-        for nome in setores:
+        for setor in setores:
             items.append(
                 _nav_item(
-                    label=nome,
+                    label=setor.nome,
                     icon=ft.Icons.FOLDER_OUTLINED,
-                    selected=(not home_selected and selected_setor == nome),
-                    on_click=lambda s=nome: on_select_setor(s),
+                    selected=(
+                        not home_selected
+                        and not favorites_selected
+                        and selected_setor_id == setor.id
+                    ),
+                    on_click=lambda s=setor.id: on_select_setor(s),
                 )
             )
     else:
@@ -168,12 +327,14 @@ def build_sidebar(
             ft.Container(
                 padding=12,
                 content=ft.Text(
-                    "Nenhum setor no catalogo. Defina o campo \"setor\" nos apps.",
+                    "Nenhum setor com apps visiveis.",
                     size=12,
                     color="#8AA797",
                 ),
             )
         )
+
+    items.append(ft.Container(expand=True))
 
     return ft.Container(
         width=260,

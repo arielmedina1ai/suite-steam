@@ -16,7 +16,7 @@ from typing import Any, Callable
 from urllib.parse import unquote, urlparse
 
 import config
-from models import AppInfo
+from models import AppInfo, CatalogData, parse_catalog_dict
 from services.sharepoint_manager import (
     SharePointBatchItem,
     baixar_do_sharepoint,
@@ -33,29 +33,25 @@ _KIND_ICONE = "icone"
 
 class CatalogProvider(ABC):
     @abstractmethod
-    def load(self) -> list[AppInfo]:
+    def load(self) -> CatalogData:
         raise NotImplementedError
 
 
 @dataclass
 class CatalogSyncResult:
-    apps: list[AppInfo]
+    catalog: CatalogData
     message: str = ""
     from_cache: bool = False
     ok: bool = True
 
+    @property
+    def apps(self) -> list[AppInfo]:
+        return self.catalog.apps
 
-def _parse_catalog(raw: str) -> list[AppInfo]:
+
+def _parse_catalog(raw: str) -> CatalogData:
     data = json.loads(raw)
-    if isinstance(data, dict):
-        data = data.get("apps", [])
-    apps: list[AppInfo] = []
-    for item in data:
-        try:
-            apps.append(AppInfo.from_dict(item))
-        except (KeyError, TypeError):
-            continue
-    return apps
+    return parse_catalog_dict(data)
 
 
 def _is_http_url(value: str) -> bool:
@@ -329,16 +325,16 @@ def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int
     return downloaded
 
 
-def _load_cached_catalog() -> list[AppInfo]:
+def _load_cached_catalog() -> CatalogData | None:
     path = config.CATALOG_CACHE_FILE
     if not path.exists():
-        return []
+        return None
     try:
-        apps = _parse_catalog(path.read_text(encoding="utf-8"))
+        catalog = _parse_catalog(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return []
-    _apply_local_or_cache(apps, _load_images_manifest())
-    return apps
+        return None
+    _apply_local_or_cache(catalog.apps, _load_images_manifest())
+    return catalog
 
 
 class LocalCatalogProvider(CatalogProvider):
@@ -347,9 +343,9 @@ class LocalCatalogProvider(CatalogProvider):
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or config.CATALOG_EXAMPLE_FILE
 
-    def load(self) -> list[AppInfo]:
+    def load(self) -> CatalogData:
         if not self.path.exists():
-            return []
+            return CatalogData()
         return _parse_catalog(self.path.read_text(encoding="utf-8"))
 
 
@@ -359,8 +355,8 @@ class SharePointCatalogProvider(CatalogProvider):
     def __init__(self, url: str | None = None) -> None:
         self.url = url or config.REMOTE_CATALOG_URL
 
-    def load(self) -> list[AppInfo]:
-        return self.sync().apps
+    def load(self) -> CatalogData:
+        return self.sync().catalog
 
     def sync(self, progress: ProgressCb | None = None) -> CatalogSyncResult:
         def report(pct: float, msg: str) -> None:
@@ -369,16 +365,16 @@ class SharePointCatalogProvider(CatalogProvider):
 
         if not self.url:
             cached = _load_cached_catalog()
-            if cached:
+            if cached is not None and cached.apps:
                 return CatalogSyncResult(
-                    apps=cached,
+                    catalog=cached,
                     message="catalog.remote_url nao configurado. Usando cache local.",
                     from_cache=True,
                     ok=False,
                 )
-            apps = LocalCatalogProvider().load()
+            catalog = LocalCatalogProvider().load()
             return CatalogSyncResult(
-                apps=apps,
+                catalog=catalog,
                 message=(
                     "Configure catalog.remote_url no settings.json com o link "
                     "SharePoint do catalog.json. O arquivo catalog.example.json "
@@ -401,15 +397,15 @@ class SharePointCatalogProvider(CatalogProvider):
 
         if not result.ok or not result.path or not result.path.exists():
             cached = _load_cached_catalog()
-            if cached:
+            if cached is not None:
                 return CatalogSyncResult(
-                    apps=cached,
+                    catalog=cached,
                     message=f"Falha ao sincronizar catalogo ({result.message}). Usando cache.",
                     from_cache=True,
                     ok=False,
                 )
             return CatalogSyncResult(
-                apps=[],
+                catalog=CatalogData(),
                 message=f"Falha ao sincronizar catalogo: {result.message}",
                 from_cache=False,
                 ok=False,
@@ -419,22 +415,22 @@ class SharePointCatalogProvider(CatalogProvider):
             text = result.path.read_text(encoding="utf-8")
             if text.lstrip().startswith("<"):
                 raise json.JSONDecodeError("Conteudo parece HTML, nao JSON.", text, 0)
-            apps = _parse_catalog(text)
+            catalog = _parse_catalog(text)
         except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
             cached = _load_cached_catalog()
             return CatalogSyncResult(
-                apps=cached,
+                catalog=cached or CatalogData(),
                 message=f"Catalogo invalido: {exc}",
                 from_cache=bool(cached),
                 ok=False,
             )
 
         report(0.55, "Verificando capas e icones em cache...")
-        _sync_images(apps, progress=report)
+        _sync_images(catalog.apps, progress=report)
         report(1.0, "Catalogo sincronizado.")
 
         return CatalogSyncResult(
-            apps=apps,
+            catalog=catalog,
             message="",
             from_cache=False,
             ok=True,
