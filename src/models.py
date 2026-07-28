@@ -42,13 +42,110 @@ class InstallStatus(str, Enum):
 
 
 @dataclass
+class SuiteUpdateInfo:
+    """Metadados de atualizacao da propria Suite (catalog.json > suite)."""
+
+    versao: str = ""
+    download_url: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "SuiteUpdateInfo":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            versao=str(data.get("versao", "")).strip(),
+            download_url=str(data.get("download_url", "")).strip(),
+        )
+
+    @property
+    def available(self) -> bool:
+        return bool(self.versao and self.download_url)
+
+
+@dataclass
+class SubSetorInfo:
+    id: str
+    nome: str
+    descricao: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SubSetorInfo":
+        sid = str(data.get("id", "")).strip()
+        return cls(
+            id=sid,
+            nome=str(data.get("nome", sid)).strip() or sid,
+            descricao=str(data.get("descricao", "")).strip(),
+        )
+
+
+@dataclass
+class SetorInfo:
+    id: str
+    nome: str
+    descricao: str = ""
+    sub_setores: list[SubSetorInfo] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SetorInfo":
+        sid = str(data.get("id", "")).strip()
+        subs_raw = data.get("sub_setores", [])
+        subs: list[SubSetorInfo] = []
+        if isinstance(subs_raw, list):
+            for item in subs_raw:
+                if isinstance(item, dict):
+                    try:
+                        subs.append(SubSetorInfo.from_dict(item))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+        return cls(
+            id=sid,
+            nome=str(data.get("nome", sid)).strip() or sid,
+            descricao=str(data.get("descricao", "")).strip(),
+            sub_setores=subs,
+        )
+
+    def sub_setor_by_id(self, sub_id: str) -> SubSetorInfo | None:
+        alvo = (sub_id or "").strip()
+        for sub in self.sub_setores:
+            if sub.id == alvo:
+                return sub
+        return None
+
+
+@dataclass
+class GerenciaInfo:
+    id: str
+    nome: str
+    descricao: str = ""
+    apps: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "GerenciaInfo":
+        gid = str(data.get("id", "")).strip()
+        apps_raw = data.get("apps", [])
+        app_ids: list[str] = []
+        if isinstance(apps_raw, list):
+            for item in apps_raw:
+                aid = str(item).strip()
+                if aid and aid not in app_ids:
+                    app_ids.append(aid)
+        return cls(
+            id=gid,
+            nome=str(data.get("nome", gid)).strip() or gid,
+            descricao=str(data.get("descricao", "")).strip(),
+            apps=app_ids,
+        )
+
+
+@dataclass
 class AppInfo:
     """Metadados de um aplicativo do catalogo."""
 
     id: str
     nome: str
     descricao: str = ""
-    setor: str = ""  # grupo na sidebar; nomes distintos geram itens de menu
+    setor: str = ""  # id do setor (catalog.json > setores[].id)
+    sub_setor: str = ""  # id do sub-setor
     imagem: str = ""  # capa (tela de detalhe) — link SharePoint
     imagem_versao: str = "1"
     icone: str = ""  # icone pequeno (cards) — link SharePoint
@@ -65,6 +162,7 @@ class AppInfo:
             nome=str(data.get("nome", data["id"])).strip(),
             descricao=str(data.get("descricao", "")),
             setor=str(data.get("setor", "")).strip(),
+            sub_setor=str(data.get("sub_setor", "")).strip(),
             imagem=str(data.get("imagem", "")),
             imagem_versao=str(data.get("imagem_versao", "1")),
             icone=str(data.get("icone", "")),
@@ -76,19 +174,162 @@ class AppInfo:
         )
 
 
-def setores_do_catalogo(apps: list[AppInfo]) -> list[str]:
-    """Nomes de setor unicos, na ordem da primeira aparicao no catalogo."""
-    seen: list[str] = []
-    for app in apps:
-        nome = (app.setor or "").strip()
-        if nome and nome not in seen:
-            seen.append(nome)
-    return seen
+@dataclass
+class CatalogData:
+    """Catalogo completo apos parse (antes/depois do filtro por gerencia)."""
+
+    apps: list[AppInfo] = field(default_factory=list)
+    suite: SuiteUpdateInfo = field(default_factory=SuiteUpdateInfo)
+    gerencias: list[GerenciaInfo] = field(default_factory=list)
+    setores: list[SetorInfo] = field(default_factory=list)
+
+    def gerencia_by_id(self, gerencia_id: str) -> GerenciaInfo | None:
+        alvo = (gerencia_id or "").strip()
+        for g in self.gerencias:
+            if g.id == alvo:
+                return g
+        return None
+
+    def setor_by_id(self, setor_id: str) -> SetorInfo | None:
+        alvo = (setor_id or "").strip()
+        for s in self.setores:
+            if s.id == alvo:
+                return s
+        return None
+
+    def filter_for_gerencia(self, gerencia_id: str) -> "CatalogData":
+        """Retorna catalogo com apenas os apps atribuídos a gerencia."""
+        g = self.gerencia_by_id(gerencia_id)
+        if g is None:
+            # Sem gerencia no catalogo: se houver lista de gerencias, nao mostra nada;
+            # se o catalogo legado nao tiver gerencias, mantem todos os apps.
+            if self.gerencias:
+                return CatalogData(
+                    apps=[],
+                    suite=self.suite,
+                    gerencias=self.gerencias,
+                    setores=self.setores,
+                )
+            return CatalogData(
+                apps=list(self.apps),
+                suite=self.suite,
+                gerencias=self.gerencias,
+                setores=self.setores,
+            )
+        allowed = set(g.apps)
+        apps = [a for a in self.apps if a.id in allowed]
+        return CatalogData(
+            apps=apps,
+            suite=self.suite,
+            gerencias=self.gerencias,
+            setores=self.setores,
+        )
 
 
-def apps_do_setor(apps: list[AppInfo], setor: str) -> list[AppInfo]:
-    alvo = (setor or "").strip()
+def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:
+    """Parseia o JSON do catalogo (dict completo ou lista legado de apps)."""
+    if isinstance(data, list):
+        apps: list[AppInfo] = []
+        for item in data:
+            if isinstance(item, dict):
+                try:
+                    apps.append(AppInfo.from_dict(item))
+                except (KeyError, TypeError):
+                    continue
+        return CatalogData(apps=apps)
+
+    if not isinstance(data, dict):
+        return CatalogData()
+
+    suite = SuiteUpdateInfo.from_dict(
+        data.get("suite") if isinstance(data.get("suite"), dict) else None
+    )
+
+    gerencias: list[GerenciaInfo] = []
+    for item in data.get("gerencias", []) if isinstance(data.get("gerencias"), list) else []:
+        if isinstance(item, dict):
+            try:
+                g = GerenciaInfo.from_dict(item)
+                if g.id:
+                    gerencias.append(g)
+            except (KeyError, TypeError, ValueError):
+                continue
+
+    setores: list[SetorInfo] = []
+    for item in data.get("setores", []) if isinstance(data.get("setores"), list) else []:
+        if isinstance(item, dict):
+            try:
+                s = SetorInfo.from_dict(item)
+                if s.id:
+                    setores.append(s)
+            except (KeyError, TypeError, ValueError):
+                continue
+
+    apps = []
+    for item in data.get("apps", []) if isinstance(data.get("apps"), list) else []:
+        if isinstance(item, dict):
+            try:
+                apps.append(AppInfo.from_dict(item))
+            except (KeyError, TypeError):
+                continue
+
+    return CatalogData(apps=apps, suite=suite, gerencias=gerencias, setores=setores)
+
+
+def setores_visiveis(catalog: CatalogData) -> list[SetorInfo]:
+    """Setores (na ordem do JSON) que tem pelo menos 1 app no catalogo filtrado."""
+    used = {(a.setor or "").strip() for a in catalog.apps if (a.setor or "").strip()}
+    result: list[SetorInfo] = []
+    seen: set[str] = set()
+    for s in catalog.setores:
+        if s.id in used and s.id not in seen:
+            result.append(s)
+            seen.add(s.id)
+    # Setores so referidos por apps, sem entrada em setores[]
+    for app in catalog.apps:
+        sid = (app.setor or "").strip()
+        if sid and sid not in seen:
+            result.append(SetorInfo(id=sid, nome=sid, descricao=""))
+            seen.add(sid)
+    return result
+
+
+def apps_do_setor(apps: list[AppInfo], setor_id: str) -> list[AppInfo]:
+    alvo = (setor_id or "").strip()
     return [a for a in apps if (a.setor or "").strip() == alvo]
+
+
+def group_apps_by_sub_setor(
+    apps: list[AppInfo],
+    setor: SetorInfo | None,
+) -> list[tuple[SubSetorInfo | None, list[AppInfo]]]:
+    """Agrupa apps do setor na ordem dos sub_setores; resto em 'Outros'."""
+    by_sub: dict[str, list[AppInfo]] = {}
+    sem_sub: list[AppInfo] = []
+    for app in apps:
+        sid = (app.sub_setor or "").strip()
+        if not sid:
+            sem_sub.append(app)
+            continue
+        by_sub.setdefault(sid, []).append(app)
+
+    groups: list[tuple[SubSetorInfo | None, list[AppInfo]]] = []
+    known: set[str] = set()
+    if setor is not None:
+        for sub in setor.sub_setores:
+            known.add(sub.id)
+            chunk = by_sub.get(sub.id, [])
+            if chunk:
+                groups.append((sub, chunk))
+
+    for sid, chunk in by_sub.items():
+        if sid not in known and chunk:
+            groups.append((SubSetorInfo(id=sid, nome=sid, descricao=""), chunk))
+
+    if sem_sub:
+        groups.append((None, sem_sub))
+
+    return groups
 
 
 @dataclass

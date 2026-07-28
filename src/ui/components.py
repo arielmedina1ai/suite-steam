@@ -7,7 +7,7 @@ from typing import Callable
 import flet as ft
 
 import config
-from models import AppInfo, setores_do_catalogo
+from models import AppInfo, CatalogData, SuiteUpdateInfo, setores_visiveis
 
 
 def media_src(path: str) -> str:
@@ -116,14 +116,22 @@ def _nav_item(
 
 
 def build_sidebar(
-    apps: list[AppInfo],
+    catalog: CatalogData,
     *,
     home_selected: bool,
-    selected_setor: str | None,
+    favorites_selected: bool,
+    selected_setor_id: str | None,
+    show_favorites: bool,
+    suite_update: SuiteUpdateInfo | None,
+    update_available: bool,
+    update_busy: bool,
+    update_message: str,
     on_home: Callable[[], None],
+    on_favorites: Callable[[], None],
     on_select_setor: Callable[[str], None],
+    on_download_update: Callable[[], None],
 ) -> ft.Control:
-    setores = setores_do_catalogo(apps)
+    setores = setores_visiveis(catalog)
     items: list[ft.Control] = [
         ft.Container(
             padding=ft.Padding.only(left=8, top=8, bottom=16),
@@ -147,20 +155,37 @@ def build_sidebar(
             selected=home_selected,
             on_click=on_home,
         ),
+    ]
+
+    if show_favorites:
+        items.append(
+            _nav_item(
+                label="Favoritos",
+                icon=ft.Icons.STAR,
+                selected=favorites_selected,
+                on_click=on_favorites,
+            )
+        )
+
+    items.append(
         ft.Container(
             padding=ft.Padding.only(left=12, top=16, bottom=6),
             content=ft.Text("SETORES", size=11, color="#8AA797", weight=ft.FontWeight.BOLD),
-        ),
-    ]
+        )
+    )
 
     if setores:
-        for nome in setores:
+        for setor in setores:
             items.append(
                 _nav_item(
-                    label=nome,
+                    label=setor.nome,
                     icon=ft.Icons.FOLDER_OUTLINED,
-                    selected=(not home_selected and selected_setor == nome),
-                    on_click=lambda s=nome: on_select_setor(s),
+                    selected=(
+                        not home_selected
+                        and not favorites_selected
+                        and selected_setor_id == setor.id
+                    ),
+                    on_click=lambda s=setor.id: on_select_setor(s),
                 )
             )
     else:
@@ -168,9 +193,40 @@ def build_sidebar(
             ft.Container(
                 padding=12,
                 content=ft.Text(
-                    "Nenhum setor no catalogo. Defina o campo \"setor\" nos apps.",
+                    "Nenhum setor com apps nesta gerencia.",
                     size=12,
                     color="#8AA797",
+                ),
+            )
+        )
+
+    # Espaco flexivel + update da Suite
+    items.append(ft.Container(expand=True))
+
+    if update_available and suite_update is not None:
+        items.append(
+            ft.Container(
+                margin=ft.Margin.only(top=8),
+                padding=12,
+                border_radius=10,
+                bgcolor=config.COLOR_PRIMARY_DARK,
+                content=ft.Column(
+                    spacing=8,
+                    controls=[
+                        ft.Text("Atualizacao disponivel", size=12, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
+                        ft.Text(
+                            f"Suite v{suite_update.versao}",
+                            size=12,
+                            color="#B9CEC3",
+                        ),
+                        ft.FilledButton(
+                            "Baixar atualizacao" if not update_busy else "Baixando...",
+                            icon=ft.Icons.DOWNLOAD,
+                            disabled=update_busy,
+                            on_click=lambda e: on_download_update(),
+                        ),
+                        ft.Text(update_message, size=11, color="#8AA797") if update_message else ft.Container(),
+                    ],
                 ),
             )
         )

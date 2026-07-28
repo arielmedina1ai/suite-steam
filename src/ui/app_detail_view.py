@@ -26,12 +26,17 @@ class AppDetailView:
         storage: Storage,
         manager: DownloadManager,
         on_uninstalled=None,
+        *,
+        is_favorite: bool = False,
+        on_toggle_favorite=None,
     ) -> None:
         self.page = page
         self.app = app
         self.storage = storage
         self.manager = manager
         self.on_uninstalled = on_uninstalled
+        self.is_favorite = is_favorite
+        self.on_toggle_favorite = on_toggle_favorite
 
         self.progress = ft.ProgressBar(value=0, visible=False, color=config.COLOR_ACCENT, bgcolor="#0A0F0C")
         self.status_text = ft.Text("", size=13, color="#B9CEC3")
@@ -55,6 +60,13 @@ class AppDetailView:
             icon=ft.Icons.DELETE_OUTLINE,
             visible=False,
             on_click=self._on_uninstall,
+        )
+        self.favorite_button = ft.IconButton(
+            icon=ft.Icons.STAR if is_favorite else ft.Icons.STAR_BORDER,
+            icon_color=config.COLOR_ACCENT if is_favorite else "#8AA797",
+            icon_size=28,
+            tooltip="Remover dos favoritos" if is_favorite else "Adicionar aos favoritos",
+            on_click=self._on_toggle_favorite,
         )
 
         self._refresh_action_buttons()
@@ -92,6 +104,7 @@ class AppDetailView:
                 app_icon(self.app, size=36, color=config.COLOR_ACCENT),
                 ft.Column(
                     spacing=2,
+                    expand=True,
                     controls=[
                         ft.Text(self.app.nome, size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
                         ft.Text(
@@ -101,6 +114,7 @@ class AppDetailView:
                         ),
                     ],
                 ),
+                self.favorite_button,
             ],
         )
 
@@ -136,6 +150,10 @@ class AppDetailView:
         )
 
     # ------------------------------------------------------------------
+    def _on_toggle_favorite(self, _e) -> None:
+        if self.on_toggle_favorite:
+            self.on_toggle_favorite(self.app.id)
+
     def _current_status(self) -> InstallStatus:
         return self.storage.get_state(self.app.id).status
 

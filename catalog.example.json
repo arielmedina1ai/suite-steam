@@ -1,10 +1,60 @@
 {
+  "suite": {
+    "versao": "0.2.0",
+    "download_url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/SuiteAPPs.exe"
+  },
+  "gerencias": [
+    {
+      "id": "gerencia-1",
+      "nome": "Gerencia 1",
+      "descricao": "Hub de aplicativos da Gerencia 1. Aqui voce encontra as ferramentas de producao e monitoramento atribuidas a esta gerencia.",
+      "apps": ["relatorio-producao", "monitor-ativos"]
+    },
+    {
+      "id": "gerencia-2",
+      "nome": "Gerencia 2",
+      "descricao": "Hub focado no monitoramento de ativos para a Gerencia 2.",
+      "apps": ["monitor-ativos"]
+    }
+  ],
+  "setores": [
+    {
+      "id": "setor-1",
+      "nome": "Setor 1",
+      "descricao": "Ferramentas de consolidacao e analise de dados de producao.",
+      "sub_setores": [
+        {
+          "id": "sub-producao",
+          "nome": "Producao",
+          "descricao": "Planilhas e relatorios operacionais."
+        },
+        {
+          "id": "sub-qualidade",
+          "nome": "Qualidade",
+          "descricao": "Controles e indicadores de qualidade."
+        }
+      ]
+    },
+    {
+      "id": "setor-2",
+      "nome": "Setor 2",
+      "descricao": "Aplicativos de acompanhamento de ativos e status operacional.",
+      "sub_setores": [
+        {
+          "id": "sub-ativos",
+          "nome": "Ativos",
+          "descricao": "Monitoramento e status dos ativos."
+        }
+      ]
+    }
+  ],
   "apps": [
     {
       "id": "relatorio-producao",
       "nome": "Relatorio de Producao",
       "descricao": "Planilha automatizada para consolidacao e analise dos dados de producao do setor.",
-      "setor": "Setor 1",
+      "setor": "setor-1",
+      "sub_setor": "sub-producao",
       "imagem": "https://empresa.sharepoint.com/:i:/r/sites/seu-site/Documentos%20Compartilhados/imagens/relatorio-producao.png",
       "imagem_versao": "1",
       "icone": "https://empresa.sharepoint.com/:i:/r/sites/seu-site/Documentos%20Compartilhados/icones/relatorio-producao.png",
@@ -18,7 +68,8 @@
       "id": "monitor-ativos",
       "nome": "Monitor de Ativos",
       "descricao": "Aplicativo desktop para acompanhamento do status dos ativos operacionais.",
-      "setor": "Setor 2",
+      "setor": "setor-2",
+      "sub_setor": "sub-ativos",
       "imagem": "https://empresa.sharepoint.com/:i:/r/sites/seu-site/Documentos%20Compartilhados/imagens/monitor-ativos.png",
       "imagem_versao": "1",
       "icone": "https://empresa.sharepoint.com/:i:/r/sites/seu-site/Documentos%20Compartilhados/icones/monitor-ativos.png",
