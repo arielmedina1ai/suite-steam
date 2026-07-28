@@ -1,6 +1,10 @@
 """Suite Petrobras - hub de aplicativos internos (frontend em Flet)."""
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import flet as ft
 
 import config
@@ -221,7 +225,7 @@ class SuiteApp:
 
     def _download_suite_worker(self) -> None:
         suite = self.catalog.suite
-        dest = config.user_desktop_dir()
+        dest = config.user_downloads_dir()
         dest.mkdir(parents=True, exist_ok=True)
         nome_final = f"SuiteAPPs_{suite.versao}.exe"
         self.update_message = "Baixando pelo link do catalogo..."
@@ -249,7 +253,7 @@ class SuiteApp:
                 path_show = result.path
             self.update_path = str(path_show)
             self.update_message = (
-                f'Salvo com sucesso no Desktop com o nome "{path_show.name}".'
+                f'Salvo com sucesso em Downloads com o nome "{path_show.name}".'
             )
         else:
             self.update_path = None
@@ -260,8 +264,24 @@ class SuiteApp:
     def _open_suite_update(self) -> None:
         if not self.update_path:
             return
+        path = Path(self.update_path)
+        if not path.exists():
+            self.update_message = f"Arquivo nao encontrado: {path.name}"
+            self.update_path = None
+            self._render()
+            return
+        # Abre o Explorer com o arquivo selecionado e tambem executa o instalador
         try:
-            run_file(self.update_path)
+            if sys.platform.startswith("win"):
+                subprocess.Popen(["explorer", "/select,", str(path.resolve())])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path.parent)])
+        except Exception:
+            pass
+        try:
+            run_file(path)
         except RunError as exc:
             self.update_message = str(exc)
             self._render()

@@ -127,23 +127,43 @@ def _update_banner(
     on_download_update: Callable[[], None],
     on_open_update: Callable[[], None],
 ) -> ft.Control:
+    # Sidebar 260 - padding 12*2 = 236 (mesma faixa dos itens de menu)
+    _W = 236
     controls: list[ft.Control] = [
         ft.Text(
             "Atualizacao disponivel",
             size=12,
             weight=ft.FontWeight.BOLD,
             color=config.COLOR_ACCENT,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            width=_W - 24,
         ),
-        ft.Text(f"Suite v{suite_update.versao}", size=12, color="#B9CEC3"),
+        ft.Text(
+            f"Suite v{suite_update.versao}",
+            size=12,
+            color="#B9CEC3",
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            width=_W - 24,
+        ),
         ft.FilledButton(
             "Baixar atualizacao" if not update_busy else "Baixando...",
             icon=ft.Icons.DOWNLOAD,
             disabled=update_busy,
             on_click=lambda e: on_download_update(),
+            width=_W - 24,
         ),
     ]
     if update_message:
-        controls.append(ft.Text(update_message, size=11, color="#8AA797"))
+        controls.append(
+            ft.Text(
+                update_message,
+                size=11,
+                color="#8AA797",
+                width=_W - 24,
+            )
+        )
     if update_path:
         nome = Path(update_path).name
         controls.append(
@@ -152,14 +172,17 @@ def _update_banner(
                 icon=ft.Icons.OPEN_IN_NEW,
                 on_click=lambda e: on_open_update(),
                 style=ft.ButtonStyle(color=config.COLOR_ACCENT),
+                width=_W - 24,
             )
         )
     return ft.Container(
+        width=_W,
         margin=ft.Margin.only(bottom=8),
         padding=12,
         border_radius=10,
         bgcolor=config.COLOR_PRIMARY_DARK,
-        content=ft.Column(spacing=8, controls=controls),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        content=ft.Column(spacing=8, tight=True, controls=controls),
     )
 
 

@@ -14,7 +14,7 @@ aparecem; sem selecao, a Suite mostra todos.
 - Sidebar: Inicio, Favoritos (se houver), seletor de gerencia, setores.
 - Sub-setores com descricoes e divisores na tela de cada setor.
 - Favoritos locais (estrela) em `%LOCALAPPDATA%/SuitePetrobras/favorites.json`.
-- Atualizacao da Suite: download pelo link do catalogo; salva como `SuiteAPPs_VERSAO.exe` no Desktop.
+- Atualizacao da Suite: download pelo link do catalogo; salva como `SuiteAPPs_VERSAO.exe` em Downloads.
 - Branding local em `assets/branding/` (logo, hero, icone da janela).
 - Capas/icones em cache por `*_versao`.
 
@@ -71,4 +71,4 @@ python src/main.py
   preferences.json         # gerencia selecionada (filtro)
 ```
 
-Update da Suite (quando disponivel): `%USERPROFILE%\Desktop\SuiteAPPs_{versao}.exe`
+Update da Suite (quando disponivel): `%USERPROFILE%\Downloads\SuiteAPPs_{versao}.exe`
