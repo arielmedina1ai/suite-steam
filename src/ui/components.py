@@ -167,6 +167,16 @@ def _update_banner(
                 width=_W - 24,
             )
         )
+    if update_done:
+        controls.append(
+            ft.Text(
+                "Abrindo a pasta com o arquivo selecionado...",
+                size=11,
+                weight=ft.FontWeight.BOLD,
+                color=config.COLOR_TEXT,
+                width=_W - 24,
+            )
+        )
     return ft.Container(
         width=_W,
         margin=ft.Margin.only(bottom=8),

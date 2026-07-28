@@ -252,8 +252,7 @@ class SuiteApp:
                 path_show = result.path
             self.update_path = str(path_show)
             self.update_message = (
-                f'Salvo com sucesso em Downloads com o nome "{path_show.name}". '
-                "Abrindo a pasta com o arquivo selecionado..."
+                f'Salvo com sucesso em Downloads com o nome "{path_show.name}".'
             )
             self._reveal_in_explorer(path_show)
         else:
