@@ -123,15 +123,14 @@ def _update_banner(
     suite_update: SuiteUpdateInfo,
     update_busy: bool,
     update_message: str,
-    update_path: str | None,
+    update_done: bool,
     on_download_update: Callable[[], None],
-    on_open_update: Callable[[], None],
 ) -> ft.Control:
     # Sidebar 260 - padding 12*2 = 236 (mesma faixa dos itens de menu)
     _W = 236
     controls: list[ft.Control] = [
         ft.Text(
-            "Atualizacao disponivel",
+            "Atualizacao disponivel" if not update_done else "Download concluido",
             size=12,
             weight=ft.FontWeight.BOLD,
             color=config.COLOR_ACCENT,
@@ -147,31 +146,24 @@ def _update_banner(
             overflow=ft.TextOverflow.ELLIPSIS,
             width=_W - 24,
         ),
-        ft.FilledButton(
-            "Baixar atualizacao" if not update_busy else "Baixando...",
-            icon=ft.Icons.DOWNLOAD,
-            disabled=update_busy,
-            on_click=lambda e: on_download_update(),
-            width=_W - 24,
-        ),
     ]
+    # Botao some apos download bem-sucedido
+    if not update_done:
+        controls.append(
+            ft.FilledButton(
+                "Baixar atualizacao" if not update_busy else "Baixando...",
+                icon=ft.Icons.DOWNLOAD,
+                disabled=update_busy,
+                on_click=lambda e: on_download_update(),
+                width=_W - 24,
+            )
+        )
     if update_message:
         controls.append(
             ft.Text(
                 update_message,
                 size=11,
                 color="#8AA797",
-                width=_W - 24,
-            )
-        )
-    if update_path:
-        nome = Path(update_path).name
-        controls.append(
-            ft.TextButton(
-                f"Abrir {nome}",
-                icon=ft.Icons.OPEN_IN_NEW,
-                on_click=lambda e: on_open_update(),
-                style=ft.ButtonStyle(color=config.COLOR_ACCENT),
                 width=_W - 24,
             )
         )
@@ -199,13 +191,12 @@ def build_sidebar(
     update_available: bool,
     update_busy: bool,
     update_message: str,
-    update_path: str | None,
+    update_done: bool,
     on_home: Callable[[], None],
     on_favorites: Callable[[], None],
     on_select_setor: Callable[[str], None],
     on_select_gerencia: Callable[[str], None],
     on_download_update: Callable[[], None],
-    on_open_update: Callable[[], None],
 ) -> ft.Control:
     setores = setores_visiveis(catalog)
     gerencia_list = gerencias if gerencias is not None else catalog.gerencias
@@ -235,9 +226,8 @@ def build_sidebar(
                 suite_update=suite_update,
                 update_busy=update_busy,
                 update_message=update_message,
-                update_path=update_path,
+                update_done=update_done,
                 on_download_update=on_download_update,
-                on_open_update=on_open_update,
             )
         )
 

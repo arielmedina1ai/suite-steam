@@ -107,8 +107,8 @@ Estrutura completa (veja `catalog.example.json`):
 Se `suite.versao` for diferente de `settings.app.version` e houver `download_url`,
 a sidebar mostra **Baixar atualizacao**. O download usa o **link exato** do catalogo;
 ao salvar, o arquivo vai para a pasta **Downloads** do Windows como
-`SuiteAPPs_{versao}.exe`. Ao concluir, a Suite mostra a confirmacao e um link
-para abrir o instalador (tambem destaca o arquivo no Explorer).
+`SuiteAPPs_{versao}.exe`. Ao concluir, a Suite mostra a confirmacao, oculta o
+botao de download e abre o Explorer com o arquivo selecionado.
 
 ### Gerencias
 

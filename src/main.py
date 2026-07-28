@@ -13,7 +13,6 @@ from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
 from services.download_manager import DownloadManager
 from services.favorites import FavoritesStore
 from services.preferences import PreferencesStore
-from services.runner import RunError, run_file
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
@@ -253,25 +252,21 @@ class SuiteApp:
                 path_show = result.path
             self.update_path = str(path_show)
             self.update_message = (
-                f'Salvo com sucesso em Downloads com o nome "{path_show.name}".'
+                f'Salvo com sucesso em Downloads com o nome "{path_show.name}". '
+                "Abrindo a pasta com o arquivo selecionado..."
             )
+            self._reveal_in_explorer(path_show)
         else:
             self.update_path = None
             self.update_message = result.message or "Falha no download da atualizacao."
         self.update_busy = False
         self._render()
 
-    def _open_suite_update(self) -> None:
-        if not self.update_path:
-            return
-        path = Path(self.update_path)
-        if not path.exists():
-            self.update_message = f"Arquivo nao encontrado: {path.name}"
-            self.update_path = None
-            self._render()
-            return
-        # Abre o Explorer com o arquivo selecionado e tambem executa o instalador
+    def _reveal_in_explorer(self, path: Path) -> None:
+        """Abre o Explorer na pasta Downloads com o arquivo selecionado."""
         try:
+            if not path.exists():
+                return
             if sys.platform.startswith("win"):
                 subprocess.Popen(["explorer", "/select,", str(path.resolve())])
             elif sys.platform == "darwin":
@@ -280,11 +275,6 @@ class SuiteApp:
                 subprocess.Popen(["xdg-open", str(path.parent)])
         except Exception:
             pass
-        try:
-            run_file(path)
-        except RunError as exc:
-            self.update_message = str(exc)
-            self._render()
 
     # ------------------------------------------------------------------
     def _render(self) -> None:
@@ -321,13 +311,12 @@ class SuiteApp:
             update_available=self._update_available(),
             update_busy=self.update_busy,
             update_message=self.update_message,
-            update_path=self.update_path,
+            update_done=bool(self.update_path),
             on_home=self._go_home,
             on_favorites=self._go_favorites,
             on_select_setor=self._select_setor,
             on_select_gerencia=self._select_gerencia,
             on_download_update=self._download_suite_update,
-            on_open_update=self._open_suite_update,
         )
 
         if self.selected_id is not None:
