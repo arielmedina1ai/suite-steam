@@ -105,10 +105,10 @@ CATALOG_IMAGES_DIR = CATALOG_CACHE_DIR / "images"
 CATALOG_IMAGES_MANIFEST = CATALOG_CACHE_DIR / "images_manifest.json"
 
 
-def user_downloads_dir() -> Path:
-    """Pasta Downloads do usuario Windows (destino do update da Suite)."""
+def user_desktop_dir() -> Path:
+    """Pasta Desktop do usuario Windows (destino do update da Suite)."""
     home = Path(os.environ.get("USERPROFILE") or os.path.expanduser("~"))
-    return home / "Downloads"
+    return home / "Desktop"
 
 # ---------------------------------------------------------------------------
 # SharePoint (sempre PnP) — caminhos fixos, nao vao no settings.json

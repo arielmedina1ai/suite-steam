@@ -118,6 +118,51 @@ def _nav_item(
 _NONE_GERENCIA = "__todas__"  # valor interno do seletor = sem filtro
 
 
+def _update_banner(
+    *,
+    suite_update: SuiteUpdateInfo,
+    update_busy: bool,
+    update_message: str,
+    update_path: str | None,
+    on_download_update: Callable[[], None],
+    on_open_update: Callable[[], None],
+) -> ft.Control:
+    controls: list[ft.Control] = [
+        ft.Text(
+            "Atualizacao disponivel",
+            size=12,
+            weight=ft.FontWeight.BOLD,
+            color=config.COLOR_ACCENT,
+        ),
+        ft.Text(f"Suite v{suite_update.versao}", size=12, color="#B9CEC3"),
+        ft.FilledButton(
+            "Baixar atualizacao" if not update_busy else "Baixando...",
+            icon=ft.Icons.DOWNLOAD,
+            disabled=update_busy,
+            on_click=lambda e: on_download_update(),
+        ),
+    ]
+    if update_message:
+        controls.append(ft.Text(update_message, size=11, color="#8AA797"))
+    if update_path:
+        nome = Path(update_path).name
+        controls.append(
+            ft.TextButton(
+                f"Abrir {nome}",
+                icon=ft.Icons.OPEN_IN_NEW,
+                on_click=lambda e: on_open_update(),
+                style=ft.ButtonStyle(color=config.COLOR_ACCENT),
+            )
+        )
+    return ft.Container(
+        margin=ft.Margin.only(bottom=8),
+        padding=12,
+        border_radius=10,
+        bgcolor=config.COLOR_PRIMARY_DARK,
+        content=ft.Column(spacing=8, controls=controls),
+    )
+
+
 def build_sidebar(
     catalog: CatalogData,
     *,
@@ -131,11 +176,13 @@ def build_sidebar(
     update_available: bool,
     update_busy: bool,
     update_message: str,
+    update_path: str | None,
     on_home: Callable[[], None],
     on_favorites: Callable[[], None],
     on_select_setor: Callable[[str], None],
     on_select_gerencia: Callable[[str], None],
     on_download_update: Callable[[], None],
+    on_open_update: Callable[[], None],
 ) -> ft.Control:
     setores = setores_visiveis(catalog)
     gerencia_list = gerencias if gerencias is not None else catalog.gerencias
@@ -156,13 +203,29 @@ def build_sidebar(
                 ],
             ),
         ),
+    ]
+
+    # Atualizacao da Suite — logo acima de Inicio
+    if update_available and suite_update is not None:
+        items.append(
+            _update_banner(
+                suite_update=suite_update,
+                update_busy=update_busy,
+                update_message=update_message,
+                update_path=update_path,
+                on_download_update=on_download_update,
+                on_open_update=on_open_update,
+            )
+        )
+
+    items.append(
         _nav_item(
             label="Inicio",
             icon=ft.Icons.HOME,
             selected=home_selected,
             on_click=on_home,
-        ),
-    ]
+        )
+    )
 
     if show_favorites:
         items.append(
@@ -248,36 +311,7 @@ def build_sidebar(
             )
         )
 
-    # Espaco flexivel + update da Suite
     items.append(ft.Container(expand=True))
-
-    if update_available and suite_update is not None:
-        items.append(
-            ft.Container(
-                margin=ft.Margin.only(top=8),
-                padding=12,
-                border_radius=10,
-                bgcolor=config.COLOR_PRIMARY_DARK,
-                content=ft.Column(
-                    spacing=8,
-                    controls=[
-                        ft.Text("Atualizacao disponivel", size=12, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
-                        ft.Text(
-                            f"Suite v{suite_update.versao}",
-                            size=12,
-                            color="#B9CEC3",
-                        ),
-                        ft.FilledButton(
-                            "Baixar atualizacao" if not update_busy else "Baixando...",
-                            icon=ft.Icons.DOWNLOAD,
-                            disabled=update_busy,
-                            on_click=lambda e: on_download_update(),
-                        ),
-                        ft.Text(update_message, size=11, color="#8AA797") if update_message else ft.Container(),
-                    ],
-                ),
-            )
-        )
 
     return ft.Container(
         width=260,

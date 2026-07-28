@@ -9,6 +9,7 @@ from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
 from services.download_manager import DownloadManager
 from services.favorites import FavoritesStore
 from services.preferences import PreferencesStore
+from services.runner import RunError, run_file
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
@@ -34,6 +35,7 @@ class SuiteApp:
         self.sync_message = ""
         self.update_busy = False
         self.update_message = ""
+        self.update_path: str | None = None
 
         self.sidebar_holder = ft.Container()
         self.content_holder = ft.Container(expand=True, padding=28)
@@ -212,13 +214,14 @@ class SuiteApp:
         if not suite.available:
             return
         self.update_busy = True
+        self.update_path = None
         self.update_message = "Iniciando download..."
         self._render()
         self.page.run_thread(self._download_suite_worker)
 
     def _download_suite_worker(self) -> None:
         suite = self.catalog.suite
-        dest = config.user_downloads_dir()
+        dest = config.user_desktop_dir()
         dest.mkdir(parents=True, exist_ok=True)
         nome_final = f"SuiteAPPs_{suite.versao}.exe"
         self.update_message = "Baixando pelo link do catalogo..."
@@ -244,11 +247,24 @@ class SuiteApp:
                 path_show = final if final.exists() else result.path
             except OSError:
                 path_show = result.path
-            self.update_message = f"Salvo em: {path_show}"
+            self.update_path = str(path_show)
+            self.update_message = (
+                f'Salvo com sucesso no Desktop com o nome "{path_show.name}".'
+            )
         else:
+            self.update_path = None
             self.update_message = result.message or "Falha no download da atualizacao."
         self.update_busy = False
         self._render()
+
+    def _open_suite_update(self) -> None:
+        if not self.update_path:
+            return
+        try:
+            run_file(self.update_path)
+        except RunError as exc:
+            self.update_message = str(exc)
+            self._render()
 
     # ------------------------------------------------------------------
     def _render(self) -> None:
@@ -285,11 +301,13 @@ class SuiteApp:
             update_available=self._update_available(),
             update_busy=self.update_busy,
             update_message=self.update_message,
+            update_path=self.update_path,
             on_home=self._go_home,
             on_favorites=self._go_favorites,
             on_select_setor=self._select_setor,
             on_select_gerencia=self._select_gerencia,
             on_download_update=self._download_suite_update,
+            on_open_update=self._open_suite_update,
         )
 
         if self.selected_id is not None:
