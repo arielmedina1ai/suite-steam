@@ -5,9 +5,10 @@ import flet as ft
 
 import config
 from catalog import SharePointCatalogProvider
-from models import AppInfo, CatalogData, apps_do_setor
+from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
 from services.download_manager import DownloadManager
 from services.favorites import FavoritesStore
+from services.preferences import PreferencesStore
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
@@ -20,10 +21,13 @@ class SuiteApp:
         self.page = page
         self.storage = Storage()
         self.favorites = FavoritesStore()
+        self.preferences = PreferencesStore()
         self.manager = DownloadManager(self.storage)
         self.catalog = CatalogData()
+        self.view_catalog = CatalogData()
         self.apps: list[AppInfo] = []
         self.apps_by_id: dict[str, AppInfo] = {}
+        self.selected_gerencia_id = self.preferences.get_gerencia_id()
         self.selected_id: str | None = None
         self.selected_setor: str | None = None
         self.show_favorites = False
@@ -104,8 +108,7 @@ class SuiteApp:
             progress=lambda _p, msg: self._update_sync_status(msg)
         )
         self.catalog = result.catalog
-        self.apps = result.catalog.apps
-        self.apps_by_id = {app.id: app for app in self.apps}
+        self._apply_gerencia_filter()
         # Banner so em falha/aviso — sucesso limpo nao polui a home
         self.sync_message = result.message if not result.ok else ""
         self.selected_id = None
@@ -124,6 +127,18 @@ class SuiteApp:
             pass
 
     # ------------------------------------------------------------------
+    def _apply_gerencia_filter(self) -> None:
+        """Atualiza view_catalog/apps a partir do filtro de gerencia persistido."""
+        gid = self.selected_gerencia_id
+        if gid and self.catalog.gerencia_by_id(gid) is None:
+            # Gerencia salva nao existe mais no catalogo
+            gid = ""
+            self.selected_gerencia_id = ""
+            self.preferences.set_gerencia_id("")
+        self.view_catalog = self.catalog.filter_for_gerencia(gid)
+        self.apps = self.view_catalog.apps
+        self.apps_by_id = {app.id: app for app in self.apps}
+
     def _favorite_ids(self) -> set[str]:
         return set(self.favorites.list_ids())
 
@@ -135,7 +150,9 @@ class SuiteApp:
         return bool(self._visible_favorite_apps())
 
     def _gerencia_atual(self):
-        return self.catalog.gerencia_by_id(config.GERENCIA_ID)
+        if not self.selected_gerencia_id:
+            return None
+        return self.catalog.gerencia_by_id(self.selected_gerencia_id)
 
     def _update_available(self) -> bool:
         suite = self.catalog.suite
@@ -170,6 +187,17 @@ class SuiteApp:
         self.show_favorites = False
         self._render()
 
+    def _select_gerencia(self, gerencia_id: str) -> None:
+        gid = (gerencia_id or "").strip()
+        self.selected_gerencia_id = gid
+        self.preferences.set_gerencia_id(gid)
+        self._apply_gerencia_filter()
+        # Ao trocar o filtro, volta ao Inicio e limpa navegacao invalida
+        self.selected_id = None
+        self.selected_setor = None
+        self.show_favorites = False
+        self._render()
+
     def _toggle_favorite(self, app_id: str) -> None:
         self.favorites.toggle(app_id)
         # Se removeu o ultimo favorito enquanto na view Favoritos, volta ao Inicio
@@ -192,30 +220,29 @@ class SuiteApp:
         suite = self.catalog.suite
         dest = config.user_downloads_dir()
         dest.mkdir(parents=True, exist_ok=True)
-        nome = f"SuiteAPPs_{suite.versao}.exe"
-        self.update_message = f"Baixando {nome}..."
+        nome_final = f"SuiteAPPs_{suite.versao}.exe"
+        self.update_message = "Baixando pelo link do catalogo..."
         try:
             self.page.update()
         except Exception:
             pass
 
+        # Baixa com o nome do link (nao altera o caminho no SharePoint);
+        # so ao salvar renomeia para SuiteAPPs_{versao}.exe
         result = baixar_do_sharepoint(
             link=suite.download_url,
             pasta_destino=dest,
-            nome_arquivo=nome,
+            nome_arquivo=None,
         )
         if result.ok and result.path and result.path.exists():
-            # Garante o nome final pedido
-            final = dest / nome
-            if result.path.resolve() != final.resolve():
-                try:
+            final = dest / nome_final
+            try:
+                if result.path.resolve() != final.resolve():
                     if final.exists():
                         final.unlink()
                     result.path.replace(final)
-                    path_show = final
-                except OSError:
-                    path_show = result.path
-            else:
+                path_show = final if final.exists() else result.path
+            except OSError:
                 path_show = result.path
             self.update_message = f"Salvo em: {path_show}"
         else:
@@ -230,6 +257,15 @@ class SuiteApp:
         if self.show_favorites and not has_favs:
             self.show_favorites = False
 
+        # Setor selecionado pode sumir apos filtro de gerencia
+        if self.selected_setor is not None:
+            visible_ids = {s.id for s in setores_visiveis(self.view_catalog)}
+            if self.selected_setor not in visible_ids:
+                self.selected_setor = None
+
+        if self.selected_id is not None and self.selected_id not in self.apps_by_id:
+            self.selected_id = None
+
         home_selected = (
             self.selected_id is None
             and self.selected_setor is None
@@ -238,10 +274,12 @@ class SuiteApp:
         favorites_selected = self.show_favorites and self.selected_id is None
 
         self.sidebar_holder.content = build_sidebar(
-            self.catalog,
+            self.view_catalog,
+            gerencias=self.catalog.gerencias,
             home_selected=home_selected,
             favorites_selected=favorites_selected,
             selected_setor_id=self.selected_setor,
+            selected_gerencia_id=self.selected_gerencia_id,
             show_favorites=has_favs,
             suite_update=self.catalog.suite,
             update_available=self._update_available(),
@@ -250,6 +288,7 @@ class SuiteApp:
             on_home=self._go_home,
             on_favorites=self._go_favorites,
             on_select_setor=self._select_setor,
+            on_select_gerencia=self._select_gerencia,
             on_download_update=self._download_suite_update,
         )
 

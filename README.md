@@ -1,19 +1,20 @@
 # Suite Petrobras
 
 Hub de aplicativos internos no estilo "Steam", desenvolvido em Python + [Flet](https://flet.dev).
-A Suite e instalada **por gerencia**: cada PC aponta um id de gerencia no `settings.json`
-e so ve os apps atribuidos a ela no catalogo SharePoint.
+No menu lateral, um seletor de **gerencia** filtra quais apps do catalogo SharePoint
+aparecem; sem selecao, a Suite mostra todos.
 
 > **Casca configuravel:** repositorio publico sem dados internos. Veja **[CONFIGURACAO.md](CONFIGURACAO.md)**.
 
 ## Recursos
 
 - Catalogo sincronizado do SharePoint (PnP) a cada execucao, com cache local.
-- Filtragem por **gerencia** (`settings.gerencia` + `catalog.gerencias`).
-- Sidebar: Inicio, Favoritos (se houver), setores; home com descricao da gerencia.
+- Filtro por **gerencia** na sidebar (persistido em `preferences.json`).
+- Home: banner com textos do `settings.sector`; com gerencia selecionada, nome/descricao acima de "Todos os aplicativos".
+- Sidebar: Inicio, Favoritos (se houver), seletor de gerencia, setores.
 - Sub-setores com descricoes e divisores na tela de cada setor.
 - Favoritos locais (estrela) em `%LOCALAPPDATA%/SuitePetrobras/favorites.json`.
-- Atualizacao da Suite (`catalog.suite`) → Download como `SuiteAPPs_VERSAO.exe`.
+- Atualizacao da Suite: download pelo link do catalogo; salva como `SuiteAPPs_VERSAO.exe` em Downloads.
 - Branding local em `assets/branding/` (logo, hero, icone da janela).
 - Capas/icones em cache por `*_versao`.
 
@@ -43,14 +44,14 @@ python -m venv .venv
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
 
 copy settings.example.json settings.json
-# edite: gerencia, catalog.remote_url, app.version
+# edite: sector (textos da home), catalog.remote_url, app.version
 
 python src/main.py
 ```
 
 ## Configurando
 
-1. Em `settings.json`, defina `gerencia` (ex.: `"gerencia-1"`) e `catalog.remote_url`.
+1. Em `settings.json`, defina textos do `sector`, cores e `catalog.remote_url`.
 2. Publique no SharePoint o `catalog.json` (formato em `catalog.example.json`).
 3. No catalogo: `suite`, `gerencias`, `setores` (com `sub_setores`) e `apps`.
 4. Apps referenciam `setor` / `sub_setor` por **id**; entram nas gerencias via `gerencias[].apps`.
@@ -67,6 +68,7 @@ python src/main.py
     images_manifest.json
   installed.json           # manifesto de instalacao
   favorites.json           # favoritos do usuario
+  preferences.json         # gerencia selecionada (filtro)
 ```
 
 Update da Suite (quando disponivel): `%USERPROFILE%\Downloads\SuiteAPPs_{versao}.exe`

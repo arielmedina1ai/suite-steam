@@ -54,11 +54,6 @@ def _parse_catalog(raw: str) -> CatalogData:
     return parse_catalog_dict(data)
 
 
-def _apply_gerencia_filter(catalog: CatalogData) -> CatalogData:
-    """Filtra apps pela gerencia configurada em settings.json."""
-    return catalog.filter_for_gerencia(config.GERENCIA_ID)
-
-
 def _is_http_url(value: str) -> bool:
     v = (value or "").strip().lower()
     return v.startswith("http://") or v.startswith("https://")
@@ -338,9 +333,8 @@ def _load_cached_catalog() -> CatalogData | None:
         catalog = _parse_catalog(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
-    filtered = _apply_gerencia_filter(catalog)
-    _apply_local_or_cache(filtered.apps, _load_images_manifest())
-    return filtered
+    _apply_local_or_cache(catalog.apps, _load_images_manifest())
+    return catalog
 
 
 class LocalCatalogProvider(CatalogProvider):
@@ -352,8 +346,7 @@ class LocalCatalogProvider(CatalogProvider):
     def load(self) -> CatalogData:
         if not self.path.exists():
             return CatalogData()
-        catalog = _parse_catalog(self.path.read_text(encoding="utf-8"))
-        return _apply_gerencia_filter(catalog)
+        return _parse_catalog(self.path.read_text(encoding="utf-8"))
 
 
 class SharePointCatalogProvider(CatalogProvider):
@@ -432,13 +425,12 @@ class SharePointCatalogProvider(CatalogProvider):
                 ok=False,
             )
 
-        filtered = _apply_gerencia_filter(catalog)
         report(0.55, "Verificando capas e icones em cache...")
-        _sync_images(filtered.apps, progress=report)
+        _sync_images(catalog.apps, progress=report)
         report(1.0, "Catalogo sincronizado.")
 
         return CatalogSyncResult(
-            catalog=filtered,
+            catalog=catalog,
             message="",
             from_cache=False,
             ok=True,

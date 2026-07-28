@@ -3,11 +3,10 @@
     "name": "Suite (exemplo)",
     "version": "0.1.0"
   },
-  "gerencia": "gerencia-1",
   "sector": {
-    "name": "(legado) nao usado na home",
+    "name": "Nome do Setor (edite aqui)",
     "tagline": "Nossos aplicativos, em um so lugar.",
-    "description": "A home usa nome/descricao da Gerencia no catalog.json. Este bloco sector e legado."
+    "description": "Escreva aqui a apresentacao do seu setor. Este texto aparece no banner da tela inicial. Copie este arquivo para 'settings.json' e substitua pelos textos internos - o settings.json NAO e versionado."
   },
   "theme": {
     "primary": "#008542",

@@ -198,7 +198,14 @@ class CatalogData:
         return None
 
     def filter_for_gerencia(self, gerencia_id: str) -> "CatalogData":
-        """Retorna catalogo com apenas os apps atribuídos a gerencia."""
+        """Retorna catalogo com apenas os apps da gerencia; id vazio = sem filtro."""
+        if not (gerencia_id or "").strip():
+            return CatalogData(
+                apps=list(self.apps),
+                suite=self.suite,
+                gerencias=self.gerencias,
+                setores=self.setores,
+            )
         g = self.gerencia_by_id(gerencia_id)
         if g is None:
             # Sem gerencia no catalogo: se houver lista de gerencias, nao mostra nada;

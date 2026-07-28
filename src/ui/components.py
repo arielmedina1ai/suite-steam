@@ -7,7 +7,7 @@ from typing import Callable
 import flet as ft
 
 import config
-from models import AppInfo, CatalogData, SuiteUpdateInfo, setores_visiveis
+from models import AppInfo, CatalogData, GerenciaInfo, SuiteUpdateInfo, setores_visiveis
 
 
 def media_src(path: str) -> str:
@@ -115,12 +115,17 @@ def _nav_item(
     )
 
 
+_NONE_GERENCIA = "__todas__"  # valor interno do seletor = sem filtro
+
+
 def build_sidebar(
     catalog: CatalogData,
     *,
+    gerencias: list[GerenciaInfo] | None = None,
     home_selected: bool,
     favorites_selected: bool,
     selected_setor_id: str | None,
+    selected_gerencia_id: str,
     show_favorites: bool,
     suite_update: SuiteUpdateInfo | None,
     update_available: bool,
@@ -129,9 +134,11 @@ def build_sidebar(
     on_home: Callable[[], None],
     on_favorites: Callable[[], None],
     on_select_setor: Callable[[str], None],
+    on_select_gerencia: Callable[[str], None],
     on_download_update: Callable[[], None],
 ) -> ft.Control:
     setores = setores_visiveis(catalog)
+    gerencia_list = gerencias if gerencias is not None else catalog.gerencias
     items: list[ft.Control] = [
         ft.Container(
             padding=ft.Padding.only(left=8, top=8, bottom=16),
@@ -167,9 +174,50 @@ def build_sidebar(
             )
         )
 
+    # Filtro por gerencia (acima dos setores)
+    if gerencia_list:
+        gerencia_options = [
+            ft.DropdownOption(key=_NONE_GERENCIA, text="Todas"),
+        ]
+        for g in gerencia_list:
+            gerencia_options.append(ft.DropdownOption(key=g.id, text=g.nome))
+
+        current_gid = selected_gerencia_id.strip() if selected_gerencia_id else _NONE_GERENCIA
+        valid_keys = {o.key for o in gerencia_options}
+        if current_gid not in valid_keys:
+            current_gid = _NONE_GERENCIA
+
+        def _on_gerencia_select(e) -> None:
+            raw = (e.control.value or _NONE_GERENCIA).strip()
+            on_select_gerencia("" if raw == _NONE_GERENCIA else raw)
+
+        items.append(
+            ft.Container(
+                padding=ft.Padding.only(left=4, top=16, bottom=4, right=4),
+                content=ft.Column(
+                    spacing=6,
+                    controls=[
+                        ft.Text("GERENCIA", size=11, color="#8AA797", weight=ft.FontWeight.BOLD),
+                        ft.Dropdown(
+                            value=current_gid,
+                            options=gerencia_options,
+                            dense=True,
+                            filled=True,
+                            fill_color=config.COLOR_BG,
+                            border_color="#22332B",
+                            color=config.COLOR_TEXT,
+                            text_size=13,
+                            width=228,
+                            on_select=_on_gerencia_select,
+                        ),
+                    ],
+                ),
+            )
+        )
+
     items.append(
         ft.Container(
-            padding=ft.Padding.only(left=12, top=16, bottom=6),
+            padding=ft.Padding.only(left=12, top=12 if gerencia_list else 16, bottom=6),
             content=ft.Text("SETORES", size=11, color="#8AA797", weight=ft.FontWeight.BOLD),
         )
     )
@@ -193,7 +241,7 @@ def build_sidebar(
             ft.Container(
                 padding=12,
                 content=ft.Text(
-                    "Nenhum setor com apps nesta gerencia.",
+                    "Nenhum setor com apps visiveis.",
                     size=12,
                     color="#8AA797",
                 ),

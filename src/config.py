@@ -60,17 +60,7 @@ APP_NAME = _app.get("name", "Suite")
 APP_VERSION = str(_app.get("version", "0.1.0")).strip() or "0.1.0"
 
 # ---------------------------------------------------------------------------
-# Gerencia desta instalacao  ->  settings.json > "gerencia" (id no catalogo)
-# ---------------------------------------------------------------------------
-_gerencia_raw = _S.get("gerencia", "")
-GERENCIA_ID = (
-    _gerencia_raw.strip()
-    if isinstance(_gerencia_raw, str) and _gerencia_raw.strip()
-    else "gerencia-1"
-)
-
-# ---------------------------------------------------------------------------
-# Textos legados (settings.sector) — home usa Gerencia do catalogo
+# Textos institucionais da home  ->  settings.json > "sector"
 # ---------------------------------------------------------------------------
 SECTOR_NAME = _sector.get("name", "Nome do Setor")
 SECTOR_TAGLINE = _sector.get("tagline", "Nossos aplicativos, em um so lugar.")

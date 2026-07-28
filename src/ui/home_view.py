@@ -158,13 +158,6 @@ def build_home(
     favorite_ids: set[str],
     on_toggle_favorite: Callable[[str], None],
 ) -> ft.Control:
-    title = gerencia.nome if gerencia else config.APP_NAME
-    description = (
-        gerencia.descricao
-        if gerencia and gerencia.descricao
-        else "Nenhuma descricao configurada para esta gerencia no catalogo."
-    )
-
     hero = ft.Container(
         border_radius=16,
         padding=20,
@@ -182,29 +175,57 @@ def build_home(
                     spacing=6,
                     expand=True,
                     controls=[
-                        ft.Text(title, size=26, weight=ft.FontWeight.BOLD, color="white"),
+                        ft.Text(
+                            config.SECTOR_NAME,
+                            size=26,
+                            weight=ft.FontWeight.BOLD,
+                            color="white",
+                        ),
+                        ft.Text(config.SECTOR_TAGLINE, size=14, color=config.COLOR_ACCENT),
                         ft.Container(height=4),
-                        ft.Text(description, size=14, color="#EAF3EE"),
+                        ft.Text(config.SECTOR_DESCRIPTION, size=14, color="#EAF3EE"),
                     ],
                 ),
             ],
         ),
     )
 
+    sections: list[ft.Control] = [hero]
+
+    if gerencia is not None:
+        gerencia_block: list[ft.Control] = [
+            ft.Text(
+                gerencia.nome,
+                size=20,
+                weight=ft.FontWeight.W_600,
+                color=config.COLOR_TEXT,
+            ),
+        ]
+        if gerencia.descricao:
+            gerencia_block.append(
+                ft.Text(gerencia.descricao, size=14, color="#B9CEC3")
+            )
+        sections.append(ft.Column(spacing=6, controls=gerencia_block))
+
     listing = _apps_grid(
         apps,
         on_select,
         title="Todos os aplicativos",
-        empty_message="Nenhum aplicativo nesta gerencia.",
+        empty_message=(
+            "Nenhum aplicativo nesta gerencia."
+            if gerencia is not None
+            else "Nenhum aplicativo no catalogo."
+        ),
         favorite_ids=favorite_ids,
         on_toggle_favorite=on_toggle_favorite,
     )
+    sections.append(listing)
 
     return ft.Column(
         expand=True,
         scroll=ft.ScrollMode.AUTO,
         spacing=24,
-        controls=[hero, listing],
+        controls=sections,
     )
 
 

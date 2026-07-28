@@ -1,15 +1,15 @@
 # Guia de Configuracao da Suite
 
 Este repositorio e uma **casca publica**: o codigo nao contem informacoes internas.
-Textos/cores e a **gerencia** desta instalacao ficam no `settings.json` local.
-O **catalogo oficial** (apps, gerencias, setores, versoes, imagens e links) vive no
-**SharePoint** e e sincronizado a cada abertura do programa.
+Textos/cores ficam no `settings.json` local. O **catalogo oficial** (apps, gerencias,
+setores, versoes, imagens e links) vive no **SharePoint** e e sincronizado a cada
+abertura do programa.
 
 ## Modelo
 
 | Publico (versionado) | Local / SharePoint | Para que serve |
 | -------------------- | ------------------ | -------------- |
-| `settings.example.json` | `settings.json` | Nome/versao da Suite, **id da gerencia**, cores, URL do catalog.json |
+| `settings.example.json` | `settings.json` | Nome/versao da Suite, textos da home, cores, URL do catalog.json |
 | `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps |
 | `assets/branding/*.example.png` | `logo.png` / `hero.png` / `window_icon.png` | Logo sidebar, banner home, icone janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
@@ -17,7 +17,7 @@ O **catalogo oficial** (apps, gerencias, setores, versoes, imagens e links) vive
 ## Passo a passo
 
 1. Copie `settings.example.json` para `settings.json`.
-2. Defina `gerencia` (id, ex.: `"gerencia-1"`), cores e `catalog.remote_url`.
+2. Edite textos do setor (home), cores e `catalog.remote_url`.
 3. Publique no SharePoint um `catalog.json` no formato do exemplo (com links reais).
 4. Publique as imagens no SharePoint e use os links nos campos `imagem` / `icone`.
 5. Rode `python src/main.py` — a Suite sincroniza o catalogo (pode abrir WebLogin).
@@ -29,7 +29,11 @@ O **catalogo oficial** (apps, gerencias, setores, versoes, imagens e links) vive
 ```json
 {
   "app": { "name": "Suite Petrobras", "version": "0.1.0" },
-  "gerencia": "gerencia-1",
+  "sector": {
+    "name": "Nome do setor",
+    "tagline": "Frase de efeito",
+    "description": "Apresentacao no banner da tela Inicio..."
+  },
   "theme": {
     "primary": "#008542",
     "primary_dark": "#00522A",
@@ -45,8 +49,7 @@ O **catalogo oficial** (apps, gerencias, setores, versoes, imagens e links) vive
 ```
 
 - `app.version`: versao instalada desta Suite (comparada com `suite.versao` do catalogo).
-- `gerencia`: id da gerencia no `catalog.json` — filtra quais apps aparecem nesta instalacao.
-- A home usa **nome + descricao da Gerencia** do catalogo (nao o bloco `sector` legado).
+- `sector.*`: titulo, tagline e descricao do **banner** na tela Inicio (sempre no mesmo lugar).
 
 O unico link sensivel necessario no PC e `catalog.remote_url` (PnP + WebLogin).
 
@@ -66,7 +69,7 @@ Estrutura completa (veja `catalog.example.json`):
     {
       "id": "gerencia-1",
       "nome": "Gerencia 1",
-      "descricao": "Texto exibido no Inicio.",
+      "descricao": "Texto exibido no Inicio (acima de Todos os aplicativos).",
       "apps": ["relatorio-producao", "monitor-ativos"]
     }
   ],
@@ -102,13 +105,24 @@ Estrutura completa (veja `catalog.example.json`):
 ### Suite (atualizacao)
 
 Se `suite.versao` for diferente de `settings.app.version` e houver `download_url`,
-a sidebar mostra **Baixar atualizacao**. O arquivo vai para a pasta Downloads do
-Windows como `SuiteAPPs_{versao}.exe`.
+a sidebar mostra **Baixar atualizacao**. O download usa o **link exato** do catalogo;
+ao salvar, o arquivo vai para a pasta Downloads do Windows como
+`SuiteAPPs_{versao}.exe`.
 
 ### Gerencias
 
 Cada gerencia lista os `id`s dos apps que ela exibe. O mesmo app pode entrar em
-varias gerencias. A instalacao so mostra os apps da `gerencia` do `settings.json`.
+varias gerencias.
+
+Na sidebar, o seletor **GERENCIA** fica acima de **SETORES**:
+- **Todas** (nada selecionado): nao filtra — mostra todos os apps.
+- Gerencia escolhida: so os apps listados em `gerencias[].apps`.
+
+A escolha fica em `%LOCALAPPDATA%/SuitePetrobras/preferences.json` e e
+restaurada na proxima abertura.
+
+Com gerencia selecionada, o **Inicio** mostra nome + descricao da gerencia
+**acima** do topico "Todos os aplicativos" (o banner continua com `settings.sector`).
 
 ### Setores e sub-setores
 
@@ -136,11 +150,11 @@ Capas/icones em `%LOCALAPPDATA%/SuitePetrobras/catalog/images/`, com
 
 Estrela nos cards e no detalhe. Persistidos em
 `%LOCALAPPDATA%/SuitePetrobras/favorites.json`. Se houver ao menos 1 favorito
-visivel na gerencia atual, o item **Favoritos** aparece na sidebar (apos Inicio).
+visivel no filtro atual, o item **Favoritos** aparece na sidebar (apos Inicio).
 
 A cada abertura, a Suite:
 1. Baixa o `catalog.json` via PnP/WebLogin.
-2. Filtra apps pela gerencia do settings.
+2. Aplica o filtro de gerencia salvo em `preferences.json` (se houver).
 3. Sincroniza capas/icones em lote quando necessario.
 4. Em falha, usa o ultimo cache.
 
