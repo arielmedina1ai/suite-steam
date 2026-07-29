@@ -41,10 +41,7 @@ Suite-steam/
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-
-# Mirror / trusted-host: edite pip.local.json (nao versionado)
-copy pip.local.example.json pip.local.json
-.\scripts\install_deps.ps1
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
 
 copy settings.example.json settings.json
 # edite: sector (textos da home), catalog.remote_url, app.version
@@ -52,18 +49,7 @@ copy settings.example.json settings.json
 python src/main.py
 ```
 
-`pip.local.json` (copie do `pip.local.example.json`):
-
-```json
-{
-  "index_url": "https://SEU-MIRROR-INTERNO/simple",
-  "trusted_hosts": ["SEU-MIRROR-INTERNO"]
-}
-```
-
-Sem esse arquivo, `install_deps.ps1` cai no PyPI publico com `--trusted-host`.
-
-Para gerar o `.exe`, apos instalar as deps (inclui `pyinstaller`):
+Para gerar o `.exe`, apos o `pip install` (inclui `pyinstaller` e `flet-cli`):
 
 ```powershell
 .\scripts\build_exe.ps1
@@ -107,7 +93,7 @@ Artefato: `dist\SuiteAPPs.exe` (nao versionado; pastas `dist/` e `build/` ja est
 
 Antes de testar ou distribuir:
 
-1. Copie `settings.json` para `dist\` (ao lado do `.exe`).
+1. Copie `settings.json` para `dist\` (ao lado do `.exe`) — ele fica **fora** do bundle de proposito (editavel; URL do catalogo/textos por instalacao). Sem ele, a Suite usa fallback em `%LOCALAPPDATA%` ou o `settings.example.json` embutido.
 2. No PC destino: PowerShell + modulo PnP ainda sao necessarios (o exe nao embute o SharePoint).
 3. Branding de producao deve existir em `assets/branding/` no momento do pack (logo/hero/icone), pois vai dentro do bundle.
 
