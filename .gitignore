@@ -19,6 +19,7 @@ env/
 # O repo publico guarda somente os modelos *.example. Nada abaixo volta ao repo.
 # ---------------------------------------------------------------------------
 settings.json
+pip.local.json
 
 # Branding de producao (mantenha so os *.example.* no repo)
 assets/branding/logo.png

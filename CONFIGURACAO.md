@@ -193,7 +193,18 @@ Arquivos dos apps: `%LOCALAPPDATA%/SuitePetrobras/apps/<id>/`
 
 ## 4. Distribuicao como .exe
 
-Gere o executavel na maquina de build:
+### Mirror pip (ambiente corporativo)
+
+Na maquina de build, se o PyPI publico estiver bloqueado, configure o mirror em
+`pip.local.json` (nao versionado; modelo: `pip.local.example.json`) e instale com:
+
+```powershell
+copy pip.local.example.json pip.local.json
+# edite index_url e trusted_hosts
+.\scripts\install_deps.ps1
+```
+
+### Empacotar
 
 ```powershell
 .\scripts\build_exe.ps1
@@ -215,6 +226,7 @@ Se nao houver `settings.json` ao lado do exe, a Suite tenta `%LOCALAPPDATA%/Suit
 ## 5. O que NAO versionar
 
 - `settings.json` (local)
+- `pip.local.json` (URL do mirror interno)
 - Links/tokens internos no codigo
 - Catalogo real ou dados sensiveis no GitHub
 - `dist/` / `build/` (artefatos do `flet pack`)

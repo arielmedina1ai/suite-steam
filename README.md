@@ -41,7 +41,10 @@ Suite-steam/
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+
+# Mirror / trusted-host: edite pip.local.json (nao versionado)
+copy pip.local.example.json pip.local.json
+.\scripts\install_deps.ps1
 
 copy settings.example.json settings.json
 # edite: sector (textos da home), catalog.remote_url, app.version
@@ -49,7 +52,18 @@ copy settings.example.json settings.json
 python src/main.py
 ```
 
-Para gerar o `.exe`, apos o `pip install` (inclui `pyinstaller`):
+`pip.local.json` (copie do `pip.local.example.json`):
+
+```json
+{
+  "index_url": "https://SEU-MIRROR-INTERNO/simple",
+  "trusted_hosts": ["SEU-MIRROR-INTERNO"]
+}
+```
+
+Sem esse arquivo, `install_deps.ps1` cai no PyPI publico com `--trusted-host`.
+
+Para gerar o `.exe`, apos instalar as deps (inclui `pyinstaller`):
 
 ```powershell
 .\scripts\build_exe.ps1
