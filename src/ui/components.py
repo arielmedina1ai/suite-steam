@@ -262,8 +262,9 @@ def build_sidebar(
 
     # Filtro por gerencia (acima dos setores)
     if gerencia_list:
+        geral_label = (catalog.gerencia_geral or "").strip() or "Geral"
         gerencia_options = [
-            ft.DropdownOption(key=_NONE_GERENCIA, text="Todas"),
+            ft.DropdownOption(key=_NONE_GERENCIA, text=geral_label),
         ]
         for g in gerencia_list:
             gerencia_options.append(ft.DropdownOption(key=g.id, text=g.nome))

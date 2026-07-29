@@ -74,6 +74,7 @@ Estrutura completa (veja `catalog.example.json`):
     "versao": "0.2.0",
     "download_url": "https://empresa.sharepoint.com/.../SuiteAPPs.exe"
   },
+  "gerencia_geral": "Geral",
   "gerencias": [
     {
       "id": "gerencia-1",
@@ -125,7 +126,8 @@ Cada gerencia lista os `id`s dos apps que ela exibe. O mesmo app pode entrar em
 varias gerencias.
 
 Na sidebar, o seletor **GERENCIA** fica acima de **SETORES**:
-- **Todas** (nada selecionado): nao filtra — mostra todos os apps.
+- **Geral** (nada selecionado / `gerencia_geral`): nao filtra — mostra todos os apps.
+  O rotulo default e `Geral`; personalize com o campo raiz `gerencia_geral` no `catalog.json`.
 - Gerencia escolhida: so os apps listados em `gerencias[].apps`.
 
 A escolha fica em `%LOCALAPPDATA%/<app.data_dir>/preferences.json` e e
