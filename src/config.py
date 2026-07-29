@@ -59,9 +59,15 @@ SETTINGS_BUNDLED_FILE = BUNDLE_DIR / "settings.json"
 SETTINGS_FILE = EXE_DIR / "settings.json"
 
 
-def _user_data_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    return Path(base) / "SuitePetrobras"
+def _sanitize_folder_name(raw: str, default: str) -> str:
+    """Nome de pasta sob LOCALAPPDATA (sem separadores de caminho)."""
+    name = (raw or "").strip()
+    if not name:
+        return default
+    for ch in ("/", "\\", ":", "*", "?", '"', "<", ">", "|"):
+        name = name.replace(ch, "")
+    name = name.strip().strip(".")
+    return name or default
 
 
 def _load_settings() -> dict[str, Any]:
@@ -91,6 +97,20 @@ _catalog = _S.get("catalog", {}) if isinstance(_S.get("catalog"), dict) else {}
 # ---------------------------------------------------------------------------
 APP_NAME = _app.get("name", "Suite")
 APP_VERSION = str(_app.get("version", "0.1.0")).strip() or "0.1.0"
+_company_raw = _app.get("company")
+APP_COMPANY = (
+    _company_raw.strip()
+    if isinstance(_company_raw, str) and _company_raw.strip()
+    else ""
+)
+_exe_raw = _app.get("exe_name")
+EXE_NAME = _sanitize_folder_name(
+    str(_exe_raw) if _exe_raw is not None else "",
+    "SuiteAPPs",
+)
+# Remove extensao .exe se o dev colocar no settings
+if EXE_NAME.lower().endswith(".exe"):
+    EXE_NAME = EXE_NAME[:-4]
 
 # ---------------------------------------------------------------------------
 # Textos institucionais da home  ->  settings.json > "sector"
@@ -121,8 +141,14 @@ REMOTE_CATALOG_URL: str | None = (
 )
 
 # ---------------------------------------------------------------------------
-# Pasta de dados do usuario
+# Pasta de dados do usuario  ->  settings.json > "app.data_dir"
 # ---------------------------------------------------------------------------
+def _user_data_dir() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    folder = _sanitize_folder_name(str(_app.get("data_dir") or ""), "SuiteApps")
+    return Path(base) / folder
+
+
 USER_DATA_DIR = _user_data_dir()
 DOWNLOADS_DIR = USER_DATA_DIR / "apps"
 INSTALLED_MANIFEST = USER_DATA_DIR / "installed.json"

@@ -1,6 +1,6 @@
 """Download/upload via SharePoint usando templates PowerShell (PnP + WebLogin).
 
-Fluxo validado no ambiente Petrobras:
+Fluxo tipico:
 1. Interpreta o link do SharePoint (arquivo ou pasta).
 2. Preenche placeholders no template .ps1.
 3. Executa o script com ``powershell.exe`` (Connect-PnPOnline -UseWebLogin).
@@ -125,7 +125,7 @@ def parsear_link_sharepoint(url: str) -> dict:
     parsed = urlparse(url)
     base = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Formato Petrobras: /_layouts/15/download.aspx?UniqueId=...
+    # Formato SharePoint: /_layouts/15/download.aspx?UniqueId=...
     if "download.aspx" in parsed.path.lower() and "uniqueid=" in url.lower():
         return parsear_link_download_aspx(url)
 

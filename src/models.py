@@ -1,4 +1,4 @@
-"""Modelos de dados da Suite Petrobras."""
+"""Modelos de dados da Suite."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

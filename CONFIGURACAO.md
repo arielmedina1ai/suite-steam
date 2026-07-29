@@ -9,7 +9,7 @@ abertura do programa.
 
 | Publico (versionado) | Local / SharePoint | Para que serve |
 | -------------------- | ------------------ | -------------- |
-| `settings.example.json` | `settings.json` | Nome/versao da Suite, textos da home, cores, URL do catalog.json |
+| `settings.example.json` | `settings.json` | Nome/empresa/exe/pasta de dados, textos da home, cores, URL do catalog.json |
 | `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps |
 | `assets/branding/*.example.png` | `logo.png` / `hero.png` / `window_icon.png` | Logo sidebar, banner home, icone janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
@@ -28,7 +28,13 @@ abertura do programa.
 
 ```json
 {
-  "app": { "name": "Suite Petrobras", "version": "0.1.0" },
+  "app": {
+    "name": "Suite (exemplo)",
+    "version": "0.1.0",
+    "company": "Nome da Empresa",
+    "exe_name": "SuiteAPPs",
+    "data_dir": "SuiteApps"
+  },
   "sector": {
     "name": "Nome do setor",
     "tagline": "Frase de efeito",
@@ -48,6 +54,9 @@ abertura do programa.
 }
 ```
 
+- `app.name` / `app.company`: titulo da janela e metadados do `.exe` no pack.
+- `app.exe_name`: nome do executavel gerado e prefixo do arquivo de update (`{exe_name}_{versao}.exe`).
+- `app.data_dir`: pasta sob `%LOCALAPPDATA%` (padrao `SuiteApps`).
 - `app.version`: versao instalada desta Suite (comparada com `suite.versao` do catalogo).
 - `sector.*`: titulo, tagline e descricao do **banner** na tela Inicio (sempre no mesmo lugar).
 
@@ -107,7 +116,7 @@ Estrutura completa (veja `catalog.example.json`):
 Se `suite.versao` for diferente de `settings.app.version` e houver `download_url`,
 a sidebar mostra **Baixar atualizacao**. O download usa o **link exato** do catalogo;
 ao salvar, o arquivo vai para a pasta **Downloads** do Windows como
-`SuiteAPPs_{versao}.exe`. Ao concluir, a Suite mostra a confirmacao, oculta o
+`{exe_name}_{versao}.exe` (conforme `app.exe_name`). Ao concluir, a Suite mostra a confirmacao, oculta o
 botao de download e abre o Explorer com o arquivo selecionado.
 
 ### Gerencias
@@ -119,7 +128,7 @@ Na sidebar, o seletor **GERENCIA** fica acima de **SETORES**:
 - **Todas** (nada selecionado): nao filtra — mostra todos os apps.
 - Gerencia escolhida: so os apps listados em `gerencias[].apps`.
 
-A escolha fica em `%LOCALAPPDATA%/SuitePetrobras/preferences.json` e e
+A escolha fica em `%LOCALAPPDATA%/<app.data_dir>/preferences.json` e e
 restaurada na proxima abertura.
 
 Com gerencia selecionada, o **Inicio** mostra nome + descricao da gerencia
@@ -144,13 +153,13 @@ Com gerencia selecionada, o **Inicio** mostra nome + descricao da gerencia
 
 ### Imagens e cache
 
-Capas/icones em `%LOCALAPPDATA%/SuitePetrobras/catalog/images/`, com
+Capas/icones em `%LOCALAPPDATA%/<app.data_dir>/catalog/images/`, com
 `images_manifest.json`. So rebaixam se URL ou `*_versao` mudarem.
 
 ### Favoritos
 
 Estrela nos cards e no detalhe. Persistidos em
-`%LOCALAPPDATA%/SuitePetrobras/favorites.json`. Se houver ao menos 1 favorito
+`%LOCALAPPDATA%/<app.data_dir>/favorites.json`. Se houver ao menos 1 favorito
 visivel no filtro atual, o item **Favoritos** aparece na sidebar (apos Inicio).
 
 A cada abertura, a Suite:
@@ -187,7 +196,7 @@ copy assets\branding\window_icon.example.png assets\branding\window_icon.png
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**
 
-Arquivos dos apps: `%LOCALAPPDATA%/SuitePetrobras/apps/<id>/`
+Arquivos dos apps: `%LOCALAPPDATA%/<app.data_dir>/apps/<id>/`
 
 ---
 
@@ -197,17 +206,17 @@ O **desenvolvedor** edita `settings.json` e gera o pack. O arquivo e embutido no
 `.exe`; o usuario final nao precisa editar nem colocar `settings.json` ao lado.
 
 ```powershell
-# 1. edite settings.json e assets/branding/
+# 1. edite settings.json (app.name, company, exe_name, data_dir, ...) e assets/branding/
 .\scripts\build_exe.ps1
-# 2. distribua dist\SuiteAPPs.exe
+# 2. distribua dist\{exe_name}.exe
 ```
 
 | Item | Onde fica |
 |------|-----------|
-| `SuiteAPPs.exe` | `dist\` |
+| `{exe_name}.exe` | `dist\` (nome = `app.exe_name`) |
 | `settings.json` do build | **Dentro** do bundle (congelado no pack) |
 | Assets / scripts PnP | Dentro do bundle |
-| Apps, favoritos, cache | `%LOCALAPPDATA%/SuitePetrobras/` |
+| Apps, favoritos, cache | `%LOCALAPPDATA%/<app.data_dir>/` |
 
 Override opcional: se existir `settings.json` **ao lado** do `.exe`, ele tem prioridade
 sobre o embutido (util para suporte; nao e o fluxo normal).

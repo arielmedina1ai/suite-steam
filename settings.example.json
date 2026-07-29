@@ -1,7 +1,10 @@
 {
   "app": {
     "name": "Suite (exemplo)",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "company": "Nome da Empresa",
+    "exe_name": "SuiteAPPs",
+    "data_dir": "SuiteApps"
   },
   "sector": {
     "name": "Nome do Setor (edite aqui)",

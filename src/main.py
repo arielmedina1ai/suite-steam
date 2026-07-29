@@ -1,4 +1,4 @@
-"""Suite Petrobras - hub de aplicativos internos (frontend em Flet)."""
+"""Suite - hub de aplicativos internos (frontend em Flet)."""
 from __future__ import annotations
 
 import subprocess
@@ -226,7 +226,7 @@ class SuiteApp:
         suite = self.catalog.suite
         dest = config.user_downloads_dir()
         dest.mkdir(parents=True, exist_ok=True)
-        nome_final = f"SuiteAPPs_{suite.versao}.exe"
+        nome_final = f"{config.EXE_NAME}_{suite.versao}.exe"
         self.update_message = "Baixando pelo link do catalogo..."
         try:
             self.page.update()
@@ -234,7 +234,7 @@ class SuiteApp:
             pass
 
         # Baixa com o nome do link (nao altera o caminho no SharePoint);
-        # so ao salvar renomeia para SuiteAPPs_{versao}.exe
+        # so ao salvar renomeia para {exe_name}_{versao}.exe
         result = baixar_do_sharepoint(
             link=suite.download_url,
             pasta_destino=dest,

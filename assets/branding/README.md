@@ -15,7 +15,7 @@ producao ficam no `.gitignore`.
 
 | Arquivo de producao | Exemplo | Uso | Resolucao recomendada |
 |---------------------|---------|-----|------------------------|
-| `logo.png` | `logo.example.png` | Emblema da **sidebar** (antigo "SP") | **512 x 512** (min. 256), 1:1 |
+| `logo.png` | `logo.example.png` | Emblema da **sidebar** | **512 x 512** (min. 256), 1:1 |
 | `hero.png` | `hero.example.png` | Banner da **tela inicial** (centro) | **2220 x 1140** (proporcao ~1,95:1) |
 | `window_icon.png` | `window_icon.example.png` | Base do icone da janela | **256 x 256**, 1:1 |
 
