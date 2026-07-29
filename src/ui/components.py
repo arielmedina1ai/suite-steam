@@ -218,30 +218,33 @@ def build_sidebar(
     gerencia_list = gerencias if gerencias is not None else catalog.gerencias
     items: list[ft.Control] = [
         ft.Container(
-            padding=ft.Padding.only(left=8, top=8, bottom=16),
+            padding=ft.Padding.only(left=4, top=8, bottom=16, right=4),
             width=_SIDEBAR_INNER,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             content=ft.Row(
-                spacing=10,
-                vertical_alignment=ft.CrossAxisAlignment.START,
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     app_badge(40),
                     ft.Column(
                         spacing=2,
                         expand=True,
                         tight=True,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.START,
                         controls=[
                             ft.Text(
                                 config.APP_NAME,
                                 weight=ft.FontWeight.BOLD,
                                 size=16,
                                 color=config.COLOR_TEXT,
-                                width=_SIDEBAR_INNER - 58,
+                                width=_SIDEBAR_INNER - 64,
                             ),
                             ft.Text(
                                 f"v{config.APP_VERSION}",
                                 size=11,
                                 color="#8AA797",
+                                width=_SIDEBAR_INNER - 64,
                             ),
                         ],
                     ),
