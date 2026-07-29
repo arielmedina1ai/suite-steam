@@ -9,6 +9,10 @@ import flet as ft
 import config
 from models import AppInfo, CatalogData, GerenciaInfo, SuiteUpdateInfo, setores_visiveis
 
+# Largura fixa da sidebar e area util (descontando padding 12+12)
+_SIDEBAR_WIDTH = 260
+_SIDEBAR_INNER = _SIDEBAR_WIDTH - 24  # 236
+
 
 def media_src(path: str) -> str:
     """Caminho absoluto do cache ou relativo a assets/ (ex.: branding/logo.png)."""
@@ -87,28 +91,34 @@ def _nav_item(
     selected: bool,
     on_click: Callable[[], None],
 ) -> ft.Control:
+    """Item de menu: nome completo com quebra de linha (sem reticencias)."""
     return ft.Container(
         on_click=lambda e: on_click(),
         border_radius=8,
         padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         bgcolor=config.COLOR_PRIMARY if selected else None,
         ink=True,
+        width=_SIDEBAR_INNER,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
         content=ft.Row(
             spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.START,
             controls=[
-                ft.Icon(
-                    icon,
-                    size=20,
-                    color=config.COLOR_ACCENT if selected else config.COLOR_TEXT,
+                ft.Container(
+                    padding=ft.Padding.only(top=2),
+                    content=ft.Icon(
+                        icon,
+                        size=20,
+                        color=config.COLOR_ACCENT if selected else config.COLOR_TEXT,
+                    ),
                 ),
                 ft.Text(
                     label,
                     color=config.COLOR_TEXT,
                     size=14,
                     weight=ft.FontWeight.W_600 if selected else ft.FontWeight.NORMAL,
-                    no_wrap=True,
-                    overflow=ft.TextOverflow.ELLIPSIS,
                     expand=True,
+                    width=_SIDEBAR_INNER - 54,
                 ),
             ],
         ),
@@ -127,23 +137,19 @@ def _update_banner(
     on_download_update: Callable[[], None],
 ) -> ft.Control:
     # Sidebar 260 - padding 12*2 = 236 (mesma faixa dos itens de menu)
-    _W = 236
+    _W = _SIDEBAR_INNER
     controls: list[ft.Control] = [
         ft.Text(
             "Atualizacao disponivel" if not update_done else "Download concluido",
             size=12,
             weight=ft.FontWeight.BOLD,
             color=config.COLOR_ACCENT,
-            no_wrap=True,
-            overflow=ft.TextOverflow.ELLIPSIS,
             width=_W - 24,
         ),
         ft.Text(
             f"Suite v{suite_update.versao}",
             size=12,
             color="#B9CEC3",
-            no_wrap=True,
-            overflow=ft.TextOverflow.ELLIPSIS,
             width=_W - 24,
         ),
     ]
@@ -213,15 +219,30 @@ def build_sidebar(
     items: list[ft.Control] = [
         ft.Container(
             padding=ft.Padding.only(left=8, top=8, bottom=16),
+            width=_SIDEBAR_INNER,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
             content=ft.Row(
                 spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.START,
                 controls=[
                     app_badge(40),
                     ft.Column(
-                        spacing=0,
+                        spacing=2,
+                        expand=True,
+                        tight=True,
                         controls=[
-                            ft.Text(config.APP_NAME, weight=ft.FontWeight.BOLD, size=16, color=config.COLOR_TEXT),
-                            ft.Text(f"v{config.APP_VERSION}", size=11, color="#8AA797"),
+                            ft.Text(
+                                config.APP_NAME,
+                                weight=ft.FontWeight.BOLD,
+                                size=16,
+                                color=config.COLOR_TEXT,
+                                width=_SIDEBAR_INNER - 58,
+                            ),
+                            ft.Text(
+                                f"v{config.APP_VERSION}",
+                                size=11,
+                                color="#8AA797",
+                            ),
                         ],
                     ),
                 ],
@@ -260,14 +281,29 @@ def build_sidebar(
             )
         )
 
-    # Filtro por gerencia (acima dos setores)
+    # Filtro por gerencia (acima dos setores) — dropdown; nomes longos com reticencias
     if gerencia_list:
         geral_label = (catalog.gerencia_geral or "").strip() or "Geral"
-        gerencia_options = [
-            ft.DropdownOption(key=_NONE_GERENCIA, text=geral_label),
-        ]
+        _opt_w = _SIDEBAR_INNER - 16
+
+        def _gerencia_option(key: str, label: str) -> ft.DropdownOption:
+            return ft.DropdownOption(
+                key=key,
+                text=label,
+                tooltip=label,
+                content=ft.Text(
+                    label,
+                    size=13,
+                    color=config.COLOR_TEXT,
+                    no_wrap=True,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    width=_opt_w,
+                ),
+            )
+
+        gerencia_options = [_gerencia_option(_NONE_GERENCIA, geral_label)]
         for g in gerencia_list:
-            gerencia_options.append(ft.DropdownOption(key=g.id, text=g.nome))
+            gerencia_options.append(_gerencia_option(g.id, g.nome))
 
         current_gid = selected_gerencia_id.strip() if selected_gerencia_id else _NONE_GERENCIA
         valid_keys = {o.key for o in gerencia_options}
@@ -281,10 +317,18 @@ def build_sidebar(
         items.append(
             ft.Container(
                 padding=ft.Padding.only(left=4, top=16, bottom=4, right=4),
+                width=_SIDEBAR_INNER,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
                 content=ft.Column(
                     spacing=6,
+                    tight=True,
                     controls=[
-                        ft.Text("GERENCIA", size=11, color="#8AA797", weight=ft.FontWeight.BOLD),
+                        ft.Text(
+                            "GERENCIA",
+                            size=11,
+                            color="#8AA797",
+                            weight=ft.FontWeight.BOLD,
+                        ),
                         ft.Dropdown(
                             value=current_gid,
                             options=gerencia_options,
@@ -294,7 +338,7 @@ def build_sidebar(
                             border_color="#22332B",
                             color=config.COLOR_TEXT,
                             text_size=13,
-                            width=228,
+                            width=_SIDEBAR_INNER - 8,
                             on_select=_on_gerencia_select,
                         ),
                     ],
@@ -338,8 +382,14 @@ def build_sidebar(
     items.append(ft.Container(expand=True))
 
     return ft.Container(
-        width=260,
+        width=_SIDEBAR_WIDTH,
         bgcolor=config.COLOR_SURFACE,
         padding=12,
-        content=ft.Column(controls=items, spacing=4, scroll=ft.ScrollMode.AUTO, expand=True),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        content=ft.Column(
+            controls=items,
+            spacing=4,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        ),
     )

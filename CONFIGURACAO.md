@@ -125,7 +125,8 @@ botao de download e abre o Explorer com o arquivo selecionado.
 Cada gerencia lista os `id`s dos apps que ela exibe. O mesmo app pode entrar em
 varias gerencias.
 
-Na sidebar, o seletor **GERENCIA** fica acima de **SETORES**:
+Na sidebar, o seletor **GERENCIA** fica acima de **SETORES** (dropdown;
+nomes longos usam reticencias e tooltip com o texto completo):
 - **Geral** (nada selecionado / `gerencia_geral`): nao filtra — mostra todos os apps.
   O rotulo default e `Geral`; personalize com o campo raiz `gerencia_geral` no `catalog.json`.
 - Gerencia escolhida: so os apps listados em `gerencias[].apps`.
