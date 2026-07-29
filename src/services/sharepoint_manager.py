@@ -22,9 +22,13 @@ ProgressCb = Callable[[float, str], None]
 
 
 def _scripts_dir() -> Path:
+    """Pasta dos templates .ps1 (bundle em modo frozen; ``scripts/`` em dev)."""
     configured = getattr(config, "SHAREPOINT_SCRIPTS_DIR", None)
     if configured:
         return Path(configured)
+    bundle = getattr(config, "BUNDLE_DIR", None)
+    if bundle:
+        return Path(bundle) / "scripts"
     return config.ROOT_DIR / "scripts"
 
 

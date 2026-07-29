@@ -34,3 +34,8 @@ Thumbs.db
 
 # Flet
 storage/
+
+# Artefatos locais do flet pack
+SuiteAPPs.spec
+generated-*.ico
+

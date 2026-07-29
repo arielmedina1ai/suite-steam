@@ -38,7 +38,7 @@ Suite-steam/
 
 ## Como rodar
 
-```bash
+```powershell
 python -m venv .venv
 .venv\Scripts\activate
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
@@ -48,6 +48,14 @@ copy settings.example.json settings.json
 
 python src/main.py
 ```
+
+Para gerar o `.exe`, apos o `pip install` (inclui `pyinstaller`):
+
+```powershell
+.\scripts\build_exe.ps1
+```
+
+Veja a secao **Gerar .exe** abaixo.
 
 ## Configurando
 
@@ -72,3 +80,32 @@ python src/main.py
 ```
 
 Update da Suite (quando disponivel): `%USERPROFILE%\Downloads\SuiteAPPs_{versao}.exe`
+
+## Gerar .exe (Windows)
+
+Empacota com `flet pack` (PyInstaller). Na raiz do repo, com o venv ativo:
+
+```powershell
+.\scripts\build_exe.ps1
+```
+
+Artefato: `dist\SuiteAPPs.exe` (nao versionado; pastas `dist/` e `build/` ja estao no `.gitignore`).
+
+Antes de testar ou distribuir:
+
+1. Copie `settings.json` para `dist\` (ao lado do `.exe`).
+2. No PC destino: PowerShell + modulo PnP ainda sao necessarios (o exe nao embute o SharePoint).
+3. Branding de producao deve existir em `assets/branding/` no momento do pack (logo/hero/icone), pois vai dentro do bundle.
+
+Equivalente manual:
+
+```powershell
+flet pack src\main.py `
+  --name SuiteAPPs `
+  --icon assets\branding\window_icon.ico `
+  --add-data "assets;assets" `
+  --add-data "scripts;scripts" `
+  --add-data "settings.example.json;." `
+  --add-data "catalog.example.json;." `
+  --yes
+```

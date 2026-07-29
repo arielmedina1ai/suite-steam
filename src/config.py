@@ -5,8 +5,9 @@ catalogo remoto sao lidos de ``settings.json`` (local). Scripts SharePoint ficam
 fixos no codigo (sempre PnP).
 
 Ordem de carga:
-    1. settings.json          (LOCAL - nao versionado)
-    2. settings.example.json  (PUBLICO - placeholders)
+    1. settings.json ao lado do .exe / raiz do repo (LOCAL)
+    2. %LOCALAPPDATA%/SuitePetrobras/settings.json (fallback no .exe)
+    3. settings.example.json (PUBLICO / embutido no bundle)
 
 Consulte CONFIGURACAO.md para saber exatamente onde atribuir cada parametro.
 """
@@ -14,15 +15,34 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+
+def _is_frozen() -> bool:
+    """True quando empacotado (PyInstaller / flet pack)."""
+    return bool(getattr(sys, "frozen", False))
+
 
 # ---------------------------------------------------------------------------
 # Caminhos do projeto
 # ---------------------------------------------------------------------------
+# Em modo congelado:
+#   BUNDLE_DIR  = pasta extraida do bundle (sys._MEIPASS) — assets/scripts/exemplos
+#   EXE_DIR     = pasta do .exe — settings.json editavel pelo usuario
+# Em desenvolvimento: ambos apontam para a raiz do repositorio.
 SRC_DIR = Path(__file__).resolve().parent
-ROOT_DIR = SRC_DIR.parent
-ASSETS_DIR = ROOT_DIR / "assets"
+if _is_frozen():
+    BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", SRC_DIR))
+    EXE_DIR = Path(sys.executable).resolve().parent
+    ROOT_DIR = EXE_DIR
+else:
+    BUNDLE_DIR = SRC_DIR.parent
+    EXE_DIR = BUNDLE_DIR
+    ROOT_DIR = BUNDLE_DIR
+
+ASSETS_DIR = BUNDLE_DIR / "assets"
 BRANDING_DIR = ASSETS_DIR / "branding"
 BRANDING_LOGO = BRANDING_DIR / "logo.png"
 BRANDING_HERO = BRANDING_DIR / "hero.png"
@@ -30,15 +50,26 @@ BRANDING_WINDOW_ICON_PNG = BRANDING_DIR / "window_icon.png"
 BRANDING_WINDOW_ICON_ICO = BRANDING_DIR / "window_icon.ico"
 # legado: alguns docs ainda citam window_icon.png como "icone da janela"
 BRANDING_WINDOW_ICON = BRANDING_WINDOW_ICON_PNG
-CATALOG_EXAMPLE_FILE = ROOT_DIR / "catalog.example.json"
+CATALOG_EXAMPLE_FILE = BUNDLE_DIR / "catalog.example.json"
 
-SETTINGS_FILE = ROOT_DIR / "settings.json"
-SETTINGS_EXAMPLE_FILE = ROOT_DIR / "settings.example.json"
+SETTINGS_EXAMPLE_FILE = BUNDLE_DIR / "settings.example.json"
+# Preferencia: ao lado do .exe (ou raiz do repo em dev)
+SETTINGS_FILE = EXE_DIR / "settings.json"
+
+
+def _user_data_dir() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return Path(base) / "SuitePetrobras"
 
 
 def _load_settings() -> dict[str, Any]:
     """Le o primeiro arquivo de settings disponivel (local tem prioridade)."""
-    for path in (SETTINGS_FILE, SETTINGS_EXAMPLE_FILE):
+    candidates: list[Path] = [SETTINGS_FILE]
+    if _is_frozen():
+        # Fallback se o usuario nao colocou settings ao lado do exe
+        candidates.append(_user_data_dir() / "settings.json")
+    candidates.append(SETTINGS_EXAMPLE_FILE)
+    for path in candidates:
         if path.exists():
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
@@ -90,11 +121,6 @@ REMOTE_CATALOG_URL: str | None = (
 # ---------------------------------------------------------------------------
 # Pasta de dados do usuario
 # ---------------------------------------------------------------------------
-def _user_data_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    return Path(base) / "SuitePetrobras"
-
-
 USER_DATA_DIR = _user_data_dir()
 DOWNLOADS_DIR = USER_DATA_DIR / "apps"
 INSTALLED_MANIFEST = USER_DATA_DIR / "installed.json"
@@ -114,7 +140,7 @@ def user_downloads_dir() -> Path:
 # SharePoint (sempre PnP) — caminhos fixos, nao vao no settings.json
 # ---------------------------------------------------------------------------
 SHAREPOINT_ENABLED = True
-SHAREPOINT_SCRIPTS_DIR = ROOT_DIR / "scripts"
+SHAREPOINT_SCRIPTS_DIR = BUNDLE_DIR / "scripts"
 SHAREPOINT_DOWNLOAD_SCRIPT = "template_sp_download.ps1"
 SHAREPOINT_DOWNLOAD_BATCH_SCRIPT = "template_sp_download_batch.ps1"
 SHAREPOINT_UPLOAD_SCRIPT = "template_sp_upload.ps1"
@@ -152,6 +178,7 @@ def resolve_window_icon() -> Path | None:
     """Caminho absoluto do .ico da janela (exigido pelo Flet no Windows).
 
     Usa ``window_icon.ico`` se existir; senao converte ``window_icon.png``.
+    Em app congelado o bundle e so-leitura: o .ico gerado vai em USER_DATA_DIR.
     """
     ico = BRANDING_WINDOW_ICON_ICO
     png = BRANDING_WINDOW_ICON_PNG
@@ -159,8 +186,14 @@ def resolve_window_icon() -> Path | None:
         return ico.resolve()
     if not png.exists():
         return None
+    out = ico
+    if _is_frozen():
+        USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        out = USER_DATA_DIR / "window_icon.ico"
+        if out.exists():
+            return out.resolve()
     try:
-        _png_to_ico(png, ico)
+        _png_to_ico(png, out)
     except (OSError, ValueError):
         return None
-    return ico.resolve() if ico.exists() else None
+    return out.resolve() if out.exists() else None

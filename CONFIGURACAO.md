@@ -191,8 +191,30 @@ Arquivos dos apps: `%LOCALAPPDATA%/SuitePetrobras/apps/<id>/`
 
 ---
 
-## 4. O que NAO versionar
+## 4. Distribuicao como .exe
+
+Gere o executavel na maquina de build:
+
+```powershell
+.\scripts\build_exe.ps1
+```
+
+| Item | Onde fica |
+|------|-----------|
+| `SuiteAPPs.exe` | `dist\` (apos o pack) |
+| `settings.json` (editavel) | **Ao lado do .exe** (obrigatorio na instalacao) |
+| Assets / scripts PnP | Dentro do bundle (somente leitura) |
+| Apps, favoritos, cache | `%LOCALAPPDATA%/SuitePetrobras/` (inalterado) |
+
+Se nao houver `settings.json` ao lado do exe, a Suite tenta `%LOCALAPPDATA%/SuitePetrobras/settings.json` e, por ultimo, o `settings.example.json` embutido.
+
+**Pre-requisitos no PC destino:** PowerShell e modulo PnP.PowerShell (WebLogin). O `.exe` nao substitui essa dependencia.
+
+---
+
+## 5. O que NAO versionar
 
 - `settings.json` (local)
 - Links/tokens internos no codigo
 - Catalogo real ou dados sensiveis no GitHub
+- `dist/` / `build/` (artefatos do `flet pack`)
