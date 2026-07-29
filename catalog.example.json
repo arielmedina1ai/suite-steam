@@ -3,6 +3,7 @@
     "versao": "0.2.0",
     "download_url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/SuiteAPPs.exe"
   },
+  "gerencia_geral": "Geral",
   "gerencias": [
     {
       "id": "gerencia-1",

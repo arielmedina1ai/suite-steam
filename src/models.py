@@ -1,4 +1,4 @@
-"""Modelos de dados da Suite Petrobras."""
+"""Modelos de dados da Suite."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -182,6 +182,8 @@ class CatalogData:
     suite: SuiteUpdateInfo = field(default_factory=SuiteUpdateInfo)
     gerencias: list[GerenciaInfo] = field(default_factory=list)
     setores: list[SetorInfo] = field(default_factory=list)
+    # Rotulo da opcao "sem filtro" no seletor de gerencia (default: Geral)
+    gerencia_geral: str = "Geral"
 
     def gerencia_by_id(self, gerencia_id: str) -> GerenciaInfo | None:
         alvo = (gerencia_id or "").strip()
@@ -205,6 +207,7 @@ class CatalogData:
                 suite=self.suite,
                 gerencias=self.gerencias,
                 setores=self.setores,
+                gerencia_geral=self.gerencia_geral,
             )
         g = self.gerencia_by_id(gerencia_id)
         if g is None:
@@ -216,12 +219,14 @@ class CatalogData:
                     suite=self.suite,
                     gerencias=self.gerencias,
                     setores=self.setores,
+                    gerencia_geral=self.gerencia_geral,
                 )
             return CatalogData(
                 apps=list(self.apps),
                 suite=self.suite,
                 gerencias=self.gerencias,
                 setores=self.setores,
+                gerencia_geral=self.gerencia_geral,
             )
         allowed = set(g.apps)
         apps = [a for a in self.apps if a.id in allowed]
@@ -230,6 +235,7 @@ class CatalogData:
             suite=self.suite,
             gerencias=self.gerencias,
             setores=self.setores,
+            gerencia_geral=self.gerencia_geral,
         )
 
 
@@ -280,7 +286,20 @@ def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:
             except (KeyError, TypeError):
                 continue
 
-    return CatalogData(apps=apps, suite=suite, gerencias=gerencias, setores=setores)
+    geral_raw = data.get("gerencia_geral")
+    gerencia_geral = (
+        geral_raw.strip()
+        if isinstance(geral_raw, str) and geral_raw.strip()
+        else "Geral"
+    )
+
+    return CatalogData(
+        apps=apps,
+        suite=suite,
+        gerencias=gerencias,
+        setores=setores,
+        gerencia_geral=gerencia_geral,
+    )
 
 
 def setores_visiveis(catalog: CatalogData) -> list[SetorInfo]:

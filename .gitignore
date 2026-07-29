@@ -15,7 +15,7 @@ env/
 *.log
 
 # ---------------------------------------------------------------------------
-# Configuracao e dados sensiveis (APENAS locais / ambiente Petrobras)
+# Configuracao e dados sensiveis (APENAS locais)
 # O repo publico guarda somente os modelos *.example. Nada abaixo volta ao repo.
 # ---------------------------------------------------------------------------
 settings.json
@@ -34,3 +34,8 @@ Thumbs.db
 
 # Flet
 storage/
+
+# Artefatos locais do flet pack
+*.spec
+generated-*.ico
+

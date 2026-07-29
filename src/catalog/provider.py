@@ -1,7 +1,7 @@
 """Provedores de catalogo de aplicativos.
 
 Fonte oficial: catalog.json no SharePoint (settings.json > catalog.remote_url).
-Cache local: %LOCALAPPDATA%/SuitePetrobras/catalog/
+Cache local: %LOCALAPPDATA%/<app.data_dir>/catalog/
 
 Capas (`imagem`) e icones (`icone`): baixados sob demanda e reutilizados via
 images_manifest.json. So rebaixam se URL ou *_versao mudarem.
