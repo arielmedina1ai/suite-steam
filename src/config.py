@@ -5,9 +5,9 @@ catalogo remoto sao lidos de ``settings.json`` (local). Scripts SharePoint ficam
 fixos no codigo (sempre PnP).
 
 Ordem de carga:
-    1. settings.json ao lado do .exe / raiz do repo (LOCAL)
-    2. %LOCALAPPDATA%/SuitePetrobras/settings.json (fallback no .exe)
-    3. settings.example.json (PUBLICO / embutido no bundle)
+    1. settings.json ao lado do .exe (override opcional) / raiz do repo (dev)
+    2. settings.json embutido no bundle no momento do build (modo .exe)
+    3. settings.example.json (placeholders)
 
 Consulte CONFIGURACAO.md para saber exatamente onde atribuir cada parametro.
 """
@@ -29,8 +29,8 @@ def _is_frozen() -> bool:
 # Caminhos do projeto
 # ---------------------------------------------------------------------------
 # Em modo congelado:
-#   BUNDLE_DIR  = pasta extraida do bundle (sys._MEIPASS) — assets/scripts/exemplos
-#   EXE_DIR     = pasta do .exe — settings.json editavel pelo usuario
+#   BUNDLE_DIR  = pasta extraida do bundle (sys._MEIPASS) — assets/scripts/settings
+#   EXE_DIR     = pasta do .exe (override opcional de settings.json)
 # Em desenvolvimento: ambos apontam para a raiz do repositorio.
 SRC_DIR = Path(__file__).resolve().parent
 if _is_frozen():
@@ -53,7 +53,9 @@ BRANDING_WINDOW_ICON = BRANDING_WINDOW_ICON_PNG
 CATALOG_EXAMPLE_FILE = BUNDLE_DIR / "catalog.example.json"
 
 SETTINGS_EXAMPLE_FILE = BUNDLE_DIR / "settings.example.json"
-# Preferencia: ao lado do .exe (ou raiz do repo em dev)
+# Embutido no pack (dev edita settings.json e gera o .exe)
+SETTINGS_BUNDLED_FILE = BUNDLE_DIR / "settings.json"
+# Dev: raiz do repo. Frozen: override opcional ao lado do .exe
 SETTINGS_FILE = EXE_DIR / "settings.json"
 
 
@@ -63,11 +65,11 @@ def _user_data_dir() -> Path:
 
 
 def _load_settings() -> dict[str, Any]:
-    """Le o primeiro arquivo de settings disponivel (local tem prioridade)."""
+    """Le o primeiro arquivo de settings disponivel."""
     candidates: list[Path] = [SETTINGS_FILE]
     if _is_frozen():
-        # Fallback se o usuario nao colocou settings ao lado do exe
-        candidates.append(_user_data_dir() / "settings.json")
+        # Config congelada no build (fluxo normal: usuario nao edita)
+        candidates.append(SETTINGS_BUNDLED_FILE)
     candidates.append(SETTINGS_EXAMPLE_FILE)
     for path in candidates:
         if path.exists():

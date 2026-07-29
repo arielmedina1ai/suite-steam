@@ -91,11 +91,13 @@ Empacota com `flet pack` (PyInstaller). Na raiz do repo, com o venv ativo:
 
 Artefato: `dist\SuiteAPPs.exe` (nao versionado; pastas `dist/` e `build/` ja estao no `.gitignore`).
 
-Antes de testar ou distribuir:
+Fluxo do desenvolvedor:
 
-1. Copie `settings.json` para `dist\` (ao lado do `.exe`) — ele fica **fora** do bundle de proposito (editavel; URL do catalogo/textos por instalacao). Sem ele, a Suite usa fallback em `%LOCALAPPDATA%` ou o `settings.example.json` embutido.
-2. No PC destino: PowerShell + modulo PnP ainda sao necessarios (o exe nao embute o SharePoint).
-3. Branding de producao deve existir em `assets/branding/` no momento do pack (logo/hero/icone), pois vai dentro do bundle.
+1. Edite `settings.json` (URL do catalogo, textos, cores, versao) **antes** do pack.
+2. Garanta branding em `assets/branding/` (logo/hero/icone) — entra no bundle.
+3. Rode `.\scripts\build_exe.ps1` — o `settings.json` e **embutido** no `.exe`.
+4. Distribua so o `SuiteAPPs.exe`. O usuario final nao precisa editar nem copiar `settings.json`.
+5. No PC destino: PowerShell + modulo PnP ainda sao necessarios (o exe nao embute o SharePoint).
 
 Equivalente manual:
 
@@ -105,6 +107,7 @@ flet pack src\main.py `
   --icon assets\branding\window_icon.ico `
   --add-data "assets;assets" `
   --add-data "scripts;scripts" `
+  --add-data "settings.json;." `
   --add-data "settings.example.json;." `
   --add-data "catalog.example.json;." `
   --yes

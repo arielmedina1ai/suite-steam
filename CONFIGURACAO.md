@@ -193,24 +193,24 @@ Arquivos dos apps: `%LOCALAPPDATA%/SuitePetrobras/apps/<id>/`
 
 ## 4. Distribuicao como .exe
 
-Gere o executavel na maquina de build:
+O **desenvolvedor** edita `settings.json` e gera o pack. O arquivo e embutido no
+`.exe`; o usuario final nao precisa editar nem colocar `settings.json` ao lado.
 
 ```powershell
+# 1. edite settings.json e assets/branding/
 .\scripts\build_exe.ps1
+# 2. distribua dist\SuiteAPPs.exe
 ```
 
 | Item | Onde fica |
 |------|-----------|
-| `SuiteAPPs.exe` | `dist\` (apos o pack) |
-| `settings.json` (editavel) | **Ao lado do .exe** |
-| Assets / scripts PnP | Dentro do bundle (somente leitura) |
-| Apps, favoritos, cache | `%LOCALAPPDATA%/SuitePetrobras/` (inalterado) |
+| `SuiteAPPs.exe` | `dist\` |
+| `settings.json` do build | **Dentro** do bundle (congelado no pack) |
+| Assets / scripts PnP | Dentro do bundle |
+| Apps, favoritos, cache | `%LOCALAPPDATA%/SuitePetrobras/` |
 
-**Por que o `settings.json` nao vai “dentro” do .exe?** O bundle PyInstaller e so-leitura.
-La estao o `catalog.remote_url`, textos do setor e cores — coisas que mudam por instalacao
-sem recompilar. Por isso o arquivo fica ao lado do exe (ou em
-`%LOCALAPPDATA%/SuitePetrobras/settings.json`). O pack embute so o
-`settings.example.json` como fallback de placeholders.
+Override opcional: se existir `settings.json` **ao lado** do `.exe`, ele tem prioridade
+sobre o embutido (util para suporte; nao e o fluxo normal).
 
 **Pre-requisitos no PC destino:** PowerShell e modulo PnP.PowerShell (WebLogin). O `.exe` nao substitui essa dependencia.
 
@@ -218,7 +218,7 @@ sem recompilar. Por isso o arquivo fica ao lado do exe (ou em
 
 ## 5. O que NAO versionar
 
-- `settings.json` (local)
+- `settings.json` (local — nao sobe no Git, mas entra no .exe no momento do build)
 - Links/tokens internos no codigo
 - Catalogo real ou dados sensiveis no GitHub
 - `dist/` / `build/` (artefatos do `flet pack`)

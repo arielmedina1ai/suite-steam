@@ -1,8 +1,8 @@
 # Empacota a Suite como SuiteAPPs.exe via flet pack (PyInstaller).
 # Uso (na raiz do repo, com venv ativo):
-#   .\scripts\build_exe.ps1
-# Artefato: dist\SuiteAPPs.exe
-# Copie settings.json ao lado do .exe antes de distribuir.
+#   1. Edite settings.json (dev) e assets/branding/
+#   2. .\scripts\build_exe.ps1
+# Artefato: dist\SuiteAPPs.exe (settings.json ja vai embutido no bundle)
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -16,16 +16,18 @@ $IconCandidates = @(
 $Icon = $IconCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 $SettingsPath = Join-Path $Root "settings.json"
+if (-not (Test-Path $SettingsPath)) {
+    throw "settings.json nao encontrado. O desenvolvedor deve criar/editar settings.json antes do build (copie de settings.example.json)."
+}
+
 $ProductVersion = "0.1.0"
-if (Test-Path $SettingsPath) {
-    try {
-        $settings = Get-Content $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($settings.app.version) {
-            $ProductVersion = [string]$settings.app.version
-        }
-    } catch {
-        Write-Warning "Nao foi possivel ler app.version de settings.json; usando $ProductVersion"
+try {
+    $settings = Get-Content $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($settings.app.version) {
+        $ProductVersion = [string]$settings.app.version
     }
+} catch {
+    Write-Warning "Nao foi possivel ler app.version de settings.json; usando $ProductVersion"
 }
 
 # file-version exige n.n.n.n
@@ -44,6 +46,7 @@ $PackArgs = @(
     "--company-name", "Petrobras",
     "--add-data", "assets;assets",
     "--add-data", "scripts;scripts",
+    "--add-data", "settings.json;.",
     "--add-data", "settings.example.json;.",
     "--add-data", "catalog.example.json;.",
     "--yes"
@@ -56,7 +59,7 @@ if ($Icon) {
     Write-Warning "Nenhum icone encontrado em assets/branding; o exe usara o padrao."
 }
 
-Write-Host "Empacotando SuiteAPPs $ProductVersion ..."
+Write-Host "Empacotando SuiteAPPs $ProductVersion (settings.json embutido) ..."
 Write-Host "flet $($PackArgs -join ' ')"
 & flet @PackArgs
 if ($LASTEXITCODE -ne 0) {
@@ -70,5 +73,5 @@ if (-not (Test-Path $Exe)) {
 
 Write-Host ""
 Write-Host "OK: $Exe"
-Write-Host "Proximo passo: copie settings.json para dist\ (ao lado do exe) antes de testar/distribuir."
+Write-Host "O settings.json do build ja esta dentro do .exe; o usuario final nao precisa de arquivo ao lado."
 Write-Host "No PC destino ainda sao necessarios PowerShell e modulo PnP (SharePoint)."
