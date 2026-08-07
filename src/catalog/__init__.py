@@ -1,4 +1,4 @@
-"""Provedores de catálogo com gate de dependências no startup."""
+"""Provedores de catálogo com validação de dependências no startup."""
 from __future__ import annotations
 
 import logging
@@ -10,6 +10,7 @@ log = logging.getLogger(__name__)
 
 
 def _validate_startup_dependencies() -> None:
+    """Valida e repara dependências antes de carregar o provedor SharePoint."""
     if sys.platform != "win32":
         return
     result = ensure_dependencies(auto_repair=True, timeout=120)
@@ -28,14 +29,14 @@ _validate_startup_dependencies()
 
 from .provider import (  # noqa: E402
     CatalogProvider,
+    CatalogSyncResult,
     LocalCatalogProvider,
-    RemoteCatalogProvider,
-    get_default_provider,
+    SharePointCatalogProvider,
 )
 
 __all__ = [
     "CatalogProvider",
+    "CatalogSyncResult",
     "LocalCatalogProvider",
-    "RemoteCatalogProvider",
-    "get_default_provider",
+    "SharePointCatalogProvider",
 ]
