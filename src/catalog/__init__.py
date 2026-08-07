@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 
 from dependency_check import ensure_dependencies
@@ -13,8 +12,7 @@ log = logging.getLogger(__name__)
 def _validate_startup_dependencies() -> None:
     if sys.platform != "win32":
         return
-    auto_repair = os.environ.get("SUITE_AUTO_REPAIR", "0").strip().lower() in {"1", "true", "yes"}
-    result = ensure_dependencies(auto_repair=auto_repair, timeout=120)
+    result = ensure_dependencies(auto_repair=True, timeout=120)
     if result.ok:
         log.info("Dependências do SharePoint validadas: %s", result.status)
         return
