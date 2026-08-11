@@ -404,9 +404,13 @@ class SharePointCatalogProvider(CatalogProvider):
                     from_cache=True,
                     ok=False,
                 )
+            catalog = LocalCatalogProvider().load()
             return CatalogSyncResult(
-                catalog=CatalogData(),
-                message=f"Falha ao sincronizar catalogo: {result.message}",
+                catalog=catalog,
+                message=(
+                    f"Falha ao sincronizar catalogo ({result.message}). "
+                    "Usando catalogo local de exemplo."
+                ),
                 from_cache=False,
                 ok=False,
             )
@@ -418,10 +422,21 @@ class SharePointCatalogProvider(CatalogProvider):
             catalog = _parse_catalog(text)
         except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
             cached = _load_cached_catalog()
+            if cached is not None:
+                return CatalogSyncResult(
+                    catalog=cached,
+                    message=f"Catalogo invalido ({exc}). Usando cache.",
+                    from_cache=True,
+                    ok=False,
+                )
+            catalog = LocalCatalogProvider().load()
             return CatalogSyncResult(
-                catalog=cached or CatalogData(),
-                message=f"Catalogo invalido: {exc}",
-                from_cache=bool(cached),
+                catalog=catalog,
+                message=(
+                    f"Catalogo invalido ({exc}). "
+                    "Usando catalogo local de exemplo."
+                ),
+                from_cache=False,
                 ok=False,
             )
 
@@ -437,7 +452,21 @@ class SharePointCatalogProvider(CatalogProvider):
         )
 
 
-def get_default_provider() -> CatalogProvider:
-    if config.REMOTE_CATALOG_URL:
-        return SharePointCatalogProvider(config.REMOTE_CATALOG_URL)
-    return SharePointCatalogProvider(None)
+def offline_fallback_catalog(reason: str = "") -> CatalogSyncResult:
+    """Cache local ou catalogo de exemplo — mantem a app aberta apos falha inesperada."""
+    suffix = f" ({reason})" if reason else ""
+    cached = _load_cached_catalog()
+    if cached is not None:
+        return CatalogSyncResult(
+            catalog=cached,
+            message=f"Usando cache local.{suffix}",
+            from_cache=True,
+            ok=False,
+        )
+    catalog = LocalCatalogProvider().load()
+    return CatalogSyncResult(
+        catalog=catalog,
+        message=f"Usando catalogo local de exemplo.{suffix}",
+        from_cache=False,
+        ok=False,
+    )

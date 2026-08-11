@@ -8,6 +8,25 @@ aparecem; sem selecao, a Suite mostra todos.
 
 > Veja **[CONFIGURACAO.md](CONFIGURACAO.md)**.
 
+## Dependencias SharePoint (PnP)
+
+A Suite usa **exclusivamente** o modulo `SharePointPnPPowerShellOnline` com
+`Connect-PnPOnline -UseWebLogin`. O `.exe` nao embute o modulo.
+
+- Downloads rodam em subprocessos PowerShell isolados (nao encerra PowerShells externos).
+- Se o download falhar por dependencia (modulo/DLL/assembly), a Suite tenta **um**
+  reparo automatico via `scripts/reparar_pnp.ps1` e **um** novo download
+  (no maximo um reparo por execucao do app).
+- Sem internet no momento do reparo, a falha e controlada: usa cache local ou o
+  catalogo de exemplo (`catalog.example.json`).
+- Reinstalacao usa escopo `CurrentUser` (PowerShell Gallery); nao pede elevacao silenciosa.
+
+Reparo manual:
+
+```powershell
+powershell .\scripts\reparar_pnp.ps1
+```
+
 ## Recursos
 
 - Catalogo sincronizado do SharePoint (PnP) a cada execucao, com cache local.

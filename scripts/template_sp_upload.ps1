@@ -17,6 +17,7 @@ Import-Module SharePointPnPPowerShellOnline -Force -WarningAction SilentlyContin
 
 # --- VERIFICA SE O MODULO CARREGOU ---
 if (-not (Get-Command Connect-PnPOnline -ErrorAction SilentlyContinue)) {
+    Write-Host "DEP_ERROR: MODULE_NOT_LOADED"
     Write-Host "FALHA: Modulo nao carregado. Feche e reabra o PowerShell e tente novamente." -ForegroundColor Red
     exit 1
 }

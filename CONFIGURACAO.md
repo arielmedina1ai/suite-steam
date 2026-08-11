@@ -166,10 +166,13 @@ Estrela nos cards e no detalhe. Persistidos em
 visivel no filtro atual, o item **Favoritos** aparece na sidebar (apos Inicio).
 
 A cada abertura, a Suite:
-1. Baixa o `catalog.json` via PnP/WebLogin.
+1. Baixa o `catalog.json` via PnP/WebLogin (`SharePointPnPPowerShellOnline`).
 2. Aplica o filtro de gerencia salvo em `preferences.json` (se houver).
 3. Sincroniza capas/icones em lote quando necessario.
-4. Em falha, usa o ultimo cache.
+4. Em falha de rede/auth, usa o ultimo cache; sem cache, o catalogo local de exemplo.
+5. Em falha de dependencia PnP (modulo/DLL), tenta um reparo automatico isolado
+   (`scripts/reparar_pnp.ps1`) e um unico retry do download — no maximo um reparo
+   por execucao do app, sem reiniciar o programa.
 
 ---
 
@@ -224,7 +227,20 @@ O **desenvolvedor** edita `settings.json` e gera o pack. O arquivo e embutido no
 Override opcional: se existir `settings.json` **ao lado** do `.exe`, ele tem prioridade
 sobre o embutido (util para suporte; nao e o fluxo normal).
 
-**Pre-requisitos no PC destino:** PowerShell e modulo PnP.PowerShell (WebLogin). O `.exe` nao substitui essa dependencia.
+**Pre-requisitos no PC destino:** Windows PowerShell e o modulo
+`SharePointPnPPowerShellOnline` (WebLogin). O `.exe` embute a pasta `scripts/`
+(incluindo `reparar_pnp.ps1`), mas **nao** embute o modulo PnP.
+
+- Reparo automatico so ocorre apos falha de dependencia no download.
+- Offline no reparo: falha controlada + cache/exemplo.
+- PowerShell Gallery necessaria apenas se a reinstalacao for disparada.
+- Nunca encerra processos PowerShell externos; cada operacao usa subprocesso isolado.
+
+Reparo manual:
+
+```powershell
+powershell .\scripts\reparar_pnp.ps1
+```
 
 ---
 

@@ -12,6 +12,10 @@ try {
     if (-not (Get-Command Install-Module -ErrorAction SilentlyContinue)) {
         throw 'Install-Module não está disponível neste Windows PowerShell.'
     }
+
+    # Remove da sessão atual (não garante descarregamento de assemblies).
+    Remove-Module -Name $ModuleName -Force -ErrorAction SilentlyContinue
+
     Uninstall-Module -Name $ModuleName -AllVersions -Force -ErrorAction SilentlyContinue
     if (Get-Command Install-PackageProvider -ErrorAction SilentlyContinue) {
         Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
@@ -24,6 +28,8 @@ try {
     Write-Output 'REPAIR_OK'
     exit 0
 } catch {
-    Write-Error ('REPAIR_FAILED: ' + $_.Exception.Message)
+    # Write-Output (nao o cmdlet de erro): com ErrorActionPreference=Stop,
+    # o cmdlet de erro pode disparar outra falha antes do exit 1.
+    Write-Output ('REPAIR_FAILED: ' + $_.Exception.Message)
     exit 1
 }

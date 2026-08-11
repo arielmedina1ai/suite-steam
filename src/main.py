@@ -108,10 +108,18 @@ class SuiteApp:
         self.page.update()
 
     def _sync_catalog_worker(self) -> None:
-        provider = SharePointCatalogProvider()
-        result = provider.sync(
-            progress=lambda _p, msg: self._update_sync_status(msg)
-        )
+        try:
+            provider = SharePointCatalogProvider()
+            result = provider.sync(
+                progress=lambda _p, msg: self._update_sync_status(msg)
+            )
+        except Exception as exc:
+            # Nunca deixar a splash travada: cache ou catalogo de exemplo.
+            from catalog.provider import offline_fallback_catalog
+
+            result = offline_fallback_catalog(
+                reason=f"falha inesperada: {exc}"
+            )
         self.catalog = result.catalog
         self._apply_gerencia_filter()
         # Banner so em falha/aviso — sucesso limpo nao polui a home

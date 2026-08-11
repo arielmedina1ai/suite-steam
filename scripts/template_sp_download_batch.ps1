@@ -20,6 +20,7 @@ if (-not (Get-Module -ListAvailable -Name SharePointPnPPowerShellOnline)) {
 Import-Module SharePointPnPPowerShellOnline -Force -WarningAction SilentlyContinue
 
 if (-not (Get-Command Connect-PnPOnline -ErrorAction SilentlyContinue)) {
+    Write-Host "DEP_ERROR: MODULE_NOT_LOADED"
     Write-Host "FALHA: Modulo nao carregado." -ForegroundColor Red
     exit 1
 }
