@@ -55,7 +55,14 @@ if ($null -eq $itens) {
 Write-Host "Site: $siteUrl" -ForegroundColor Cyan
 Write-Host "Arquivos no lote: $($itens.Count)" -ForegroundColor Cyan
 Write-Host "Conectando ao SharePoint (WebLogin)..." -ForegroundColor Cyan
-Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue
+try {
+    Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue -ErrorAction Stop
+    $web = Get-PnPWeb -ErrorAction Stop
+    Write-Host "Conectado: $($web.Url)" -ForegroundColor DarkGreen
+} catch {
+    Write-Host "FALHA: LOGIN_FAILED $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
 
 function ConvertTo-GuidSafe([string]$raw) {
     $t = $raw.Trim().Trim("{}")
@@ -109,8 +116,8 @@ function Get-FileByUniqueId([Guid]$uniqueGuid) {
 
     if (-not $serverRelativeUrl) {
         try {
-            $url = "_api/web/GetFileById('{0}')?`$select=Name,ServerRelativeUrl,Exists" -f $uniqueGuid
-            $meta = Invoke-PnPSPRestMethod -Url $url
+            $absUrl = "{0}/_api/web/GetFileById('{1}')?`$select=Name,ServerRelativeUrl,Exists" -f $siteUrl.TrimEnd('/'), $uniqueGuid
+            $meta = Invoke-PnPSPRestMethod -Url $absUrl -ErrorAction Stop
             if ($meta.ServerRelativeUrl) {
                 $serverRelativeUrl = [string]$meta.ServerRelativeUrl
                 $nomeRemoto = [string]$meta.Name

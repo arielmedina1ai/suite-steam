@@ -120,16 +120,15 @@ def parsear_link_download_aspx(url: str) -> dict:
     unique_raw = None
     for key, values in params.items():
         if key.lower() == "uniqueid" and values:
-            unique_raw = values[0]
+            unique_raw = unquote(values[0]).strip().strip("{}")
             break
     if not unique_raw:
         raise ValueError("Link download.aspx sem parametro UniqueId.")
 
-    # Mantem o UniqueId como veio na URL; o PowerShell normaliza o Guid.
     return {
         "tipo": "unique_id",
         "site_url": site_url,
-        "unique_id": unique_raw.strip(),
+        "unique_id": _format_unique_id(unique_raw),
         "nome_arquivo": None,
         "caminho_sp": None,
     }
@@ -265,6 +264,34 @@ def _run_powershell(script_path: str, timeout: int = 300) -> tuple[int, str, str
         processo.wait()
         return 124, "", "Timeout ao executar script PowerShell."
     return processo.returncode, stdout or "", stderr or ""
+
+
+def _mensagem_amigavel_falha(stdout: str, stderr: str) -> str:
+    """Traduz saida tecnica do PowerShell em uma linha para a UI (sem dump de script)."""
+    text = f"{stdout}\n{stderr}".lower()
+    if "login_failed" in text:
+        return (
+            "Nao foi possivel conectar ao SharePoint (WebLogin). "
+            "Conclua o login com a conta corporativa e tente de novo."
+        )
+    if "0x80070005" in text or "access is denied" in text or "acesso negado" in text:
+        return (
+            "Sem permissao no arquivo do catalogo apos o login. "
+            "Use a conta corporativa no WebLogin e confirme o acesso ao catalog.json."
+        )
+    if "uniqueid invalido" in text:
+        return (
+            "UniqueId do catalogo e invalido. "
+            "Confira catalog.remote_url no settings.json."
+        )
+    if "serverrelativeurl" in text or "uniqueid" in text:
+        return (
+            "Nao foi possivel localizar o catalog.json nesse UniqueId. "
+            "Confira o site (/teams/...) e se o UniqueId e de um arquivo, nao de pasta."
+        )
+    if "powershell.exe nao encontrado" in text:
+        return "Windows PowerShell nao foi encontrado neste computador."
+    return "Falha ao baixar o catalogo do SharePoint. Tente novamente."
 
 
 def _is_pnp_dependency_error(stdout: str, stderr: str) -> bool:
@@ -684,7 +711,6 @@ def _executar_download_sharepoint(
         return SharePointResult(ok=False, message=f"Falha ao executar PowerShell: {exc}")
 
     caminho_completo = Path(pasta_final) / nome_final
-    combined = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
 
     if caminho_completo.exists():
         if progress:
@@ -698,10 +724,10 @@ def _executar_download_sharepoint(
             stderr=stderr,
         )
 
-    detail = combined or f"returncode={code}"
+    # stdout/stderr ficam no resultado para diagnostico; a UI recebe so a linha amigavel.
     return SharePointResult(
         ok=False,
-        message=f"Arquivo nao encontrado apos o download. {detail}",
+        message=_mensagem_amigavel_falha(stdout, stderr),
         stdout=stdout,
         stderr=stderr,
     )

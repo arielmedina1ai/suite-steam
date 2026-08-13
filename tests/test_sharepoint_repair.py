@@ -131,7 +131,7 @@ def test_baixar_sucesso_sem_reparo(tmp_path):
 def test_baixar_erro_nao_dependencia_sem_reparo():
     fail = SharePointResult(
         ok=False,
-        message="401 Unauthorized",
+        message="Sem permissao no arquivo do catalogo apos o login.",
         stdout="401 Unauthorized",
         stderr="",
     )

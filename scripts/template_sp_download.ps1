@@ -29,7 +29,14 @@ $caminhoSP    = "{{CAMINHO_SP}}"
 
 # --- CONECTA AO SHAREPOINT ---
 Write-Host "Conectando ao SharePoint..." -ForegroundColor Cyan
-Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue
+try {
+    Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue -ErrorAction Stop
+    $web = Get-PnPWeb -ErrorAction Stop
+    Write-Host "Conectado: $($web.Url)" -ForegroundColor DarkGreen
+} catch {
+    Write-Host "FALHA: LOGIN_FAILED $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
 
 # --- CRIA PASTA DE DESTINO SE NAO EXISTIR ---
 if (-not (Test-Path -Path $pastaDestino)) {

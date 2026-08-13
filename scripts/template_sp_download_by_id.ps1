@@ -30,7 +30,14 @@ Write-Host "Site: $siteUrl" -ForegroundColor Cyan
 Write-Host "UniqueId recebido: $uniqueIdRaw" -ForegroundColor Cyan
 
 Write-Host "Conectando ao SharePoint (WebLogin)..." -ForegroundColor Cyan
-Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue
+try {
+    Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue -ErrorAction Stop
+    $web = Get-PnPWeb -ErrorAction Stop
+    Write-Host "Conectado: $($web.Url)" -ForegroundColor DarkGreen
+} catch {
+    Write-Host "FALHA: LOGIN_FAILED $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
 
 if (-not (Test-Path -Path $pastaDestino)) {
     New-Item -ItemType Directory -Path $pastaDestino -Force | Out-Null
@@ -74,11 +81,11 @@ try {
     Write-Host "CSOM GetFileById falhou: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-# --- REST GetFileById ---
+# --- REST GetFileById (URI absoluta: o modulo legado nao aceita caminho relativo) ---
 if (-not $serverRelativeUrl) {
     try {
-        $url = "_api/web/GetFileById('{0}')?`$select=Name,ServerRelativeUrl,Exists" -f $uniqueGuid
-        $meta = Invoke-PnPSPRestMethod -Url $url
+        $absUrl = "{0}/_api/web/GetFileById('{1}')?`$select=Name,ServerRelativeUrl,Exists" -f $siteUrl.TrimEnd('/'), $uniqueGuid
+        $meta = Invoke-PnPSPRestMethod -Url $absUrl -ErrorAction Stop
         Write-Host ("REST: " + ($meta | ConvertTo-Json -Depth 5 -Compress)) -ForegroundColor DarkGray
         if ($meta.ServerRelativeUrl) {
             $serverRelativeUrl = [string]$meta.ServerRelativeUrl
