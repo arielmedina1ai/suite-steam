@@ -43,113 +43,38 @@ class AppDetailView:
         self.local_info = ft.Text("", size=12, color="#8AA797")
 
         self.action_button = ft.FilledButton(on_click=self._on_action)
-        self.update_button = ft.OutlinedButton(
-            "Atualizar versao",
-            icon=ft.Icons.SYSTEM_UPDATE,
-            visible=False,
-            on_click=self._on_update,
-        )
-        self.upload_button = ft.OutlinedButton(
-            "Enviar para SharePoint",
-            icon=ft.Icons.CLOUD_UPLOAD,
-            visible=False,
-            on_click=self._on_upload,
-        )
-        self.uninstall_button = ft.OutlinedButton(
-            "Desinstalar",
-            icon=ft.Icons.DELETE_OUTLINE,
-            visible=False,
-            on_click=self._on_uninstall,
-        )
-        self.favorite_button = ft.IconButton(
-            icon=ft.Icons.STAR if is_favorite else ft.Icons.STAR_BORDER,
-            icon_color=config.COLOR_ACCENT if is_favorite else "#8AA797",
-            icon_size=28,
-            tooltip="Remover dos favoritos" if is_favorite else "Adicionar aos favoritos",
-            on_click=self._on_toggle_favorite,
-        )
-
+        self.update_button = ft.OutlinedButton("Atualizar versao", icon=ft.Icons.SYSTEM_UPDATE, visible=False, on_click=self._on_update)
+        self.upload_button = ft.OutlinedButton("Enviar para SharePoint", icon=ft.Icons.CLOUD_UPLOAD, visible=False, on_click=self._on_upload)
+        self.uninstall_button = ft.OutlinedButton("Desinstalar", icon=ft.Icons.DELETE_OUTLINE, visible=False, on_click=self._on_uninstall)
+        self.favorite_button = ft.IconButton(icon=ft.Icons.STAR if is_favorite else ft.Icons.STAR_BORDER, icon_color=config.COLOR_ACCENT if is_favorite else "#8AA797", icon_size=28, tooltip="Remover dos favoritos" if is_favorite else "Adicionar aos favoritos", on_click=self._on_toggle_favorite)
         self._refresh_action_buttons()
 
-    # ------------------------------------------------------------------
     def build(self) -> ft.Control:
-        img_src = _image_src(self.app.imagem)
-        image = ft.Container(
-            width=520,
-            height=300,
-            border_radius=12,
-            bgcolor=config.COLOR_SURFACE,
-            alignment=ft.Alignment.CENTER,
-            content=ft.Image(
-                src=img_src,
-                fit=ft.BoxFit.COVER,
-                width=520,
-                height=300,
-                border_radius=12,
-                error_content=ft.Column(
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        app_badge(56),
-                        ft.Text("Sem imagem", size=13, color="#8AA797"),
-                    ],
-                ),
-            ),
+        img_src = _image_src(self.app.imagem).strip()
+        fallback = ft.Column(
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[app_badge(56), ft.Text("Sem imagem", size=13, color="#8AA797")],
         )
+        image_content = (
+            ft.Image(src=img_src, fit=ft.BoxFit.COVER, width=520, height=300, border_radius=12, error_content=fallback)
+            if img_src
+            else fallback
+        )
+        image = ft.Container(width=520, height=300, border_radius=12, bgcolor=config.COLOR_SURFACE, alignment=ft.Alignment.CENTER, content=image_content)
 
         header = ft.Row(
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=12,
             controls=[
                 app_icon(self.app, size=36, color=config.COLOR_ACCENT),
-                ft.Column(
-                    spacing=2,
-                    expand=True,
-                    controls=[
-                        ft.Text(self.app.nome, size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
-                        ft.Text(
-                            f"Tipo: {self.app.tipo.value.upper()}  -  Versao no catalogo: {self.app.versao}",
-                            size=13,
-                            color="#8AA797",
-                        ),
-                    ],
-                ),
+                ft.Column(spacing=2, expand=True, controls=[ft.Text(self.app.nome, size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT), ft.Text(f"Tipo: {self.app.tipo.value.upper()}  -  Versao no catalogo: {self.app.versao}", size=13, color="#8AA797")]),
                 self.favorite_button,
             ],
         )
+        actions = ft.Row(spacing=12, wrap=True, controls=[self.action_button, self.update_button, self.upload_button, self.uninstall_button])
+        return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[header, image, ft.Container(padding=ft.Padding.only(top=4), content=ft.Text("Descricao", size=16, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT)), ft.Text(self.app.descricao or "Sem descricao.", size=15, color="#D6E5DC"), ft.Divider(color="#22332B"), actions, self.local_info, self.progress, self.status_text])
 
-        actions = ft.Row(
-            spacing=12,
-            wrap=True,
-            controls=[
-                self.action_button,
-                self.update_button,
-                self.upload_button,
-                self.uninstall_button,
-            ],
-        )
-
-        return ft.Column(
-            expand=True,
-            scroll=ft.ScrollMode.AUTO,
-            spacing=20,
-            controls=[
-                header,
-                image,
-                ft.Container(
-                    padding=ft.Padding.only(top=4),
-                    content=ft.Text("Descricao", size=16, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
-                ),
-                ft.Text(self.app.descricao or "Sem descricao.", size=15, color="#D6E5DC"),
-                ft.Divider(color="#22332B"),
-                actions,
-                self.local_info,
-                self.progress,
-                self.status_text,
-            ],
-        )
-
-    # ------------------------------------------------------------------
     def _on_toggle_favorite(self, _e) -> None:
         if self.on_toggle_favorite:
             self.on_toggle_favorite(self.app.id)
@@ -158,33 +83,25 @@ class AppDetailView:
         return self.storage.get_state(self.app.id).status
 
     def _has_version_update(self, state) -> bool:
-        """Mesmo criterio das imagens: bump de versao no catalogo invalida o local."""
         return str(state.versao or "") != str(self.app.versao or "")
 
     def _refresh_action_buttons(self) -> None:
         state = self.storage.get_state(self.app.id)
         installed = state.status == InstallStatus.INSTALLED
-
         if installed:
             self.action_button.content = "Executar"
             self.action_button.icon = ft.Icons.PLAY_ARROW
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
-
             needs_update = self._has_version_update(state)
             self.update_button.visible = needs_update
-            self.update_button.content = "Atualizar versao"
             self.upload_button.visible = bool(self.app.upload_url)
             self.uninstall_button.visible = True
-
             local_name = Path(state.local_path).name if state.local_path else "?"
             installed_ver = state.versao or "?"
             catalog_ver = self.app.versao
             if needs_update:
-                self.local_info.value = (
-                    f"Instalado: {local_name} (v{installed_ver})  |  "
-                    f"Catalogo: v{catalog_ver}  —  nova versao disponivel."
-                )
+                self.local_info.value = f"Instalado: {local_name} (v{installed_ver})  |  Catalogo: v{catalog_ver}  —  nova versao disponivel."
                 self.local_info.color = config.COLOR_ACCENT
             else:
                 self.local_info.value = f"Arquivo local: {local_name} (v{installed_ver})"
@@ -194,7 +111,6 @@ class AppDetailView:
             self.action_button.icon = ft.Icons.DOWNLOAD
             self.action_button.disabled = False
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
-
             self.update_button.visible = False
             self.upload_button.visible = False
             self.uninstall_button.visible = False
@@ -206,16 +122,13 @@ class AppDetailView:
         except Exception:
             pass
 
-    # ------------------------------------------------------------------
     def _on_action(self, e: ft.ControlEvent) -> None:
-        status = self._current_status()
-        if status == InstallStatus.INSTALLED:
+        if self._current_status() == InstallStatus.INSTALLED:
             self._execute()
         else:
             self._start_download()
 
     def _on_update(self, e: ft.ControlEvent) -> None:
-        """Baixa de novo o arquivo do catalogo e grava a versao atual no manifesto."""
         self._start_download()
 
     def _on_uninstall(self, e: ft.ControlEvent) -> None:
@@ -253,10 +166,7 @@ class AppDetailView:
         self._set_busy(True)
         self.progress.visible = True
         self.progress.value = None
-        self.status_text.value = (
-            "Iniciando download via SharePoint... "
-            "Pode abrir uma janela de login (WebLogin)."
-        )
+        self.status_text.value = "Iniciando download via SharePoint... Pode abrir uma janela de login (WebLogin)."
         self._safe_update()
         self.page.run_thread(self._download_worker)
 
@@ -273,9 +183,7 @@ class AppDetailView:
         self._set_busy(True)
         self.progress.visible = True
         self.progress.value = None
-        self.status_text.value = (
-            "Enviando para SharePoint... Pode abrir uma janela de login (WebLogin)."
-        )
+        self.status_text.value = "Enviando para SharePoint... Pode abrir uma janela de login (WebLogin)."
         self._safe_update()
         self.page.run_thread(self._upload_worker, state.local_path)
 
@@ -284,12 +192,7 @@ class AppDetailView:
             self.progress.value = pct if pct > 0 else None
             self.status_text.value = msg
             self._safe_update()
-
-        result = enviar_para_sharepoint(
-            arquivo_local=local_path,
-            link_pasta=self.app.upload_url,
-            progress=on_progress,
-        )
+        result = enviar_para_sharepoint(arquivo_local=local_path, link_pasta=self.app.upload_url, progress=on_progress)
         self.progress.visible = False
         self.status_text.value = result.message if result.ok else f"Erro no upload: {result.message}"
         self._set_busy(False)
@@ -301,9 +204,7 @@ class AppDetailView:
             self.progress.value = pct if pct > 0 else None
             self.status_text.value = msg
             self._safe_update()
-
         result = self.manager.download(self.app, progress=on_progress)
-
         if result.outcome == DownloadOutcome.SUCCESS:
             self.progress.value = 1.0
             self.status_text.value = result.message
@@ -311,7 +212,6 @@ class AppDetailView:
         else:
             self.progress.visible = False
             self.status_text.value = result.message or f"Erro: {result.message}"
-
         self._set_busy(False)
         self._refresh_action_buttons()
         self._safe_update()
