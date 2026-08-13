@@ -267,6 +267,12 @@ def _run_powershell(script_path: str, timeout: int = 300) -> tuple[int, str, str
     return processo.returncode, stdout or "", stderr or ""
 
 
+def is_access_request_ok(stdout: str, stderr: str) -> bool:
+    """True quando o script emitiu ACCESS_REQUEST_OK (pedido automatico enviado)."""
+    text = f"{stdout}\n{stderr}"
+    return "ACCESS_REQUEST_OK" in text and "ACCESS_REQUEST_FAILED" not in text
+
+
 def is_access_denied_error(stdout: str, stderr: str) -> bool:
     """True quando o SharePoint recusou o arquivo apos o login (nao e falha de modulo)."""
     text = f"{stdout}\n{stderr}".lower()
@@ -296,6 +302,11 @@ def _mensagem_amigavel_falha(stdout: str, stderr: str) -> str:
         return (
             "Nao foi possivel conectar ao SharePoint (WebLogin). "
             "Conclua o login com a conta corporativa e tente de novo."
+        )
+    if is_access_request_ok(stdout, stderr):
+        return (
+            "Sem permissao no arquivo. Enviamos um pedido de acesso automatico. "
+            "Aguarde a aprovacao e reabra a Suite."
         )
     if is_access_denied_error(stdout, stderr):
         return (
@@ -393,6 +404,11 @@ def _run_templated_ps1(
     script = template.read_text(encoding="utf-8")
     for key, value in replacements.items():
         script = script.replace(key, value)
+
+    helper = _scripts_dir() / "pnp_request_access.ps1"
+    if helper.exists():
+        # Mesma sessao WebLogin: pedido automatico so funciona com o Connect ainda aberto.
+        script = helper.read_text(encoding="utf-8") + "\n" + script
 
     # UTF-8 BOM necessario para PS 5.1 ler acentos corretamente
     with tempfile.NamedTemporaryFile(

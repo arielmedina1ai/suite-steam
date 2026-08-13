@@ -22,6 +22,7 @@ from services.sharepoint_manager import (
     baixar_do_sharepoint,
     baixar_varios_do_sharepoint,
     is_access_denied_error,
+    is_access_request_ok,
     parsear_link_sharepoint,
 )
 
@@ -399,7 +400,9 @@ class SharePointCatalogProvider(CatalogProvider):
         )
 
         if not result.ok or not result.path or not result.path.exists():
-            needs_access = is_access_denied_error(result.stdout, result.stderr)
+            needs_access = is_access_denied_error(
+                result.stdout, result.stderr
+            ) and not is_access_request_ok(result.stdout, result.stderr)
             cached = _load_cached_catalog()
             if cached is not None:
                 return CatalogSyncResult(

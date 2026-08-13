@@ -114,6 +114,39 @@ def test_sync_access_denied_marca_pedido_de_acesso(tmp_path, monkeypatch):
     assert result.needs_access_request
 
 
+def test_sync_access_request_ok_esconde_botao(tmp_path, monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "CATALOG_CACHE_FILE", tmp_path / "missing.json")
+    monkeypatch.setattr(config, "CATALOG_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(config, "CATALOG_IMAGES_DIR", tmp_path / "images")
+    example = tmp_path / "catalog.example.json"
+    example.write_text(
+        json.dumps(
+            {
+                "suite": {"versao": "0.0.1", "download_url": ""},
+                "gerencias": [],
+                "setores": [],
+                "apps": [{"id": "local", "nome": "Local", "setor": "s1"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CATALOG_EXAMPLE_FILE", example)
+
+    fail = SharePointResult(
+        ok=False,
+        message="Sem permissao no arquivo. Enviamos um pedido de acesso automatico.",
+        stdout="ACCESS_REQUEST_OK",
+        stderr="Access is denied. (Exception from HRESULT: 0x80070005 (E_ACCESSDENIED))",
+    )
+    with patch("catalog.provider.baixar_do_sharepoint", return_value=fail):
+        result = SharePointCatalogProvider("https://example.sharepoint.com/x").sync()
+
+    assert not result.ok
+    assert not result.needs_access_request
+
+
 def test_sync_invalid_json_fallback_example(tmp_path, monkeypatch):
     import config
 

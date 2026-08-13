@@ -72,12 +72,20 @@ Write-Host "Caminho resolvido: $caminhoFinal" -ForegroundColor Green
 
 # --- FAZ O DOWNLOAD ---
 Write-Host "Baixando $nomeArquivo ..." -ForegroundColor Cyan
-Get-PnPFile `
-    -Url $caminhoFinal `
-    -Path $pastaDestino `
-    -Filename $nomeArquivo `
-    -AsFile `
-    -Force
+try {
+    Get-PnPFile `
+        -Url $caminhoFinal `
+        -Path $pastaDestino `
+        -Filename $nomeArquivo `
+        -AsFile `
+        -Force `
+        -ErrorAction Stop
+} catch {
+    Write-Host "Get-PnPFile falhou: $($_.Exception.Message)" -ForegroundColor Yellow
+    if ((Get-Command Test-SuiteAccessDenied -ErrorAction SilentlyContinue) -and (Test-SuiteAccessDenied $_.Exception.Message)) {
+        $script:suiteAccessDenied = $true
+    }
+}
 
 # --- VERIFICA RESULTADO ---
 $caminhoCompleto = Join-Path $pastaDestino $nomeArquivo
@@ -85,5 +93,8 @@ if (Test-Path $caminhoCompleto) {
     Write-Host "SUCESSO: $caminhoCompleto" -ForegroundColor Green
 } else {
     Write-Host "FALHA: Arquivo nao encontrado apos download." -ForegroundColor Red
+    if ($script:suiteAccessDenied -and (Get-Command Request-SuiteAccess -ErrorAction SilentlyContinue)) {
+        Request-SuiteAccess -SiteUrl $siteUrl
+    }
     exit 1
 }

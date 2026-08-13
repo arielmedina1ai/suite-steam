@@ -13,6 +13,7 @@ from services.sharepoint_manager import (  # noqa: E402
     _mensagem_amigavel_falha,
     abrir_pedido_acesso_sharepoint,
     is_access_denied_error,
+    is_access_request_ok,
     parsear_link_download_aspx,
 )
 
@@ -75,3 +76,22 @@ def test_abrir_pedido_acesso_abre_http(monkeypatch):
     )
     assert abrir_pedido_acesso_sharepoint("https://empresa.sharepoint.com/x") is True
     assert opened == ["https://empresa.sharepoint.com/x"]
+
+
+def test_access_request_ok_tem_prioridade_na_mensagem():
+    stdout = DUMP + "\nACCESS_REQUEST_OK\n"
+    assert is_access_request_ok(stdout, "")
+    msg = _mensagem_amigavel_falha(stdout, "")
+    assert "automatico" in msg.lower()
+    assert "0x80070005" not in msg
+
+
+def test_access_request_failed_nao_conta_como_ok():
+    assert not is_access_request_ok("ACCESS_REQUEST_FAILED: boom", "")
+
+
+def test_helper_pedido_acesso_existe():
+    text = (ROOT / "scripts" / "pnp_request_access.ps1").read_text(encoding="utf-8")
+    assert "function Request-SuiteAccess" in text
+    assert "ACCESS_REQUEST_OK" in text
+    assert "_api/web/requestaccess" in text

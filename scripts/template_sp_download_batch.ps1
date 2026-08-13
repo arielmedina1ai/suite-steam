@@ -187,6 +187,9 @@ foreach ($item in $itens) {
     } catch {
         $erro = $_.Exception.Message
         Write-Host "  FALHA: $erro" -ForegroundColor Yellow
+        if ((Get-Command Test-SuiteAccessDenied -ErrorAction SilentlyContinue) -and (Test-SuiteAccessDenied $erro)) {
+            $script:suiteAccessDenied = $true
+        }
     }
 
     $resultados.Add([pscustomobject]@{
@@ -201,6 +204,10 @@ foreach ($item in $itens) {
 $resultados | ConvertTo-Json -Depth 4 | Set-Content -Path $resultPath -Encoding UTF8
 $okCount = @($resultados | Where-Object { $_.ok }).Count
 Write-Host "LOTE: $okCount/$($resultados.Count) ok. Resultado: $resultPath" -ForegroundColor Green
+
+if ($script:suiteAccessDenied -and (Get-Command Request-SuiteAccess -ErrorAction SilentlyContinue)) {
+    Request-SuiteAccess -SiteUrl $siteUrl
+}
 
 # exit 0 mesmo com falhas parciais — Python le o result JSON
 exit 0

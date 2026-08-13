@@ -12,6 +12,7 @@ from models import AppInfo
 from services.sharepoint_manager import (
     baixar_do_sharepoint,
     is_access_denied_error,
+    is_access_request_ok,
     parsear_link_sharepoint,
 )
 from services.storage import Storage
@@ -68,6 +69,8 @@ class DownloadManager:
             )
 
         reason = result.message or "Nao foi possivel baixar via SharePoint/PnP."
+        if is_access_request_ok(result.stdout, result.stderr):
+            return DownloadResult(DownloadOutcome.ERROR, message=reason)
         if is_access_denied_error(result.stdout, result.stderr):
             reason = (
                 "Sem permissao neste arquivo. "

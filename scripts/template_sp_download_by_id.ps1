@@ -79,6 +79,9 @@ try {
     Write-Host "CSOM OK: $serverRelativeUrl (nome=$nomeRemoto)" -ForegroundColor DarkGreen
 } catch {
     Write-Host "CSOM GetFileById falhou: $($_.Exception.Message)" -ForegroundColor Yellow
+    if ((Get-Command Test-SuiteAccessDenied -ErrorAction SilentlyContinue) -and (Test-SuiteAccessDenied $_.Exception.Message)) {
+        $script:suiteAccessDenied = $true
+    }
 }
 
 # --- REST GetFileById (URI absoluta: o modulo legado nao aceita caminho relativo) ---
@@ -96,6 +99,9 @@ if (-not $serverRelativeUrl) {
         }
     } catch {
         Write-Host "REST GetFileById falhou: $($_.Exception.Message)" -ForegroundColor Yellow
+        if ((Get-Command Test-SuiteAccessDenied -ErrorAction SilentlyContinue) -and (Test-SuiteAccessDenied $_.Exception.Message)) {
+            $script:suiteAccessDenied = $true
+        }
     }
 }
 
@@ -117,6 +123,9 @@ if (-not $serverRelativeUrl) {
     Write-Host "  2) O site_url esta incompleto (confira /teams/xxx)." -ForegroundColor Yellow
     Write-Host "  3) Sem permissao no arquivo apos o login." -ForegroundColor Yellow
     Write-Host "Alternativa: use o link de compartilhamento /:u:/r/.../catalog.json no remote_url." -ForegroundColor Yellow
+    if ($script:suiteAccessDenied -and (Get-Command Request-SuiteAccess -ErrorAction SilentlyContinue)) {
+        Request-SuiteAccess -SiteUrl $siteUrl
+    }
     exit 1
 }
 
@@ -151,4 +160,7 @@ if (Test-Path $caminhoCompleto) {
 }
 
 Write-Host "FALHA: arquivo nao encontrado apos as tentativas de download." -ForegroundColor Red
+if ($script:suiteAccessDenied -and (Get-Command Request-SuiteAccess -ErrorAction SilentlyContinue)) {
+    Request-SuiteAccess -SiteUrl $siteUrl
+}
 exit 1
