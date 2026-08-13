@@ -13,7 +13,10 @@ from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
 from services.download_manager import DownloadManager
 from services.favorites import FavoritesStore
 from services.preferences import PreferencesStore
-from services.sharepoint_manager import baixar_do_sharepoint
+from services.sharepoint_manager import (
+    abrir_pedido_acesso_sharepoint,
+    baixar_do_sharepoint,
+)
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
@@ -36,6 +39,7 @@ class SuiteApp:
         self.selected_setor: str | None = None
         self.show_favorites = False
         self.sync_message = ""
+        self.needs_access_request = False
         self.update_busy = False
         self.update_message = ""
         self.update_path: str | None = None
@@ -124,10 +128,22 @@ class SuiteApp:
         self._apply_gerencia_filter()
         # Banner so em falha/aviso — sucesso limpo nao polui a home
         self.sync_message = result.message if not result.ok else ""
+        self.needs_access_request = bool(
+            not result.ok and result.needs_access_request and config.REMOTE_CATALOG_URL
+        )
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
         self._render()
+
+    def _on_request_access(self, _e) -> None:
+        """Abre o catalog.remote_url no navegador (pedido de acesso nativo do SharePoint)."""
+        if abrir_pedido_acesso_sharepoint(config.REMOTE_CATALOG_URL):
+            self.sync_message = (
+                "Abrimos o SharePoint no navegador. "
+                "Solicite o acesso na pagina e depois reabra a Suite."
+            )
+            self._render()
 
     def _update_sync_status(self, msg: str) -> None:
         # Atualiza so o texto da splash se ainda estiver nela
@@ -375,11 +391,22 @@ class SuiteApp:
                 on_toggle_favorite=self._toggle_favorite,
             )
             if self.sync_message:
+                banner_controls: list[ft.Control] = [
+                    ft.Text(self.sync_message, size=12, color="#B9CEC3"),
+                ]
+                if self.needs_access_request:
+                    banner_controls.append(
+                        ft.TextButton(
+                            "Solicitar acesso no SharePoint",
+                            icon=ft.Icons.OPEN_IN_NEW,
+                            on_click=self._on_request_access,
+                        )
+                    )
                 banner = ft.Container(
                     bgcolor=config.COLOR_SURFACE,
                     border_radius=8,
                     padding=12,
-                    content=ft.Text(self.sync_message, size=12, color="#B9CEC3"),
+                    content=ft.Column(spacing=8, controls=banner_controls),
                 )
                 self.content_holder.content = ft.Column(
                     expand=True,

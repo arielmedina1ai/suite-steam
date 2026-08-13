@@ -13,6 +13,7 @@ import os
 import subprocess
 import tempfile
 import time
+import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -266,6 +267,28 @@ def _run_powershell(script_path: str, timeout: int = 300) -> tuple[int, str, str
     return processo.returncode, stdout or "", stderr or ""
 
 
+def is_access_denied_error(stdout: str, stderr: str) -> bool:
+    """True quando o SharePoint recusou o arquivo apos o login (nao e falha de modulo)."""
+    text = f"{stdout}\n{stderr}".lower()
+    return (
+        "0x80070005" in text
+        or "access is denied" in text
+        or "acesso negado" in text
+    )
+
+
+def abrir_pedido_acesso_sharepoint(url: str) -> bool:
+    """Abre o link no navegador (tela nativa do SharePoint para solicitar acesso).
+
+    Nao envia o pedido sozinho: o usuario confirma na pagina do SharePoint.
+    """
+    alvo = (url or "").strip()
+    if not alvo.lower().startswith(("http://", "https://")):
+        return False
+    webbrowser.open(alvo)
+    return True
+
+
 def _mensagem_amigavel_falha(stdout: str, stderr: str) -> str:
     """Traduz saida tecnica do PowerShell em uma linha para a UI (sem dump de script)."""
     text = f"{stdout}\n{stderr}".lower()
@@ -274,10 +297,10 @@ def _mensagem_amigavel_falha(stdout: str, stderr: str) -> str:
             "Nao foi possivel conectar ao SharePoint (WebLogin). "
             "Conclua o login com a conta corporativa e tente de novo."
         )
-    if "0x80070005" in text or "access is denied" in text or "acesso negado" in text:
+    if is_access_denied_error(stdout, stderr):
         return (
-            "Sem permissao no arquivo do catalogo apos o login. "
-            "Use a conta corporativa no WebLogin e confirme o acesso ao catalog.json."
+            "Sem permissao no arquivo apos o login. "
+            "Use a conta corporativa e solicite acesso no SharePoint."
         )
     if "uniqueid invalido" in text:
         return (

@@ -11,6 +11,8 @@ if str(SRC) not in sys.path:
 
 from services.sharepoint_manager import (  # noqa: E402
     _mensagem_amigavel_falha,
+    abrir_pedido_acesso_sharepoint,
+    is_access_denied_error,
     parsear_link_download_aspx,
 )
 
@@ -28,6 +30,7 @@ def test_mensagem_access_denied_nao_despeja_powershell():
     assert "0x80070005" not in msg
     assert "Invoke-PnPSPRestMethod" not in msg
     assert "permissao" in msg.lower() or "permissão" in msg.lower()
+    assert "solicite acesso" in msg.lower()
 
 
 def test_mensagem_login_failed():
@@ -52,3 +55,23 @@ def test_template_rest_usa_uri_absoluta():
     assert "TrimEnd" in text
     assert "LOGIN_FAILED" in text
     assert 'Invoke-PnPSPRestMethod -Url "_api/' not in text
+
+
+def test_is_access_denied_error():
+    assert is_access_denied_error("", DUMP)
+    assert not is_access_denied_error("timeout de rede", "")
+
+
+def test_abrir_pedido_acesso_recusa_url_invalida():
+    assert abrir_pedido_acesso_sharepoint("") is False
+    assert abrir_pedido_acesso_sharepoint("catalog.json") is False
+
+
+def test_abrir_pedido_acesso_abre_http(monkeypatch):
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "services.sharepoint_manager.webbrowser.open",
+        lambda url: opened.append(url),
+    )
+    assert abrir_pedido_acesso_sharepoint("https://empresa.sharepoint.com/x") is True
+    assert opened == ["https://empresa.sharepoint.com/x"]

@@ -21,6 +21,7 @@ from services.sharepoint_manager import (
     SharePointBatchItem,
     baixar_do_sharepoint,
     baixar_varios_do_sharepoint,
+    is_access_denied_error,
     parsear_link_sharepoint,
 )
 
@@ -43,6 +44,8 @@ class CatalogSyncResult:
     message: str = ""
     from_cache: bool = False
     ok: bool = True
+    # True quando o SharePoint recusou o arquivo: a UI pode abrir o pedido de acesso.
+    needs_access_request: bool = False
 
     @property
     def apps(self) -> list[AppInfo]:
@@ -396,6 +399,7 @@ class SharePointCatalogProvider(CatalogProvider):
         )
 
         if not result.ok or not result.path or not result.path.exists():
+            needs_access = is_access_denied_error(result.stdout, result.stderr)
             cached = _load_cached_catalog()
             if cached is not None:
                 return CatalogSyncResult(
@@ -403,6 +407,7 @@ class SharePointCatalogProvider(CatalogProvider):
                     message=f"Falha ao sincronizar catalogo ({result.message}). Usando cache.",
                     from_cache=True,
                     ok=False,
+                    needs_access_request=needs_access,
                 )
             catalog = LocalCatalogProvider().load()
             return CatalogSyncResult(
@@ -413,6 +418,7 @@ class SharePointCatalogProvider(CatalogProvider):
                 ),
                 from_cache=False,
                 ok=False,
+                needs_access_request=needs_access,
             )
 
         try:

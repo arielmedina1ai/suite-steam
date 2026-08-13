@@ -9,7 +9,11 @@ from typing import Callable
 
 import config
 from models import AppInfo
-from services.sharepoint_manager import baixar_do_sharepoint, parsear_link_sharepoint
+from services.sharepoint_manager import (
+    baixar_do_sharepoint,
+    is_access_denied_error,
+    parsear_link_sharepoint,
+)
 from services.storage import Storage
 
 ProgressCb = Callable[[float, str], None]
@@ -63,10 +67,13 @@ class DownloadManager:
                 message=result.message or "Download concluido.",
             )
 
-        return self._browser_fallback(
-            app,
-            result.message or "Nao foi possivel baixar via SharePoint/PnP.",
-        )
+        reason = result.message or "Nao foi possivel baixar via SharePoint/PnP."
+        if is_access_denied_error(result.stdout, result.stderr):
+            reason = (
+                "Sem permissao neste arquivo. "
+                "Abrimos o SharePoint no navegador para voce solicitar acesso."
+            )
+        return self._browser_fallback(app, reason)
 
     # ------------------------------------------------------------------
     def _guess_filename(self, app: AppInfo) -> str:
