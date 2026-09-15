@@ -54,10 +54,11 @@ abertura do programa.
 }
 ```
 
-- `app.name` / `app.company`: titulo da janela e metadados do `.exe` no pack. Padrao de exemplo: **SuiteApps**.
-- `app.exe_name`: nome do executavel gerado (`SuiteApps.exe` no exemplo) e do artefato de update.
+- `app.name`: **titulo da janela**, nome na sidebar e `--product-name` no pack. Default se vazio: SuiteApps. Vale o texto do `settings.json` (ex.: `SuiteAPPs`).
+- `app.exe_name`: **arquivo** gerado (`dist\{exe_name}.exe`), `flet pack --name`, atalho de inicio e staging de update. Default se vazio: SuiteApps. O `.\scripts\build_exe.ps1` le este campo do `settings.json` e imprime o valor usado.
+- `app.company`: metadado do `.exe` no pack (`--company-name`), se preenchido.
 - `app.data_dir`: pasta sob `%LOCALAPPDATA%` (padrao `SuiteApps`).
-- `app.version`: versao instalada deste SuiteApps (comparada com `suite.versao` do catalogo).
+- `app.version`: versao instalada (comparada com `suite.versao` do catalogo).
 - `sector.*`: titulo, tagline e descricao do **banner** na tela Inicio (sempre no mesmo lugar).
 
 O unico link sensivel necessario no PC e `catalog.remote_url` (PnP + WebLogin).

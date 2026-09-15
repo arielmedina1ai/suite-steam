@@ -41,9 +41,9 @@ class TrayController:
             pystray.MenuItem("Sair", self._handle_quit),
         )
         icon = pystray.Icon(
-            config.EXE_NAME or "SuiteApps",
+            config.EXE_NAME,
             image,
-            config.APP_NAME or "SuiteApps",
+            config.APP_NAME,
             menu,
         )
         self._icon = icon

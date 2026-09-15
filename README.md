@@ -99,7 +99,7 @@ Empacota com `flet pack` (PyInstaller). Na raiz do repo, com o venv ativo:
 .\scripts\build_exe.ps1
 ```
 
-Artefato: `dist\{exe_name}.exe` conforme `app.exe_name` no settings (nao versionado; `dist/` e `build/` no `.gitignore`). Padrao de exemplo: `SuiteApps.exe`.
+Artefato: `dist\{app.exe_name}.exe` lido do `settings.json` pelo `.\scripts\build_exe.ps1` (`flet pack --name`). Janela e nome no programa: `app.name`. Default so se o campo estiver vazio: `SuiteApps`.
 
 Fluxo do desenvolvedor:
 
@@ -112,10 +112,11 @@ Fluxo do desenvolvedor:
 Equivalente manual (substitua pelos valores do seu `settings.json`):
 
 ```powershell
+# --name e --product-name saem de settings.json (app.exe_name / app.name)
 flet pack src\main.py `
-  --name SuiteApps `
-  --product-name "SuiteApps" `
-  --company-name "Nome da Empresa" `
+  --name <app.exe_name> `
+  --product-name "<app.name>" `
+  --company-name "<app.company>" `
   --icon assets\branding\window_icon.ico `
   --add-data "assets;assets" `
   --add-data "scripts;scripts" `
