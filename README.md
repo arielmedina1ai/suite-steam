@@ -17,9 +17,9 @@ aparecem; sem selecao, o SuiteApps mostra todos.
 - Sidebar: Inicio, Favoritos (se houver), seletor de gerencia, setores.
 - Sub-setores com descricoes e divisores na tela de cada setor.
 - Favoritos locais (estrela) em `%LOCALAPPDATA%/<app.data_dir>/favorites.json`.
-- Atualizacao automatica do proprio SuiteApps: baixa a versao nova, substitui o `.exe` e relanca (Windows empacotado). `settings.json` ao lado do exe e preservado.
+- Atualizacao do proprio SuiteApps: o banner aparece no sync; **Baixar Atualizacao** baixa, substitui o `.exe` e relanca (Windows empacotado). Arquivo com o nome padrao do exe, sem sufixo de versao. `settings.json` ao lado e preservado.
 - Barra com percentual (ou indeterminado + texto no WebLogin) em download/update/sync.
-- Um aplicativo do catalogo em execucao por vez (Instalar/Executar/Atualizar travados).
+- Executar nao abre segunda instancia de um app ja em execucao (mesmo fora desta sessao). Com atualizacao pendente, **Atualizar versao** encerra, instala e reabre.
 - Bandeja no Windows (fechar/minimizar nao encerra) e **iniciar com o Windows** ligado por padrao.
 - Branding local em `assets/branding/` (logo, hero, icone da janela e da bandeja).
 - Capas/icones em cache por `*_versao`.
@@ -88,8 +88,8 @@ Pasta sob `%LOCALAPPDATA%` definida por `app.data_dir` (padrao `SuiteApps`):
   updates/                 # staging da nova versao do proprio SuiteApps
 ```
 
-Atualizacao automatica (Windows + `.exe`): baixa em `updates/` e substitui o executavel em uso.
-Fallback (falha ou ambiente sem pack): `%USERPROFILE%\Downloads\{exe_name}_{versao}.exe`.
+Atualizacao (Windows + `.exe`, apos **Baixar Atualizacao**): baixa em `updates/` com o nome padrao do executavel (sem versao no arquivo) e substitui o que esta em uso.
+Fallback (falha ou ambiente sem pack): `%USERPROFILE%\Downloads\{exe_name}.exe`.
 
 ## Gerar .exe (Windows)
 

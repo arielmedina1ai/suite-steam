@@ -116,15 +116,18 @@ Estrutura completa (veja `catalog.example.json`):
 ### SuiteApps (atualizacao)
 
 Se `suite.versao` for diferente de `settings.app.version` e houver `download_url`,
-o SuiteApps **baixa sozinho** a versao nova (sem exigir o clique em “Baixar atualizacao”).
-No Windows empacotado, um processo auxiliar espera o app sair, **substitui** o `.exe`
-em execucao e **relanca** a versao nova. Um `settings.json` ao lado do executavel,
-se existir, nao e apagado.
+a sidebar mostra **Baixar Atualizacao**. O download **nao** comeca sozinho (nem no
+sync da abertura nem em **Buscar atualizacoes**).
+
+Depois do clique, no Windows empacotado, baixa o arquivo com o **nome padrao do .exe**
+(`app.exe_name` ou o nome do binario em execucao, **sem** sufixo de versao), um
+processo auxiliar **substitui** o `.exe` e **relanca**. Um `settings.json` ao lado
+do executavel, se existir, nao e apagado.
 
 Enquanto baixa, a sidebar (e a home) mostram barra com percentual; no WebLogin a
 barra fica indeterminada ate haver progresso mensuravel.
 
-Se o download ou a troca falhar, aparece mensagem curta e o botao **Baixar atualizacao**
+Se o download ou a troca falhar, aparece mensagem curta e o botao **Baixar Atualizacao**
 permanece como fallback. O app atual continua usavel.
 
 O botao **Buscar atualizacoes** na sidebar dispara o mesmo sync do SharePoint da
@@ -208,8 +211,10 @@ notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
 ## 3. Acoes na tela do aplicativo
 
 - **Favoritar** (estrela)
-- **Baixar / Instalar** ou **Executar** (so um app do catalogo aberto por vez)
-- **Atualizar versao** (quando `versao` do catalogo difere da instalada)
+- **Baixar / Instalar** ou **Executar** (nao abre segunda instancia se o app ja estiver
+  em execucao, inclusive iniciado antes do hub / pelo Startup)
+- **Atualizar versao** (quando `versao` do catalogo difere da instalada; se o processo
+  estiver aberto, o hub encerra, instala e reabre)
 - Barra de progresso com percentual durante download/update (indeterminado no WebLogin)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**

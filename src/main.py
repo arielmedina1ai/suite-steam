@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import flet as ft
@@ -11,14 +12,15 @@ import flet as ft
 import config
 from catalog import SharePointCatalogProvider
 from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
-from services.download_manager import DownloadManager
+from services.download_manager import DownloadManager, DownloadOutcome
 from services.favorites import FavoritesStore
 from services.preferences import PreferencesStore
-from services.runner import RunError, RunningApp, launch_file
+from services.process_guard import running_catalog_map, snapshot_processes, terminate_pids
+from services.runner import RunError, launch_file
 from services.self_update import (
     can_replace_running,
+    saved_exe_filename,
     spawn_replace_and_relaunch,
-    staging_exe_name,
     updates_dir,
 )
 from services.sharepoint_manager import baixar_do_sharepoint
@@ -56,7 +58,12 @@ class SuiteApp:
         self.update_path: str | None = None
         self.update_failed = False
         self.update_done = False
-        self._catalog_session: RunningApp | None = None
+        self._running_pids: dict[str, list[int]] = {}
+        self._running_cache_at = 0.0
+        self.app_job_busy = False
+        self.app_job_app_id: str | None = None
+        self.app_job_progress: float | None = None
+        self.app_job_message = ""
         self._exiting = False
         self._tray: TrayController | None = None
         self.run_error = ""
@@ -221,8 +228,6 @@ class SuiteApp:
         self.sync_busy = False
         self.sync_progress = 1.0 if result.ok else -1.0
         self._render()
-        if result.ok:
-            self._maybe_auto_update()
 
     def _on_sync_progress(self, pct: float, msg: str) -> None:
         self.sync_progress = pct
@@ -282,15 +287,42 @@ class SuiteApp:
             return False
         return suite.versao != config.APP_VERSION
 
+    def _installed_paths(self) -> dict[str, str]:
+        paths: dict[str, str] = {}
+        for app in self.apps:
+            state = self.storage.get_state(app.id)
+            if state.local_path:
+                paths[app.id] = state.local_path
+        return paths
+
+    def _refresh_running(self, *, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and (now - self._running_cache_at) < 1.2:
+            return
+        snapshot = snapshot_processes()
+        self._running_pids = running_catalog_map(self._installed_paths(), snapshot)
+        self._running_cache_at = now
+
+    def _this_app_running(self, app_id: str) -> bool:
+        self._refresh_running()
+        return bool(self._running_pids.get(app_id))
+
+    def _other_app_running(self, app_id: str) -> bool:
+        self._refresh_running()
+        return any(aid != app_id and pids for aid, pids in self._running_pids.items())
+
     def _running_app_name(self) -> str:
-        session = self._catalog_session
-        if session is not None and session.is_running():
-            return session.app_name
+        self._refresh_running()
+        for app_id, pids in self._running_pids.items():
+            if not pids:
+                continue
+            app = self.apps_by_id.get(app_id)
+            return app.nome if app is not None else app_id
         return ""
 
     def _catalog_locked(self) -> bool:
-        session = self._catalog_session
-        return session is not None and session.is_running()
+        self._refresh_running()
+        return any(bool(pids) for pids in self._running_pids.values())
 
     # ------------------------------------------------------------------
     def _go_home(self) -> None:
@@ -336,7 +368,14 @@ class SuiteApp:
         self._render()
 
     def _run_catalog_app(self, app: AppInfo) -> None:
-        if self._catalog_locked():
+        self._refresh_running(force=True)
+        if self._this_app_running(app.id):
+            self.run_error = "Este aplicativo ja esta em execucao."
+            self._render()
+            return
+        if self._other_app_running(app.id):
+            who = self._running_app_name() or "outro aplicativo"
+            self.run_error = f"Aguarde: {who} em execucao. So um app por vez."
             self._render()
             return
         state = self.storage.get_state(app.id)
@@ -345,31 +384,95 @@ class SuiteApp:
             self._render()
             return
         try:
-            session = launch_file(state.local_path, app_id=app.id, app_name=app.nome)
+            launch_file(state.local_path, app_id=app.id, app_name=app.nome)
         except RunError as exc:
             self.run_error = str(exc)
             self._render()
             return
         self.run_error = ""
-        self._catalog_session = session
-        self._render()
-        self.page.run_thread(lambda: self._wait_catalog_app(session))
-
-    def _wait_catalog_app(self, session: RunningApp) -> None:
-        try:
-            session.wait()
-        except Exception:
-            pass
-        if self._catalog_session is session:
-            self._catalog_session = None
+        self._refresh_running(force=True)
         self._render()
 
-    def _maybe_auto_update(self) -> None:
-        if not self._update_available() or self.update_busy or self.update_done:
+        def _nudge() -> None:
+            time.sleep(0.5)
+            self._refresh_running(force=True)
+            self._render()
+
+        self.page.run_thread(_nudge)
+
+    def _request_app_update(self, app: AppInfo) -> None:
+        if self.app_job_busy or self.update_busy:
             return
-        self._download_suite_update(auto=True)
+        self._refresh_running(force=True)
+        if self._other_app_running(app.id):
+            who = self._running_app_name() or "outro aplicativo"
+            self.run_error = f"Aguarde: {who} em execucao. So um app por vez."
+            self._render()
+            return
+        self.app_job_busy = True
+        self.app_job_app_id = app.id
+        self.app_job_progress = -1.0
+        self.app_job_message = "Preparando atualizacao..."
+        self.run_error = ""
+        self._render()
+        self.page.run_thread(lambda: self._update_catalog_app_worker(app))
 
-    def _download_suite_update(self, auto: bool = False) -> None:
+    def _update_catalog_app_worker(self, app: AppInfo) -> None:
+        reopen = False
+        state = self.storage.get_state(app.id)
+        pids = list(self._running_pids.get(app.id) or [])
+        if not pids and state.local_path:
+            pids = running_catalog_map({app.id: state.local_path}).get(app.id, [])
+        if pids:
+            self.app_job_message = "Encerrando o aplicativo em execucao..."
+            self.app_job_progress = -1.0
+            self._render()
+            err = terminate_pids(pids)
+            if err:
+                self.app_job_busy = False
+                self.app_job_app_id = None
+                self.run_error = err
+                self._refresh_running(force=True)
+                self._render()
+                return
+            reopen = True
+            self._refresh_running(force=True)
+
+        def on_progress(pct: float, msg: str) -> None:
+            self.app_job_progress = pct
+            self.app_job_message = msg
+            try:
+                self._render()
+            except Exception:
+                pass
+
+        result = self.manager.download(app, progress=on_progress)
+        if result.outcome != DownloadOutcome.SUCCESS:
+            self.app_job_busy = False
+            self.app_job_app_id = None
+            self.app_job_progress = None
+            self.run_error = result.message or "Falha ao atualizar o aplicativo."
+            self._render()
+            return
+
+        self.app_job_progress = 1.0
+        self.app_job_message = result.message or "Atualizacao concluida."
+        if reopen:
+            new_state = self.storage.get_state(app.id)
+            if new_state.local_path:
+                self.app_job_message = "Reabrindo o aplicativo..."
+                self._render()
+                try:
+                    launch_file(new_state.local_path, app_id=app.id, app_name=app.nome)
+                    time.sleep(0.4)
+                except RunError as exc:
+                    self.run_error = str(exc)
+        self.app_job_busy = False
+        self.app_job_app_id = None
+        self._refresh_running(force=True)
+        self._render()
+
+    def _download_suite_update(self) -> None:
         if self.update_busy:
             return
         suite = self.catalog.suite
@@ -387,7 +490,7 @@ class SuiteApp:
     def _download_suite_worker(self) -> None:
         suite = self.catalog.suite
         dest = updates_dir()
-        nome_final = staging_exe_name(suite.versao)
+        nome_final = saved_exe_filename()
 
         def on_progress(pct: float, msg: str) -> None:
             self.update_progress = pct
@@ -510,7 +613,7 @@ class SuiteApp:
             on_favorites=self._go_favorites,
             on_select_setor=self._select_setor,
             on_select_gerencia=self._select_gerencia,
-            on_download_update=lambda: self._download_suite_update(auto=False),
+            on_download_update=self._download_suite_update,
             on_check_updates=self._check_updates,
             check_updates_busy=self.sync_busy,
             start_with_windows=self.preferences.get_start_with_windows(),
@@ -533,10 +636,15 @@ class SuiteApp:
                     self.manager,
                     is_favorite=app.id in fav_ids,
                     on_toggle_favorite=self._toggle_favorite,
-                    catalog_locked=self._catalog_locked(),
+                    catalog_locked=self._other_app_running(app.id),
                     running_app_name=running_name,
                     on_run=self._run_catalog_app,
-                    work_message=self.run_error,
+                    on_update_app=self._request_app_update,
+                    this_app_running=self._this_app_running(app.id),
+                    other_app_running=self._other_app_running(app.id),
+                    work_busy=self.app_job_busy and self.app_job_app_id == app.id,
+                    work_progress=self.app_job_progress,
+                    work_message=self.app_job_message or self.run_error,
                 ).build()
         elif self.show_favorites:
             self.content_holder.content = build_favoritos_view(

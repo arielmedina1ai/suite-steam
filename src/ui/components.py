@@ -176,7 +176,7 @@ def _update_banner(
     if not update_done and (update_failed or not update_busy):
         controls.append(
             ft.FilledButton(
-                "Baixar atualizacao",
+                "Baixar Atualizacao",
                 icon=ft.Icons.DOWNLOAD,
                 disabled=update_busy,
                 on_click=lambda e: on_download_update(),

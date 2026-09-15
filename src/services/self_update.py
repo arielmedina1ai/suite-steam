@@ -16,9 +16,13 @@ def updates_dir() -> Path:
     return path
 
 
-def staging_exe_name(versao: str) -> str:
-    safe = "".join(ch for ch in (versao or "nova") if ch.isalnum() or ch in "._-") or "nova"
-    return f"{config.EXE_NAME}_{safe}.exe"
+def saved_exe_filename() -> str:
+    """Nome padrao do .exe (sem sufixo de versao)."""
+    if bool(getattr(sys, "frozen", False)):
+        name = Path(sys.executable).name
+        if name.lower().endswith(".exe") and name[:-4].strip():
+            return name
+    return f"{config.EXE_NAME}.exe"
 
 
 def can_replace_running() -> bool:

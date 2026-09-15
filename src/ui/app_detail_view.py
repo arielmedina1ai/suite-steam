@@ -28,6 +28,9 @@ class AppDetailView:
         catalog_locked: bool = False,
         running_app_name: str = "",
         on_run=None,
+        on_update_app=None,
+        this_app_running: bool = False,
+        other_app_running: bool = False,
         work_busy: bool = False,
         work_progress: float | None = None,
         work_message: str = "",
@@ -42,6 +45,9 @@ class AppDetailView:
         self.catalog_locked = catalog_locked
         self.running_app_name = running_app_name
         self.on_run = on_run
+        self.on_update_app = on_update_app
+        self.this_app_running = this_app_running
+        self.other_app_running = other_app_running
         self.work_busy = work_busy
         self.work_progress = work_progress
         self.work_message = work_message
@@ -188,19 +194,22 @@ class AppDetailView:
     def _refresh_action_buttons(self) -> None:
         state = self.storage.get_state(self.app.id)
         installed = state.status == InstallStatus.INSTALLED
-        locked = self.catalog_locked or self.work_busy
+        other = self.other_app_running or self.catalog_locked
+        this = self.this_app_running
+        run_locked = self.work_busy or other or this
+        update_locked = self.work_busy or other
         if installed:
             self.action_button.content = "Executar"
             self.action_button.icon = ft.Icons.PLAY_ARROW
-            self.action_button.disabled = locked
+            self.action_button.disabled = run_locked
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
             needs_update = self._has_version_update(state)
             self.update_button.visible = needs_update
-            self.update_button.disabled = locked
+            self.update_button.disabled = update_locked
             self.upload_button.visible = bool(self.app.upload_url)
-            self.upload_button.disabled = self.work_busy
+            self.upload_button.disabled = self.work_busy or this
             self.uninstall_button.visible = True
-            self.uninstall_button.disabled = self.work_busy
+            self.uninstall_button.disabled = self.work_busy or this
             local_name = Path(state.local_path).name if state.local_path else "?"
             installed_ver = state.versao or "?"
             catalog_ver = self.app.versao
@@ -215,13 +224,20 @@ class AppDetailView:
         else:
             self.action_button.content = "Baixar / Instalar"
             self.action_button.icon = ft.Icons.DOWNLOAD
-            self.action_button.disabled = locked
+            self.action_button.disabled = self.work_busy or other or this
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
             self.update_button.visible = False
             self.upload_button.visible = False
             self.uninstall_button.visible = False
             self.local_info.value = ""
-        if self.catalog_locked and not self.work_busy:
+        if this and not self.work_busy:
+            if installed and self._has_version_update(state):
+                self.status_text.value = (
+                    "Em execucao. Atualizar versao encerra o processo, instala e reabre."
+                )
+            else:
+                self.status_text.value = f"{self.app.nome} ja esta em execucao."
+        elif (other or self.catalog_locked) and not self.work_busy:
             who = self.running_app_name or "outro aplicativo"
             self.status_text.value = f"Aguarde: {who} em execucao. So um app por vez."
         elif self.work_message and not self.work_busy:
@@ -234,15 +250,20 @@ class AppDetailView:
             pass
 
     def _on_action(self, e: ft.ControlEvent) -> None:
-        if self.catalog_locked or self.work_busy:
+        if self.work_busy or self.other_app_running or self.catalog_locked:
             return
         if self._current_status() == InstallStatus.INSTALLED:
+            if self.this_app_running:
+                return
             self._execute()
         else:
             self._start_download()
 
     def _on_update(self, e: ft.ControlEvent) -> None:
-        if self.catalog_locked or self.work_busy:
+        if self.work_busy or self.other_app_running:
+            return
+        if self.on_update_app:
+            self.on_update_app(self.app)
             return
         self._start_download()
 
@@ -266,10 +287,11 @@ class AppDetailView:
 
     def _set_busy(self, busy: bool) -> None:
         self.work_busy = busy
-        self.action_button.disabled = busy or self.catalog_locked
-        self.update_button.disabled = busy or self.catalog_locked
-        self.upload_button.disabled = busy
-        self.uninstall_button.disabled = busy
+        other = self.other_app_running or self.catalog_locked
+        self.action_button.disabled = busy or other or self.this_app_running
+        self.update_button.disabled = busy or other
+        self.upload_button.disabled = busy or self.this_app_running
+        self.uninstall_button.disabled = busy or self.this_app_running
 
     def _apply_progress(self, pct: float | None, msg: str) -> None:
         self.progress.visible = True
