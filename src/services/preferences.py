@@ -14,6 +14,9 @@ class PreferencesStore:
         self.path = path or (config.USER_DATA_DIR / "preferences.json")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._data = self._load()
+        if "start_with_windows" not in self._data:
+            self._data["start_with_windows"] = True
+            self._save()
 
     def _load(self) -> dict:
         if not self.path.exists():
@@ -37,4 +40,11 @@ class PreferencesStore:
     def set_gerencia_id(self, gerencia_id: str | None) -> None:
         gid = (gerencia_id or "").strip()
         self._data["gerencia_id"] = gid
+        self._save()
+
+    def get_start_with_windows(self) -> bool:
+        return bool(self._data.get("start_with_windows", True))
+
+    def set_start_with_windows(self, enabled: bool) -> None:
+        self._data["start_with_windows"] = bool(enabled)
         self._save()

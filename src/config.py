@@ -95,7 +95,7 @@ _catalog = _S.get("catalog", {}) if isinstance(_S.get("catalog"), dict) else {}
 # ---------------------------------------------------------------------------
 # Identificacao do app  ->  settings.json > "app"
 # ---------------------------------------------------------------------------
-APP_NAME = _app.get("name", "Suite")
+APP_NAME = _app.get("name", "SuiteApps")
 APP_VERSION = str(_app.get("version", "0.1.0")).strip() or "0.1.0"
 _company_raw = _app.get("company")
 APP_COMPANY = (
@@ -106,7 +106,7 @@ APP_COMPANY = (
 _exe_raw = _app.get("exe_name")
 EXE_NAME = _sanitize_folder_name(
     str(_exe_raw) if _exe_raw is not None else "",
-    "SuiteAPPs",
+    "SuiteApps",
 )
 # Remove extensao .exe se o dev colocar no settings
 if EXE_NAME.lower().endswith(".exe"):

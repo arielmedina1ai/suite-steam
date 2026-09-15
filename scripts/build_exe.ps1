@@ -1,4 +1,4 @@
-# Empacota a Suite como .exe via flet pack (PyInstaller).
+# Empacota o SuiteApps como .exe via flet pack (PyInstaller).
 # Uso (na raiz do repo, com venv ativo):
 #   1. Edite settings.json (app.name, company, exe_name, data_dir, etc.) e assets/branding/
 #   2. .\scripts\build_exe.ps1
@@ -20,9 +20,9 @@ if (-not (Test-Path $SettingsPath)) {
     throw "settings.json nao encontrado. O desenvolvedor deve criar/editar settings.json antes do build (copie de settings.example.json)."
 }
 
-$ProductName = "Suite"
+$ProductName = "SuiteApps"
 $ProductVersion = "0.1.0"
-$ExeName = "SuiteAPPs"
+$ExeName = "SuiteApps"
 $CompanyName = ""
 try {
     $settings = Get-Content $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -48,7 +48,7 @@ if ($ExeName.ToLower().EndsWith(".exe")) {
     $ExeName = $ExeName.Substring(0, $ExeName.Length - 4)
 }
 if (-not $ExeName) {
-    $ExeName = "SuiteAPPs"
+    $ExeName = "SuiteApps"
 }
 
 # file-version exige n.n.n.n
@@ -71,6 +71,9 @@ $PackArgs = @(
     "--add-data", "settings.json;.",
     "--add-data", "settings.example.json;.",
     "--add-data", "catalog.example.json;.",
+    "--hidden-import", "pystray",
+    "--hidden-import", "PIL",
+    "--hidden-import", "PIL.Image",
     "--yes"
 )
 

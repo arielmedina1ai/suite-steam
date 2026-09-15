@@ -234,7 +234,8 @@ def _run_templated_ps1(
         tmp_path = tmp.name
 
     if progress:
-        progress(0.15, "Abrindo autenticacao SharePoint (WebLogin)...")
+        # Indeterminado: WebLogin nao tem bytes ainda (nao fingir percentual)
+        progress(-1.0, "Abrindo autenticacao SharePoint (WebLogin)...")
 
     try:
         resultado = subprocess.run(

@@ -1,4 +1,4 @@
-# Branding da Suite (assets locais)
+# Branding do SuiteApps (assets locais)
 
 Estas imagens ficam **no software** (pasta `assets/branding/`), nao no SharePoint.
 
@@ -31,7 +31,7 @@ O `hero.example.png` do repo esta em **1110 x 570** (mesma proporcao, placeholde
 
 ### Icone da janela (Windows / Flet)
 
-O Flet no Windows exige `.ico` com caminho absoluto. A Suite converte
-`window_icon.png` → `window_icon.ico` automaticamente.
+O Flet no Windows exige `.ico` com caminho absoluto. O SuiteApps converte
+`window_icon.png` → `window_icon.ico` automaticamente (janela e bandeja).
 
-Sem `logo.png` / `hero.png` / `window_icon.png`, a Suite usa fallbacks.
+Sem `logo.png` / `hero.png` / `window_icon.png`, o SuiteApps usa fallbacks.

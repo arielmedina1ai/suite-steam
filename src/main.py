@@ -1,6 +1,7 @@
-"""Suite - hub de aplicativos internos (frontend em Flet)."""
+"""SuiteApps - hub de aplicativos internos (frontend em Flet)."""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,11 +14,21 @@ from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
 from services.download_manager import DownloadManager
 from services.favorites import FavoritesStore
 from services.preferences import PreferencesStore
+from services.runner import RunError, RunningApp, launch_file
+from services.self_update import (
+    can_replace_running,
+    spawn_replace_and_relaunch,
+    staging_exe_name,
+    updates_dir,
+)
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
+from services.tray import TrayController
+from services.windows_startup import set_start_with_windows, supported as startup_supported
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
 from ui.home_view import build_favoritos_view, build_home, build_setor_view
+from ui.progress_util import bar_value, label as progress_label
 
 
 class SuiteApp:
@@ -36,9 +47,19 @@ class SuiteApp:
         self.selected_setor: str | None = None
         self.show_favorites = False
         self.sync_message = ""
+        self.sync_busy = True
+        self.sync_progress: float | None = -1.0
+        self.sync_status = "Sincronizando catalogo com SharePoint..."
         self.update_busy = False
         self.update_message = ""
+        self.update_progress: float | None = None
         self.update_path: str | None = None
+        self.update_failed = False
+        self.update_done = False
+        self._catalog_session: RunningApp | None = None
+        self._exiting = False
+        self._tray: TrayController | None = None
+        self.run_error = ""
 
         self.sidebar_holder = ft.Container()
         self.content_holder = ft.Container(expand=True, padding=28)
@@ -53,8 +74,9 @@ class SuiteApp:
         )
 
         self._setup_page()
+        self._apply_startup_preference()
         self._show_sync_screen()
-        self.page.run_thread(self._sync_catalog_worker)
+        self.page.run_thread(lambda: self._sync_catalog_worker(True))
 
     # ------------------------------------------------------------------
     def _setup_page(self) -> None:
@@ -69,9 +91,77 @@ class SuiteApp:
         self.page.padding = 0
         icon_path = config.resolve_window_icon()
         if icon_path is not None:
-            # Windows/Flet: precisa de .ico com caminho absoluto
             self.page.window.icon = str(icon_path)
+        if sys.platform.startswith("win"):
+            self.page.window.prevent_close = True
+            self.page.window.on_event = self._on_window_event
+            self._tray = TrayController(on_show=self._show_from_tray, on_quit=self._quit_app)
+            self._tray.start()
+            if not self._tray.started:
+                self.page.window.prevent_close = False
+                self.page.window.on_event = None
         self.page.add(self.root_row)
+
+    def _on_window_event(self, e) -> None:
+        if self._exiting:
+            return
+        kind = _window_event_name(e)
+        if kind in {"CLOSE", "MINIMIZE"}:
+            self._hide_to_tray()
+
+    def _hide_to_tray(self) -> None:
+        try:
+            self.page.window.minimized = True
+            self.page.window.skip_task_bar = True
+            self.page.window.visible = False
+            self.page.update()
+        except Exception:
+            pass
+
+    def _show_from_tray(self) -> None:
+        def _apply() -> None:
+            try:
+                self.page.window.visible = True
+                self.page.window.skip_task_bar = False
+                self.page.window.minimized = False
+                self.page.update()
+                self.page.run_task(self.page.window.to_front)
+            except Exception:
+                pass
+
+        try:
+            self.page.run_thread(_apply)
+        except Exception:
+            _apply()
+
+    def _quit_app(self) -> None:
+        self._exiting = True
+        if self._tray is not None:
+            self._tray.stop()
+
+        def _do() -> None:
+            try:
+                self.page.window.prevent_close = False
+                self.page.update()
+                self.page.run_task(self.page.window.destroy)
+            except Exception:
+                os._exit(0)
+
+        try:
+            self.page.run_thread(_do)
+        except Exception:
+            os._exit(0)
+
+    def _apply_startup_preference(self) -> None:
+        if startup_supported():
+            set_start_with_windows(self.preferences.get_start_with_windows())
+
+    def _toggle_startup(self, enabled: bool) -> None:
+        self.preferences.set_start_with_windows(enabled)
+        err = set_start_with_windows(enabled) if startup_supported() else ""
+        if err:
+            self.sync_message = err
+        self._render()
 
     def _show_sync_screen(self) -> None:
         self.sidebar_holder.content = ft.Container(
@@ -91,7 +181,12 @@ class SuiteApp:
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=16,
             controls=[
-                ft.ProgressRing(color=config.COLOR_ACCENT, width=48, height=48),
+                ft.ProgressBar(
+                    value=bar_value(self.sync_progress),
+                    width=320,
+                    color=config.COLOR_ACCENT,
+                    bgcolor="#0A0F0C",
+                ),
                 ft.Text(
                     "Sincronizando catalogo com SharePoint...",
                     size=18,
@@ -99,7 +194,8 @@ class SuiteApp:
                     color=config.COLOR_TEXT,
                 ),
                 ft.Text(
-                    "Pode abrir uma janela de login (WebLogin).",
+                    progress_label(self.sync_progress, self.sync_status)
+                    or "Pode abrir uma janela de login (WebLogin).",
                     size=13,
                     color="#8AA797",
                 ),
@@ -107,36 +203,57 @@ class SuiteApp:
         )
         self.page.update()
 
-    def _sync_catalog_worker(self) -> None:
+    def _sync_catalog_worker(self, initial: bool = False) -> None:
+        self.sync_busy = True
         provider = SharePointCatalogProvider()
-        result = provider.sync(
-            progress=lambda _p, msg: self._update_sync_status(msg)
-        )
-        self.catalog = result.catalog
-        self._apply_gerencia_filter()
-        # Banner so em falha/aviso — sucesso limpo nao polui a home
-        self.sync_message = result.message if not result.ok else ""
-        self.selected_id = None
-        self.selected_setor = None
-        self.show_favorites = False
+        result = provider.sync(progress=self._on_sync_progress)
+        if result.ok or initial or not self.catalog.apps:
+            self.catalog = result.catalog
+            self._apply_gerencia_filter()
+        if result.ok:
+            self.sync_message = ""
+        else:
+            self.sync_message = result.message or "Falha ao buscar atualizacoes."
+        if initial:
+            self.selected_id = None
+            self.selected_setor = None
+            self.show_favorites = False
+        self.sync_busy = False
+        self.sync_progress = 1.0 if result.ok else -1.0
         self._render()
+        if result.ok:
+            self._maybe_auto_update()
 
-    def _update_sync_status(self, msg: str) -> None:
-        # Atualiza so o texto da splash se ainda estiver nela
+    def _on_sync_progress(self, pct: float, msg: str) -> None:
+        self.sync_progress = pct
+        self.sync_status = msg
         try:
             content = self.content_holder.content
             if isinstance(content, ft.Column) and len(content.controls) >= 3:
-                content.controls[2] = ft.Text(msg, size=13, color="#8AA797")
+                bar = content.controls[0]
+                if isinstance(bar, ft.ProgressBar):
+                    bar.value = bar_value(pct)
+                content.controls[2] = ft.Text(
+                    progress_label(pct, msg),
+                    size=13,
+                    color="#8AA797",
+                )
                 self.page.update()
         except Exception:
             pass
 
+    def _check_updates(self) -> None:
+        if self.sync_busy:
+            return
+        self.sync_busy = True
+        self.sync_message = ""
+        self._render()
+        self.page.run_thread(lambda: self._sync_catalog_worker(False))
+
     # ------------------------------------------------------------------
     def _apply_gerencia_filter(self) -> None:
-        """Atualiza view_catalog/apps a partir do filtro de gerencia persistido."""
         gid = self.selected_gerencia_id
         if gid and self.catalog.gerencia_by_id(gid) is None:
-            # Gerencia salva nao existe mais no catalogo
             gid = ""
             self.selected_gerencia_id = ""
             self.preferences.set_gerencia_id("")
@@ -164,6 +281,16 @@ class SuiteApp:
         if not suite.available:
             return False
         return suite.versao != config.APP_VERSION
+
+    def _running_app_name(self) -> str:
+        session = self._catalog_session
+        if session is not None and session.is_running():
+            return session.app_name
+        return ""
+
+    def _catalog_locked(self) -> bool:
+        session = self._catalog_session
+        return session is not None and session.is_running()
 
     # ------------------------------------------------------------------
     def _go_home(self) -> None:
@@ -197,7 +324,6 @@ class SuiteApp:
         self.selected_gerencia_id = gid
         self.preferences.set_gerencia_id(gid)
         self._apply_gerencia_filter()
-        # Ao trocar o filtro, volta ao Inicio e limpa navegacao invalida
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
@@ -205,64 +331,131 @@ class SuiteApp:
 
     def _toggle_favorite(self, app_id: str) -> None:
         self.favorites.toggle(app_id)
-        # Se removeu o ultimo favorito enquanto na view Favoritos, volta ao Inicio
         if self.show_favorites and not self._has_visible_favorites():
             self.show_favorites = False
         self._render()
 
-    def _download_suite_update(self) -> None:
+    def _run_catalog_app(self, app: AppInfo) -> None:
+        if self._catalog_locked():
+            self._render()
+            return
+        state = self.storage.get_state(app.id)
+        if not state.local_path:
+            self.run_error = "Arquivo nao encontrado. Use Baixar / Instalar."
+            self._render()
+            return
+        try:
+            session = launch_file(state.local_path, app_id=app.id, app_name=app.nome)
+        except RunError as exc:
+            self.run_error = str(exc)
+            self._render()
+            return
+        self.run_error = ""
+        self._catalog_session = session
+        self._render()
+        self.page.run_thread(lambda: self._wait_catalog_app(session))
+
+    def _wait_catalog_app(self, session: RunningApp) -> None:
+        try:
+            session.wait()
+        except Exception:
+            pass
+        if self._catalog_session is session:
+            self._catalog_session = None
+        self._render()
+
+    def _maybe_auto_update(self) -> None:
+        if not self._update_available() or self.update_busy or self.update_done:
+            return
+        self._download_suite_update(auto=True)
+
+    def _download_suite_update(self, auto: bool = False) -> None:
         if self.update_busy:
             return
         suite = self.catalog.suite
         if not suite.available:
             return
         self.update_busy = True
+        self.update_failed = False
+        self.update_done = False
         self.update_path = None
-        self.update_message = "Iniciando download..."
+        self.update_progress = -1.0
+        self.update_message = "Baixando atualizacao..."
         self._render()
         self.page.run_thread(self._download_suite_worker)
 
     def _download_suite_worker(self) -> None:
         suite = self.catalog.suite
-        dest = config.user_downloads_dir()
-        dest.mkdir(parents=True, exist_ok=True)
-        nome_final = f"{config.EXE_NAME}_{suite.versao}.exe"
-        self.update_message = "Baixando pelo link do catalogo..."
-        try:
-            self.page.update()
-        except Exception:
-            pass
+        dest = updates_dir()
+        nome_final = staging_exe_name(suite.versao)
 
-        # Baixa com o nome do link (nao altera o caminho no SharePoint);
-        # so ao salvar renomeia para {exe_name}_{versao}.exe
+        def on_progress(pct: float, msg: str) -> None:
+            self.update_progress = pct
+            self.update_message = msg
+            try:
+                self._render()
+            except Exception:
+                pass
+
         result = baixar_do_sharepoint(
             link=suite.download_url,
             pasta_destino=dest,
-            nome_arquivo=None,
+            nome_arquivo=nome_final,
+            progress=on_progress,
         )
-        if result.ok and result.path and result.path.exists():
-            final = dest / nome_final
-            try:
-                if result.path.resolve() != final.resolve():
-                    if final.exists():
-                        final.unlink()
-                    result.path.replace(final)
-                path_show = final if final.exists() else result.path
-            except OSError:
-                path_show = result.path
-            self.update_path = str(path_show)
-            self.update_message = (
-                f'Salvo com sucesso em Downloads com o nome "{path_show.name}".'
-            )
-            self._reveal_in_explorer(path_show)
-        else:
-            self.update_path = None
+        if not (result.ok and result.path and result.path.exists()):
+            self.update_busy = False
+            self.update_failed = True
+            self.update_progress = None
             self.update_message = result.message or "Falha no download da atualizacao."
+            self._render()
+            return
+
+        new_exe = result.path
+        if can_replace_running():
+            self.update_message = "Substituindo o executavel e reiniciando..."
+            self.update_progress = 0.95
+            self._render()
+            err = spawn_replace_and_relaunch(new_exe)
+            if err:
+                self.update_busy = False
+                self.update_failed = True
+                self.update_message = err
+                self.update_path = str(new_exe)
+                self._render()
+                return
+            self.update_done = True
+            self.update_busy = False
+            self._exiting = True
+            if self._tray is not None:
+                self._tray.stop()
+            os._exit(0)
+
+        # Sem troca in-place (dev / nao Windows): fallback no Downloads + Explorer
+        downloads = config.user_downloads_dir()
+        downloads.mkdir(parents=True, exist_ok=True)
+        fallback = downloads / nome_final
+        try:
+            if new_exe.resolve() != fallback.resolve():
+                if fallback.exists():
+                    fallback.unlink()
+                fallback.write_bytes(new_exe.read_bytes())
+            path_show = fallback if fallback.exists() else new_exe
+        except OSError:
+            path_show = new_exe
+        self.update_path = str(path_show)
+        self.update_done = False
         self.update_busy = False
+        self.update_failed = True
+        self.update_progress = 1.0
+        self.update_message = (
+            f'Download ok, mas a troca automatica so roda no .exe Windows. '
+            f'Arquivo: "{path_show.name}".'
+        )
+        self._reveal_in_explorer(path_show)
         self._render()
 
     def _reveal_in_explorer(self, path: Path) -> None:
-        """Abre o Explorer na pasta Downloads com o arquivo selecionado."""
         try:
             if not path.exists():
                 return
@@ -282,7 +475,6 @@ class SuiteApp:
         if self.show_favorites and not has_favs:
             self.show_favorites = False
 
-        # Setor selecionado pode sumir apos filtro de gerencia
         if self.selected_setor is not None:
             visible_ids = {s.id for s in setores_visiveis(self.view_catalog)}
             if self.selected_setor not in visible_ids:
@@ -297,6 +489,7 @@ class SuiteApp:
             and not self.show_favorites
         )
         favorites_selected = self.show_favorites and self.selected_id is None
+        running_name = self._running_app_name()
 
         self.sidebar_holder.content = build_sidebar(
             self.view_catalog,
@@ -307,15 +500,23 @@ class SuiteApp:
             selected_gerencia_id=self.selected_gerencia_id,
             show_favorites=has_favs,
             suite_update=self.catalog.suite,
-            update_available=self._update_available(),
+            update_available=self._update_available() or self.update_busy or self.update_failed,
             update_busy=self.update_busy,
             update_message=self.update_message,
-            update_done=bool(self.update_path),
+            update_progress=self.update_progress,
+            update_done=self.update_done,
+            update_failed=self.update_failed,
             on_home=self._go_home,
             on_favorites=self._go_favorites,
             on_select_setor=self._select_setor,
             on_select_gerencia=self._select_gerencia,
-            on_download_update=self._download_suite_update,
+            on_download_update=lambda: self._download_suite_update(auto=False),
+            on_check_updates=self._check_updates,
+            check_updates_busy=self.sync_busy,
+            start_with_windows=self.preferences.get_start_with_windows(),
+            on_toggle_startup=self._toggle_startup,
+            show_startup_toggle=sys.platform.startswith("win"),
+            running_app_name=running_name,
         )
 
         if self.selected_id is not None:
@@ -332,6 +533,10 @@ class SuiteApp:
                     self.manager,
                     is_favorite=app.id in fav_ids,
                     on_toggle_favorite=self._toggle_favorite,
+                    catalog_locked=self._catalog_locked(),
+                    running_app_name=running_name,
+                    on_run=self._run_catalog_app,
+                    work_message=self.run_error,
                 ).build()
         elif self.show_favorites:
             self.content_holder.content = build_favoritos_view(
@@ -366,23 +571,68 @@ class SuiteApp:
                 favorite_ids=fav_ids,
                 on_toggle_favorite=self._toggle_favorite,
             )
+            extras: list[ft.Control] = []
             if self.sync_message:
-                banner = ft.Container(
-                    bgcolor=config.COLOR_SURFACE,
-                    border_radius=8,
-                    padding=12,
-                    content=ft.Text(self.sync_message, size=12, color="#B9CEC3"),
+                extras.append(
+                    ft.Container(
+                        bgcolor=config.COLOR_SURFACE,
+                        border_radius=8,
+                        padding=12,
+                        content=ft.Text(self.sync_message, size=12, color="#B9CEC3"),
+                    )
                 )
+            if self.update_busy:
+                extras.append(
+                    ft.Container(
+                        bgcolor=config.COLOR_SURFACE,
+                        border_radius=8,
+                        padding=12,
+                        content=ft.Column(
+                            spacing=8,
+                            tight=True,
+                            controls=[
+                                ft.Text(
+                                    progress_label(self.update_progress, self.update_message)
+                                    or "Atualizando...",
+                                    size=12,
+                                    color="#B9CEC3",
+                                ),
+                                ft.ProgressBar(
+                                    value=bar_value(self.update_progress),
+                                    color=config.COLOR_ACCENT,
+                                    bgcolor="#0A0F0C",
+                                ),
+                            ],
+                        ),
+                    )
+                )
+            if extras:
                 self.content_holder.content = ft.Column(
                     expand=True,
                     scroll=ft.ScrollMode.AUTO,
                     spacing=16,
-                    controls=[banner, home],
+                    controls=[*extras, home],
                 )
             else:
                 self.content_holder.content = home
 
-        self.page.update()
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+
+def _window_event_name(e) -> str:
+    t = getattr(e, "type", None)
+    if t is None:
+        return ""
+    name = getattr(t, "name", None)
+    if isinstance(name, str):
+        return name.upper()
+    text = str(t)
+    if "." in text:
+        text = text.split(".")[-1]
+    return text.upper()
 
 
 def main(page: ft.Page) -> None:

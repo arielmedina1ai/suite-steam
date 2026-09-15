@@ -8,6 +8,7 @@ import flet as ft
 
 import config
 from models import AppInfo, CatalogData, GerenciaInfo, SuiteUpdateInfo, setores_visiveis
+from ui.progress_util import bar_value, label as progress_label
 
 # Largura fixa da sidebar e area util (descontando padding 12+12)
 _SIDEBAR_WIDTH = 260
@@ -25,7 +26,7 @@ def media_src(path: str) -> str:
 
 
 def app_badge(size: int = 40) -> ft.Control:
-    """Logo da Suite (assets/branding/logo.png) ou fallback texto SP."""
+    """Logo do SuiteApps (assets/branding/logo.png) ou fallback texto SP."""
     if config.BRANDING_LOGO.exists():
         return ft.Container(
             width=size,
@@ -133,53 +134,62 @@ def _update_banner(
     suite_update: SuiteUpdateInfo,
     update_busy: bool,
     update_message: str,
+    update_progress: float | None,
     update_done: bool,
+    update_failed: bool,
     on_download_update: Callable[[], None],
 ) -> ft.Control:
     # Sidebar 260 - padding 12*2 = 236 (mesma faixa dos itens de menu)
     _W = _SIDEBAR_INNER
+    if update_done:
+        title = "Atualizacao aplicada"
+    elif update_busy:
+        title = "Atualizando..."
+    elif update_failed:
+        title = "Falha na atualizacao"
+    else:
+        title = "Atualizacao disponivel"
     controls: list[ft.Control] = [
         ft.Text(
-            "Atualizacao disponivel" if not update_done else "Download concluido",
+            title,
             size=12,
             weight=ft.FontWeight.BOLD,
             color=config.COLOR_ACCENT,
             width=_W - 24,
         ),
         ft.Text(
-            f"Suite v{suite_update.versao}",
+            f"{config.APP_NAME} v{suite_update.versao}",
             size=12,
             color="#B9CEC3",
             width=_W - 24,
         ),
     ]
-    # Botao some apos download bem-sucedido
-    if not update_done:
+    if update_busy:
+        controls.append(
+            ft.ProgressBar(
+                value=bar_value(update_progress),
+                color=config.COLOR_ACCENT,
+                bgcolor="#0A0F0C",
+                width=_W - 24,
+            )
+        )
+    if not update_done and (update_failed or not update_busy):
         controls.append(
             ft.FilledButton(
-                "Baixar atualizacao" if not update_busy else "Baixando...",
+                "Baixar atualizacao",
                 icon=ft.Icons.DOWNLOAD,
                 disabled=update_busy,
                 on_click=lambda e: on_download_update(),
                 width=_W - 24,
             )
         )
-    if update_message:
+    msg = progress_label(update_progress, update_message) if update_busy else update_message
+    if msg:
         controls.append(
             ft.Text(
-                update_message,
+                msg,
                 size=11,
                 color="#8AA797",
-                width=_W - 24,
-            )
-        )
-    if update_done:
-        controls.append(
-            ft.Text(
-                "Abrindo a pasta com o arquivo selecionado...",
-                size=11,
-                weight=ft.FontWeight.BOLD,
-                color=config.COLOR_TEXT,
                 width=_W - 24,
             )
         )
@@ -207,12 +217,20 @@ def build_sidebar(
     update_available: bool,
     update_busy: bool,
     update_message: str,
+    update_progress: float | None,
     update_done: bool,
+    update_failed: bool,
     on_home: Callable[[], None],
     on_favorites: Callable[[], None],
     on_select_setor: Callable[[str], None],
     on_select_gerencia: Callable[[str], None],
     on_download_update: Callable[[], None],
+    on_check_updates: Callable[[], None],
+    check_updates_busy: bool,
+    start_with_windows: bool,
+    on_toggle_startup: Callable[[bool], None],
+    show_startup_toggle: bool,
+    running_app_name: str = "",
 ) -> ft.Control:
     setores = setores_visiveis(catalog)
     gerencia_list = gerencias if gerencias is not None else catalog.gerencias
@@ -253,14 +271,16 @@ def build_sidebar(
         ),
     ]
 
-    # Atualizacao da Suite — logo acima de Inicio
+    # Atualizacao do SuiteApps — logo acima de Inicio
     if update_available and suite_update is not None:
         items.append(
             _update_banner(
                 suite_update=suite_update,
                 update_busy=update_busy,
                 update_message=update_message,
+                update_progress=update_progress,
                 update_done=update_done,
+                update_failed=update_failed,
                 on_download_update=on_download_update,
             )
         )
@@ -383,6 +403,60 @@ def build_sidebar(
         )
 
     items.append(ft.Container(expand=True))
+
+    if running_app_name:
+        items.append(
+            ft.Container(
+                width=_SIDEBAR_INNER,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                content=ft.Text(
+                    f"Em execucao: {running_app_name}",
+                    size=11,
+                    color=config.COLOR_ACCENT,
+                    width=_SIDEBAR_INNER - 16,
+                ),
+            )
+        )
+
+    items.append(
+        ft.Container(
+            width=_SIDEBAR_INNER,
+            padding=ft.Padding.only(left=4, top=8, bottom=4, right=4),
+            content=ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[
+                    ft.FilledButton(
+                        "Buscando..." if check_updates_busy else "Buscar atualizacoes",
+                        icon=ft.Icons.REFRESH,
+                        disabled=check_updates_busy,
+                        on_click=lambda e: on_check_updates(),
+                        width=_SIDEBAR_INNER - 8,
+                    ),
+                    ft.ProgressBar(
+                        value=None,
+                        visible=check_updates_busy,
+                        color=config.COLOR_ACCENT,
+                        bgcolor="#0A0F0C",
+                        width=_SIDEBAR_INNER - 8,
+                    ),
+                ],
+            ),
+        )
+    )
+    if show_startup_toggle:
+        items.append(
+            ft.Container(
+                width=_SIDEBAR_INNER,
+                padding=ft.Padding.only(left=4, bottom=8, right=4),
+                content=ft.Switch(
+                    label="Iniciar com o Windows",
+                    value=start_with_windows,
+                    active_color=config.COLOR_ACCENT,
+                    on_change=lambda e: on_toggle_startup(bool(e.control.value)),
+                ),
+            )
+        )
 
     return ft.Container(
         width=_SIDEBAR_WIDTH,
