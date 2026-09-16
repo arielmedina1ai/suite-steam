@@ -1,8 +1,10 @@
-# Empacota a Suite como .exe via flet pack (PyInstaller).
+# Empacota o hub como .exe via flet pack (PyInstaller).
 # Uso (na raiz do repo, com venv ativo):
 #   1. Edite settings.json (app.name, company, exe_name, data_dir, etc.) e assets/branding/
 #   2. .\scripts\build_exe.ps1
-# Artefato: dist\{exe_name}.exe (settings.json embutido no bundle)
+# Artefato: dist\{app.exe_name}.exe
+# Titulo/product-name: app.name
+# O settings.json do operador e a fonte; SuiteApps e so o default se o campo vier vazio.
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -20,35 +22,43 @@ if (-not (Test-Path $SettingsPath)) {
     throw "settings.json nao encontrado. O desenvolvedor deve criar/editar settings.json antes do build (copie de settings.example.json)."
 }
 
-$ProductName = "Suite"
-$ProductVersion = "0.1.0"
-$ExeName = "SuiteAPPs"
-$CompanyName = ""
-try {
-    $settings = Get-Content $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($settings.app.name) {
-        $ProductName = [string]$settings.app.name
+$IdentityScript = Join-Path $PSScriptRoot "pack_identity.py"
+$Python = $null
+foreach ($cmd in @("python", "py", "python3")) {
+    $found = Get-Command $cmd -ErrorAction SilentlyContinue
+    if ($found) {
+        $Python = $found.Source
+        break
     }
-    if ($settings.app.version) {
-        $ProductVersion = [string]$settings.app.version
-    }
-    if ($settings.app.exe_name) {
-        $ExeName = [string]$settings.app.exe_name
-    }
-    if ($settings.app.company) {
-        $CompanyName = [string]$settings.app.company
-    }
-} catch {
-    Write-Warning "Nao foi possivel ler settings.json completamente; usando defaults."
+}
+if (-not $Python) {
+    throw "Python nao encontrado no PATH. Ative o venv antes de .\scripts\build_exe.ps1."
 }
 
-# Sanitiza nome do exe (sem path / extensao)
-$ExeName = ($ExeName -replace '[\\/:*?"<>|]', "").Trim().Trim(".")
-if ($ExeName.ToLower().EndsWith(".exe")) {
-    $ExeName = $ExeName.Substring(0, $ExeName.Length - 4)
+$IdentityRaw = & $Python $IdentityScript $SettingsPath
+if ($LASTEXITCODE -ne 0 -or -not $IdentityRaw) {
+    throw "Falha ao ler app.name / app.exe_name de settings.json."
 }
-if (-not $ExeName) {
-    $ExeName = "SuiteAPPs"
+try {
+    $identity = $IdentityRaw | ConvertFrom-Json
+} catch {
+    throw "Nao foi possivel interpretar a identidade do pack a partir de settings.json."
+}
+
+$ProductName = [string]$identity.name
+$ProductVersion = [string]$identity.version
+$ExeName = [string]$identity.exe_name
+$CompanyName = [string]$identity.company
+if (-not $ProductName) { $ProductName = "SuiteApps" }
+if (-not $ExeName) { $ExeName = "SuiteApps" }
+if (-not $ProductVersion) { $ProductVersion = "0.1.0" }
+
+Write-Host "settings.json"
+Write-Host "  app.name      -> janela / --product-name : $ProductName"
+Write-Host "  app.exe_name  -> dist\$ExeName.exe / --name : $ExeName"
+Write-Host "  app.version   -> $ProductVersion"
+if ($CompanyName) {
+    Write-Host "  app.company   -> $CompanyName"
 }
 
 # file-version exige n.n.n.n
@@ -71,6 +81,14 @@ $PackArgs = @(
     "--add-data", "settings.json;.",
     "--add-data", "settings.example.json;.",
     "--add-data", "catalog.example.json;.",
+    "--hidden-import", "pystray",
+    "--hidden-import", "pystray._win32",
+    "--hidden-import", "pystray._base",
+    "--hidden-import", "pystray._util",
+    "--hidden-import", "pystray._util.win32",
+    "--hidden-import", "PIL",
+    "--hidden-import", "PIL.Image",
+    "--pyinstaller-build-args=--collect-all=pystray",
     "--yes"
 )
 
@@ -92,12 +110,25 @@ if ($LASTEXITCODE -ne 0) {
     throw "flet pack falhou com codigo $LASTEXITCODE"
 }
 
-$Exe = Join-Path $Root "dist\$ExeName.exe"
-if (-not (Test-Path $Exe)) {
-    throw "Artefato esperado nao encontrado: $Exe"
+$DistDir = Join-Path $Root "dist"
+$Exe = Join-Path $DistDir "$ExeName.exe"
+if (-not (Test-Path -LiteralPath $Exe)) {
+    $match = Get-ChildItem -LiteralPath $DistDir -Filter "*.exe" -ErrorAction SilentlyContinue |
+        Where-Object { $_.BaseName -ieq $ExeName } |
+        Select-Object -First 1
+    if ($match) {
+        # NTFS e case-insensitive: forca o casing exato de app.exe_name
+        $stage = Join-Path $DistDir ("__rename_" + [guid]::NewGuid().ToString("N") + ".exe")
+        Rename-Item -LiteralPath $match.FullName -NewName ([IO.Path]::GetFileName($stage))
+        Rename-Item -LiteralPath $stage -NewName "$ExeName.exe"
+    }
+}
+
+if (-not (Test-Path -LiteralPath $Exe)) {
+    throw "Artefato esperado nao encontrado: $Exe (confira app.exe_name no settings.json)"
 }
 
 Write-Host ""
 Write-Host "OK: $Exe"
-Write-Host "O settings.json do build ja esta dentro do .exe; o usuario final nao precisa de arquivo ao lado."
+Write-Host "O settings.json do build ja esta dentro do .exe (app.name na janela; app.exe_name no arquivo)."
 Write-Host "No PC destino ainda sao necessarios PowerShell e modulo PnP (SharePoint)."

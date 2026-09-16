@@ -1,4 +1,4 @@
-# Guia de Configuracao da Suite
+# Guia de Configuracao do SuiteApps
 
 Este repositorio e uma **casca publica**: o codigo nao contem informacoes internas.
 Textos/cores ficam no `settings.json` local. O **catalogo oficial** (apps, gerencias,
@@ -20,7 +20,7 @@ abertura do programa.
 2. Edite textos do setor (home), cores e `catalog.remote_url`.
 3. Publique no SharePoint um `catalog.json` no formato do exemplo (com links reais).
 4. Publique as imagens no SharePoint e use os links nos campos `imagem` / `icone`.
-5. Rode `python src/main.py` — a Suite sincroniza o catalogo (pode abrir WebLogin).
+5. Rode `python src/main.py` — o SuiteApps sincroniza o catalogo (pode abrir WebLogin).
 
 ---
 
@@ -29,10 +29,10 @@ abertura do programa.
 ```json
 {
   "app": {
-    "name": "Suite (exemplo)",
+    "name": "SuiteApps",
     "version": "0.1.0",
     "company": "Nome da Empresa",
-    "exe_name": "SuiteAPPs",
+    "exe_name": "SuiteApps",
     "data_dir": "SuiteApps"
   },
   "sector": {
@@ -54,10 +54,11 @@ abertura do programa.
 }
 ```
 
-- `app.name` / `app.company`: titulo da janela e metadados do `.exe` no pack.
-- `app.exe_name`: nome do executavel gerado e prefixo do arquivo de update (`{exe_name}_{versao}.exe`).
+- `app.name`: **titulo da janela**, nome na sidebar e `--product-name` no pack. Default se vazio: SuiteApps. Vale o texto do `settings.json` (ex.: `SuiteAPPs`).
+- `app.exe_name`: **arquivo** gerado (`dist\{exe_name}.exe`), `flet pack --name`, atalho de inicio e staging de update. Default se vazio: SuiteApps. O `.\scripts\build_exe.ps1` le este campo do `settings.json` e imprime o valor usado.
+- `app.company`: metadado do `.exe` no pack (`--company-name`), se preenchido.
 - `app.data_dir`: pasta sob `%LOCALAPPDATA%` (padrao `SuiteApps`).
-- `app.version`: versao instalada desta Suite (comparada com `suite.versao` do catalogo).
+- `app.version`: versao instalada (comparada com `suite.versao` do catalogo).
 - `sector.*`: titulo, tagline e descricao do **banner** na tela Inicio (sempre no mesmo lugar).
 
 O unico link sensivel necessario no PC e `catalog.remote_url` (PnP + WebLogin).
@@ -72,7 +73,7 @@ Estrutura completa (veja `catalog.example.json`):
 {
   "suite": {
     "versao": "0.2.0",
-    "download_url": "https://empresa.sharepoint.com/.../SuiteAPPs.exe"
+    "download_url": "https://empresa.sharepoint.com/.../SuiteApps.exe"
   },
   "gerencia_geral": "Geral",
   "gerencias": [
@@ -112,13 +113,31 @@ Estrutura completa (veja `catalog.example.json`):
 }
 ```
 
-### Suite (atualizacao)
+### SuiteApps (atualizacao)
 
 Se `suite.versao` for diferente de `settings.app.version` e houver `download_url`,
-a sidebar mostra **Baixar atualizacao**. O download usa o **link exato** do catalogo;
-ao salvar, o arquivo vai para a pasta **Downloads** do Windows como
-`{exe_name}_{versao}.exe` (conforme `app.exe_name`). Ao concluir, a Suite mostra a confirmacao, oculta o
-botao de download e abre o Explorer com o arquivo selecionado.
+a sidebar mostra **Baixar Atualizacao**. O download **nao** comeca sozinho (nem no
+sync da abertura nem em **Buscar atualizacoes**).
+
+Depois do clique, no Windows empacotado, o download usa o **nome do arquivo no
+link do catalogo** (ex. `SuiteAPPs.exe` / UniqueId) e grava so em
+`%LOCALAPPDATA%/<app.data_dir>/updates/`. Nao procura `*.new.exe` no SharePoint
+e nao deixa extras ao lado do `.exe`. Um helper substitui o binario em uso pelo
+nome padrao (`app.exe_name` / nome em execucao, **sem** sufixo de versao),
+relanca, e apaga `updates/`, `*.new.exe`, `*.bak` e `*.old`. Um `settings.json`
+ao lado do executavel, se existir, nao e apagado.
+
+Uma segunda abertura do hub (clique impaciente) nao inicia outro processo: o
+mutex nomeado reativa a janela ja aberta, inclusive se estiver na bandeja.
+
+Enquanto baixa, a sidebar (e a home) mostram barra com percentual; no WebLogin a
+barra fica indeterminada ate haver progresso mensuravel.
+
+Se o download ou a troca falhar, aparece mensagem curta e o botao **Baixar Atualizacao**
+permanece como fallback. O app atual continua usavel.
+
+O botao **Buscar atualizacoes** na sidebar dispara o mesmo sync do SharePoint da
+abertura (catalogo, badges de versao e banner do proprio SuiteApps).
 
 ### Gerencias
 
@@ -165,7 +184,7 @@ Estrela nos cards e no detalhe. Persistidos em
 `%LOCALAPPDATA%/<app.data_dir>/favorites.json`. Se houver ao menos 1 favorito
 visivel no filtro atual, o item **Favoritos** aparece na sidebar (apos Inicio).
 
-A cada abertura, a Suite:
+A cada abertura, o SuiteApps:
 1. Baixa o `catalog.json` via PnP/WebLogin.
 2. Aplica o filtro de gerencia salvo em `preferences.json` (se houver).
 3. Sincroniza capas/icones em lote quando necessario.
@@ -187,15 +206,22 @@ copy assets\branding\window_icon.example.png assets\branding\window_icon.png
 | `hero.png` | `hero.example.png` | Banner da **tela inicial** | **480 x 246** px (ideal; proporcao 2220:1140) |
 | `window_icon.png` | `window_icon.example.png` | Icone da janela (gera `.ico`) | **256 x 256** px |
 
-**Nota Windows:** a Suite converte `window_icon.png` → `window_icon.ico` ao abrir.
+**Nota Windows:** o SuiteApps converte `window_icon.png` → `window_icon.ico` ao abrir.
+O mesmo icone e usado na bandeja. Fechar ou minimizar envia o app para a area de
+notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
+(atalho na pasta Startup); da para desligar no interruptor da sidebar
+(`preferences.json` > `start_with_windows`).
 
 ---
 
 ## 3. Acoes na tela do aplicativo
 
 - **Favoritar** (estrela)
-- **Baixar / Instalar** ou **Executar**
-- **Atualizar versao** (quando `versao` do catalogo difere da instalada)
+- **Baixar / Instalar** ou **Executar** (nao abre segunda instancia se o app ja estiver
+  em execucao, inclusive iniciado antes do hub / pelo Startup)
+- **Atualizar versao** (quando `versao` do catalogo difere da instalada; se o processo
+  estiver aberto, o hub encerra, instala e reabre)
+- Barra de progresso com percentual durante download/update (indeterminado no WebLogin)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**
 
@@ -224,7 +250,7 @@ O **desenvolvedor** edita `settings.json` e gera o pack. O arquivo e embutido no
 Override opcional: se existir `settings.json` **ao lado** do `.exe`, ele tem prioridade
 sobre o embutido (util para suporte; nao e o fluxo normal).
 
-**Pre-requisitos no PC destino:** PowerShell e modulo PnP.PowerShell (WebLogin). O `.exe` nao substitui essa dependencia.
+**Pre-requisitos no PC destino:** PowerShell e modulo SharePointPnPPowerShellOnline (WebLogin). O `.exe` nao substitui essa dependencia e nao embute o PnP.
 
 ---
 

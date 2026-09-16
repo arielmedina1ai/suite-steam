@@ -94,8 +94,17 @@ _catalog = _S.get("catalog", {}) if isinstance(_S.get("catalog"), dict) else {}
 
 # ---------------------------------------------------------------------------
 # Identificacao do app  ->  settings.json > "app"
+# app.name      = titulo da janela, sidebar, --product-name no pack
+# app.exe_name  = nome do .exe (flet pack --name), atalho Startup, staging de update
+# SuiteApps e so o default quando o campo esta vazio; o valor do settings prevalece
+# (inclusive grafias como SuiteAPPs).
 # ---------------------------------------------------------------------------
-APP_NAME = _app.get("name", "Suite")
+_name_raw = _app.get("name")
+APP_NAME = (
+    _name_raw.strip()
+    if isinstance(_name_raw, str) and _name_raw.strip()
+    else "SuiteApps"
+)
 APP_VERSION = str(_app.get("version", "0.1.0")).strip() or "0.1.0"
 _company_raw = _app.get("company")
 APP_COMPANY = (
@@ -106,7 +115,7 @@ APP_COMPANY = (
 _exe_raw = _app.get("exe_name")
 EXE_NAME = _sanitize_folder_name(
     str(_exe_raw) if _exe_raw is not None else "",
-    "SuiteAPPs",
+    "SuiteApps",
 )
 # Remove extensao .exe se o dev colocar no settings
 if EXE_NAME.lower().endswith(".exe"):
