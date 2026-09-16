@@ -6,12 +6,15 @@ espera o PID sair, troca o arquivo e so entao inicia o exe novo.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import config
+from services.sharepoint_manager import parsear_link_sharepoint
 
 _PYI_ENV_KEYS = (
     "_MEIPASS2",
@@ -59,7 +62,7 @@ def updates_dir() -> Path:
 
 
 def saved_exe_filename() -> str:
-    """Nome padrao do .exe (sem sufixo de versao)."""
+    """Nome padrao do .exe instalado (sem sufixo de versao). So local."""
     if bool(getattr(sys, "frozen", False)):
         name = Path(sys.executable).name
         if name.lower().endswith(".exe") and name[:-4].strip():
@@ -67,8 +70,31 @@ def saved_exe_filename() -> str:
     return f"{config.EXE_NAME}.exe"
 
 
+def catalog_remote_filename(download_url: str) -> str | None:
+    """Nome do objeto no SharePoint, como no link do catalogo. Nao inventa *.new.exe."""
+    raw = (download_url or "").strip()
+    if not raw:
+        return None
+    try:
+        info = parsear_link_sharepoint(raw)
+        nome = info.get("nome_arquivo")
+        if nome:
+            leaf = Path(str(nome).replace("\\", "/")).name
+            if leaf and leaf not in {".", ".."}:
+                return leaf
+    except ValueError:
+        pass
+    leaf = unquote(Path(urlparse(raw).path).name)
+    leaf = leaf.split("?")[0].strip()
+    if leaf.lower() in {"", "download.aspx", "download"}:
+        return None
+    if leaf in {".", ".."}:
+        return None
+    return leaf
+
+
 def staging_exe_path() -> Path:
-    """Temporario irmao do exe em execucao (nome padrao + .new, sem versao)."""
+    """Temporario local irmao do exe em execucao (*.new.exe). Nao e nome remoto."""
     name = saved_exe_filename()
     if name.lower().endswith(".exe"):
         staged = name[:-4] + ".new.exe"
@@ -78,6 +104,17 @@ def staging_exe_path() -> Path:
     if running is not None:
         return running.parent / staged
     return updates_dir() / staged
+
+
+def stage_downloaded_exe(downloaded: Path) -> Path:
+    """Copia bytes ja baixados para o staging local. Nao mexe no SharePoint."""
+    src = Path(downloaded).resolve()
+    staged = staging_exe_path()
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    if src == staged.resolve():
+        return staged
+    shutil.copy2(src, staged)
+    return staged
 
 
 def can_replace_running() -> bool:

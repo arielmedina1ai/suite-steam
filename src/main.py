@@ -19,9 +19,11 @@ from services.process_guard import running_catalog_map, snapshot_processes, term
 from services.runner import RunError, launch_file
 from services.self_update import (
     can_replace_running,
+    catalog_remote_filename,
     saved_exe_filename,
     spawn_replace_and_relaunch,
-    staging_exe_path,
+    stage_downloaded_exe,
+    updates_dir,
 )
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
@@ -521,9 +523,10 @@ class SuiteApp:
 
     def _download_suite_worker(self) -> None:
         suite = self.catalog.suite
-        staged = staging_exe_path()
-        staged.parent.mkdir(parents=True, exist_ok=True)
-        nome_final = staged.name
+        dest_dir = updates_dir()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        # Nome remoto = URL/catalogo (ex. SuiteAPPs.exe). Staging *.new.exe e so local.
+        nome_remoto = catalog_remote_filename(suite.download_url)
 
         def on_progress(pct: float, msg: str) -> None:
             self.update_progress = pct
@@ -535,8 +538,8 @@ class SuiteApp:
 
         result = baixar_do_sharepoint(
             link=suite.download_url,
-            pasta_destino=staged.parent,
-            nome_arquivo=nome_final,
+            pasta_destino=dest_dir,
+            nome_arquivo=nome_remoto,
             progress=on_progress,
         )
         if not (result.ok and result.path and result.path.exists()):
@@ -547,7 +550,15 @@ class SuiteApp:
             self._render()
             return
 
-        new_exe = result.path
+        try:
+            new_exe = stage_downloaded_exe(result.path)
+        except OSError as exc:
+            self.update_busy = False
+            self.update_failed = True
+            self.update_progress = None
+            self.update_message = f"Nao foi possivel preparar o arquivo local: {exc}"
+            self._render()
+            return
         if can_replace_running():
             self.update_message = "Substituindo o executavel e reiniciando..."
             self.update_progress = 0.95

@@ -119,10 +119,12 @@ Se `suite.versao` for diferente de `settings.app.version` e houver `download_url
 a sidebar mostra **Baixar Atualizacao**. O download **nao** comeca sozinho (nem no
 sync da abertura nem em **Buscar atualizacoes**).
 
-Depois do clique, no Windows empacotado, baixa o arquivo com o **nome padrao do .exe**
-(`app.exe_name` ou o nome do binario em execucao, **sem** sufixo de versao), um
-processo auxiliar **substitui** o `.exe` e **relanca**. Um `settings.json` ao lado
-do executavel, se existir, nao e apagado.
+Depois do clique, no Windows empacotado, o download usa o **nome do arquivo no
+link do catalogo** (ex. `SuiteAPPs.exe` / UniqueId). Nao procura `*.new.exe` no
+SharePoint. Depois de baixar, um staging local (`*.new.exe` irmao do exe) e um
+processo auxiliar **substituem** o `.exe` em uso pelo nome padrao (`app.exe_name`
+ou o binario em execucao, **sem** sufixo de versao) e **relancam**. Um
+`settings.json` ao lado do executavel, se existir, nao e apagado.
 
 Enquanto baixa, a sidebar (e a home) mostram barra com percentual; no WebLogin a
 barra fica indeterminada ate haver progresso mensuravel.

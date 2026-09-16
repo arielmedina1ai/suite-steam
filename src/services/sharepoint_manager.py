@@ -397,6 +397,43 @@ def baixar_varios_do_sharepoint(
     )
 
 
+def _path_from_sucesso_log(log: str) -> Path | None:
+    for line in reversed((log or "").splitlines()):
+        text = line.strip()
+        if not text.upper().startswith("SUCESSO:"):
+            continue
+        rest = text.split(":", 1)[1].strip()
+        if rest.endswith(")") and "(" in rest:
+            rest = rest[: rest.rfind("(")].strip()
+        found = Path(rest)
+        if found.is_file():
+            return found
+    return None
+
+
+def _resolve_downloaded_path(
+    pasta_final: str,
+    nome_final: str,
+    log: str,
+) -> Path | None:
+    pasta = Path(pasta_final)
+    if nome_final:
+        candidate = pasta / nome_final
+        if candidate.is_file():
+            return candidate
+        return _path_from_sucesso_log(log)
+    found = _path_from_sucesso_log(log)
+    if found is not None:
+        return found
+    try:
+        files = [p for p in pasta.iterdir() if p.is_file()]
+    except OSError:
+        return None
+    if not files:
+        return None
+    return max(files, key=lambda p: p.stat().st_mtime)
+
+
 def baixar_do_sharepoint(
     link: str,
     pasta_destino: str | Path | None = None,
@@ -416,10 +453,17 @@ def baixar_do_sharepoint(
 
     site_url = info["site_url"]
     pasta_final = str(pasta_destino or config.DOWNLOADS_DIR)
-    nome_final = nome_arquivo or info.get("nome_arquivo") or "download.bin"
+    if nome_arquivo:
+        nome_final = Path(str(nome_arquivo).replace("\\", "/")).name
+    else:
+        remoto = info.get("nome_arquivo")
+        nome_final = Path(str(remoto).replace("\\", "/")).name if remoto else ""
+    if not nome_final and info.get("tipo") != "unique_id":
+        nome_final = "download.bin"
 
     if progress:
-        progress(0.05, f"Preparando download: {nome_final}")
+        rotulo = nome_final or "arquivo do UniqueId"
+        progress(0.05, f"Preparando download: {rotulo}")
 
     try:
         if info.get("tipo") == "unique_id":
@@ -451,10 +495,10 @@ def baixar_do_sharepoint(
     except Exception as exc:
         return SharePointResult(ok=False, message=f"Falha ao executar PowerShell: {exc}")
 
-    caminho_completo = Path(pasta_final) / nome_final
     log = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+    caminho_completo = _resolve_downloaded_path(pasta_final, nome_final, log)
 
-    if caminho_completo.exists():
+    if caminho_completo is not None and caminho_completo.is_file():
         if progress:
             progress(1.0, "Download concluido")
         tamanho_kb = caminho_completo.stat().st_size / 1024

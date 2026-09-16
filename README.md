@@ -88,7 +88,7 @@ Pasta sob `%LOCALAPPDATA%` definida por `app.data_dir` (padrao `SuiteApps`):
   updates/                 # staging da nova versao do proprio SuiteApps
 ```
 
-Atualizacao (Windows + `.exe`, apos **Baixar Atualizacao**): baixa em `updates/` com o nome padrao do executavel (sem versao no arquivo) e substitui o que esta em uso.
+Atualizacao (Windows + `.exe`, apos **Baixar Atualizacao**): baixa o objeto com o **nome da URL do catalogo** (ex. `SuiteAPPs.exe`) para `updates/`; nao reescreve o nome remoto para `*.new.exe`. O staging `*.new.exe` e so local; o cmd substitui o exe em uso pelo nome padrao (sem versao no arquivo).
 Fallback (falha ou ambiente sem pack): `%USERPROFILE%\Downloads\{exe_name}.exe`.
 
 ## Gerar .exe (Windows)
