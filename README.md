@@ -126,6 +126,6 @@ flet pack src\main.py `
   --hidden-import pystray `
   --hidden-import pystray._win32 `
   --hidden-import PIL `
-  --pyinstaller-build-args --collect-all=pystray `
+  --pyinstaller-build-args=--collect-all=pystray `
   --yes
 ```
