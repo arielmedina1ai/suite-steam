@@ -66,6 +66,8 @@ def set_start_with_windows(enabled: bool) -> str:
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
+                "-WindowStyle",
+                "Hidden",
                 "-Command",
                 ps,
             ],
@@ -73,6 +75,7 @@ def set_start_with_windows(enabled: bool) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError as exc:
         return f"Nao foi possivel ligar o inicio automatico: {exc}"

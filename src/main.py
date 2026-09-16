@@ -297,10 +297,15 @@ class SuiteApp:
 
     def _refresh_running(self, *, force: bool = False) -> None:
         now = time.monotonic()
-        if not force and (now - self._running_cache_at) < 1.2:
+        if not force and (now - self._running_cache_at) < 2.5:
+            return
+        paths = self._installed_paths()
+        if not paths:
+            self._running_pids = {}
+            self._running_cache_at = now
             return
         snapshot = snapshot_processes()
-        self._running_pids = running_catalog_map(self._installed_paths(), snapshot)
+        self._running_pids = running_catalog_map(paths, snapshot)
         self._running_cache_at = now
 
     def _this_app_running(self, app_id: str) -> bool:

@@ -88,6 +88,8 @@ if (Test-Path -LiteralPath $old) {
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
+                "-WindowStyle",
+                "Hidden",
                 "-File",
                 helper,
                 "-TargetPid",
@@ -98,6 +100,7 @@ if (Test-Path -LiteralPath $old) {
                 str(dest),
             ],
             close_fds=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError as exc:
         return f"Nao foi possivel iniciar a troca do executavel: {exc}"
