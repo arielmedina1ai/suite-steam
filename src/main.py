@@ -21,7 +21,7 @@ from services.self_update import (
     can_replace_running,
     saved_exe_filename,
     spawn_replace_and_relaunch,
-    updates_dir,
+    staging_exe_path,
 )
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
@@ -494,8 +494,9 @@ class SuiteApp:
 
     def _download_suite_worker(self) -> None:
         suite = self.catalog.suite
-        dest = updates_dir()
-        nome_final = saved_exe_filename()
+        staged = staging_exe_path()
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        nome_final = staged.name
 
         def on_progress(pct: float, msg: str) -> None:
             self.update_progress = pct
@@ -507,7 +508,7 @@ class SuiteApp:
 
         result = baixar_do_sharepoint(
             link=suite.download_url,
-            pasta_destino=dest,
+            pasta_destino=staged.parent,
             nome_arquivo=nome_final,
             progress=on_progress,
         )
@@ -537,12 +538,20 @@ class SuiteApp:
             self._exiting = True
             if self._tray is not None:
                 self._tray.stop()
-            os._exit(0)
+            # Saida normal: o bootloader pode limpar o _MEI. O .cmd so inicia
+            # o exe novo depois que este PID acabar.
+            try:
+                self.page.window.prevent_close = False
+                self.page.update()
+                self.page.run_task(self.page.window.destroy)
+            except Exception:
+                os._exit(0)
+            return
 
         # Sem troca in-place (dev / nao Windows): fallback no Downloads + Explorer
         downloads = config.user_downloads_dir()
         downloads.mkdir(parents=True, exist_ok=True)
-        fallback = downloads / nome_final
+        fallback = downloads / saved_exe_filename()
         try:
             if new_exe.resolve() != fallback.resolve():
                 if fallback.exists():
