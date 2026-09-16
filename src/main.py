@@ -7,9 +7,17 @@ import sys
 import time
 from pathlib import Path
 
-import flet as ft
-
 import config
+from services.single_instance import HubInstance
+
+_hub_instance: HubInstance | None = None
+if __name__ == "__main__":
+    _hub_instance = HubInstance()
+    if not _hub_instance.acquire():
+        _hub_instance.notify_restore()
+        raise SystemExit(0)
+
+import flet as ft
 from catalog import SharePointCatalogProvider
 from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
 from services.download_manager import DownloadManager, DownloadOutcome
@@ -20,9 +28,9 @@ from services.runner import RunError, launch_file
 from services.self_update import (
     can_replace_running,
     catalog_remote_filename,
+    cleanup_update_artifacts,
     saved_exe_filename,
     spawn_replace_and_relaunch,
-    stage_downloaded_exe,
     updates_dir,
 )
 from services.sharepoint_manager import baixar_do_sharepoint
@@ -523,9 +531,10 @@ class SuiteApp:
 
     def _download_suite_worker(self) -> None:
         suite = self.catalog.suite
+        cleanup_update_artifacts()
         dest_dir = updates_dir()
         dest_dir.mkdir(parents=True, exist_ok=True)
-        # Nome remoto = URL/catalogo (ex. SuiteAPPs.exe). Staging *.new.exe e so local.
+        # Nome remoto = URL/catalogo. Nao copia *.new.exe ao lado do hub.
         nome_remoto = catalog_remote_filename(suite.download_url)
 
         def on_progress(pct: float, msg: str) -> None:
@@ -543,6 +552,7 @@ class SuiteApp:
             progress=on_progress,
         )
         if not (result.ok and result.path and result.path.exists()):
+            cleanup_update_artifacts()
             self.update_busy = False
             self.update_failed = True
             self.update_progress = None
@@ -550,25 +560,18 @@ class SuiteApp:
             self._render()
             return
 
-        try:
-            new_exe = stage_downloaded_exe(result.path)
-        except OSError as exc:
-            self.update_busy = False
-            self.update_failed = True
-            self.update_progress = None
-            self.update_message = f"Nao foi possivel preparar o arquivo local: {exc}"
-            self._render()
-            return
+        new_exe = result.path
         if can_replace_running():
             self.update_message = "Substituindo o executavel e reiniciando..."
             self.update_progress = 0.95
             self._render()
             err = spawn_replace_and_relaunch(new_exe)
             if err:
+                cleanup_update_artifacts()
                 self.update_busy = False
                 self.update_failed = True
                 self.update_message = err
-                self.update_path = str(new_exe)
+                self.update_path = None
                 self._render()
                 return
             self.update_done = True
@@ -577,7 +580,7 @@ class SuiteApp:
             if self._tray is not None:
                 self._tray.stop()
             # Saida normal: o bootloader pode limpar o _MEI. O .cmd so inicia
-            # o exe novo depois que este PID acabar.
+            # o exe novo depois que este PID acabar, e apaga updates/ e extras.
             try:
                 self.page.window.prevent_close = False
                 self.page.update()
@@ -598,6 +601,9 @@ class SuiteApp:
             path_show = fallback if fallback.exists() else new_exe
         except OSError:
             path_show = new_exe
+        cleanup_update_artifacts()
+        if not Path(path_show).exists() and fallback.exists():
+            path_show = fallback
         self.update_path = str(path_show)
         self.update_done = False
         self.update_busy = False
@@ -796,8 +802,14 @@ def _window_event_name(e) -> str:
 
 
 def main(page: ft.Page) -> None:
-    SuiteApp(page)
+    app = SuiteApp(page)
+    if _hub_instance is not None:
+        _hub_instance.watch_restore(app._show_from_tray)
 
 
 if __name__ == "__main__":
-    ft.run(main, assets_dir=str(config.ASSETS_DIR))
+    try:
+        ft.run(main, assets_dir=str(config.ASSETS_DIR))
+    finally:
+        if _hub_instance is not None:
+            _hub_instance.release()

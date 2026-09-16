@@ -120,11 +120,15 @@ a sidebar mostra **Baixar Atualizacao**. O download **nao** comeca sozinho (nem 
 sync da abertura nem em **Buscar atualizacoes**).
 
 Depois do clique, no Windows empacotado, o download usa o **nome do arquivo no
-link do catalogo** (ex. `SuiteAPPs.exe` / UniqueId). Nao procura `*.new.exe` no
-SharePoint. Depois de baixar, um staging local (`*.new.exe` irmao do exe) e um
-processo auxiliar **substituem** o `.exe` em uso pelo nome padrao (`app.exe_name`
-ou o binario em execucao, **sem** sufixo de versao) e **relancam**. Um
-`settings.json` ao lado do executavel, se existir, nao e apagado.
+link do catalogo** (ex. `SuiteAPPs.exe` / UniqueId) e grava so em
+`%LOCALAPPDATA%/<app.data_dir>/updates/`. Nao procura `*.new.exe` no SharePoint
+e nao deixa extras ao lado do `.exe`. Um helper substitui o binario em uso pelo
+nome padrao (`app.exe_name` / nome em execucao, **sem** sufixo de versao),
+relanca, e apaga `updates/`, `*.new.exe`, `*.bak` e `*.old`. Um `settings.json`
+ao lado do executavel, se existir, nao e apagado.
+
+Uma segunda abertura do hub (clique impaciente) nao inicia outro processo: o
+mutex nomeado reativa a janela ja aberta, inclusive se estiver na bandeja.
 
 Enquanto baixa, a sidebar (e a home) mostram barra com percentual; no WebLogin a
 barra fica indeterminada ate haver progresso mensuravel.
