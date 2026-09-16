@@ -82,8 +82,13 @@ $PackArgs = @(
     "--add-data", "settings.example.json;.",
     "--add-data", "catalog.example.json;.",
     "--hidden-import", "pystray",
+    "--hidden-import", "pystray._win32",
+    "--hidden-import", "pystray._base",
+    "--hidden-import", "pystray._util",
+    "--hidden-import", "pystray._util.win32",
     "--hidden-import", "PIL",
     "--hidden-import", "PIL.Image",
+    "--pyinstaller-build-args", "--collect-all=pystray",
     "--yes"
 )
 

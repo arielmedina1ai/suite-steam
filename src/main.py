@@ -100,14 +100,33 @@ class SuiteApp:
         if icon_path is not None:
             self.page.window.icon = str(icon_path)
         if sys.platform.startswith("win"):
+            # Nunca desligar prevent_close se a bandeja falhar: X nao pode destruir.
             self.page.window.prevent_close = True
             self.page.window.on_event = self._on_window_event
             self._tray = TrayController(on_show=self._show_from_tray, on_quit=self._quit_app)
             self._tray.start()
-            if not self._tray.started:
-                self.page.window.prevent_close = False
-                self.page.window.on_event = None
         self.page.add(self.root_row)
+        if sys.platform.startswith("win"):
+            try:
+                self.page.update()
+            except Exception:
+                pass
+            try:
+                self.page.run_task(self._reapply_prevent_close)
+            except Exception:
+                pass
+
+    async def _reapply_prevent_close(self) -> None:
+        try:
+            await self.page.window.wait_until_ready_to_show()
+        except Exception:
+            pass
+        self.page.window.prevent_close = True
+        self.page.window.on_event = self._on_window_event
+        try:
+            self.page.update()
+        except Exception:
+            pass
 
     def _on_window_event(self, e) -> None:
         if self._exiting:
@@ -118,44 +137,52 @@ class SuiteApp:
 
     def _hide_to_tray(self) -> None:
         try:
-            self.page.window.minimized = True
-            self.page.window.skip_task_bar = True
+            self.page.window.prevent_close = True
             self.page.window.visible = False
+            self.page.window.skip_task_bar = True
+            self.page.window.minimized = True
             self.page.update()
         except Exception:
             pass
 
     def _show_from_tray(self) -> None:
-        def _apply() -> None:
+        try:
+            self.page.run_task(self._show_from_tray_async)
+        except Exception:
             try:
                 self.page.window.visible = True
                 self.page.window.skip_task_bar = False
                 self.page.window.minimized = False
+                self.page.window.prevent_close = True
                 self.page.update()
-                self.page.run_task(self.page.window.to_front)
             except Exception:
                 pass
 
+    async def _show_from_tray_async(self) -> None:
         try:
-            self.page.run_thread(_apply)
+            self.page.window.visible = True
+            self.page.window.skip_task_bar = False
+            self.page.window.minimized = False
+            self.page.window.prevent_close = True
+            self.page.update()
+            await self.page.window.to_front()
         except Exception:
-            _apply()
+            pass
 
     def _quit_app(self) -> None:
         self._exiting = True
         if self._tray is not None:
             self._tray.stop()
-
-        def _do() -> None:
-            try:
-                self.page.window.prevent_close = False
-                self.page.update()
-                self.page.run_task(self.page.window.destroy)
-            except Exception:
-                os._exit(0)
-
         try:
-            self.page.run_thread(_do)
+            self.page.run_task(self._destroy_window)
+        except Exception:
+            os._exit(0)
+
+    async def _destroy_window(self) -> None:
+        try:
+            self.page.window.prevent_close = False
+            self.page.update()
+            await self.page.window.destroy()
         except Exception:
             os._exit(0)
 

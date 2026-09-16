@@ -124,6 +124,8 @@ flet pack src\main.py `
   --add-data "settings.example.json;." `
   --add-data "catalog.example.json;." `
   --hidden-import pystray `
+  --hidden-import pystray._win32 `
   --hidden-import PIL `
+  --pyinstaller-build-args --collect-all=pystray `
   --yes
 ```
