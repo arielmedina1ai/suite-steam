@@ -217,10 +217,11 @@ notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
 ## 3. Acoes na tela do aplicativo
 
 - **Favoritar** (estrela)
-- **Baixar / Instalar** ou **Executar** (nao abre segunda instancia se o app ja estiver
-  em execucao, inclusive iniciado antes do hub / pelo Startup)
-- **Atualizar versao** (quando `versao` do catalogo difere da instalada; se o processo
-  estiver aberto, o hub encerra, instala e reabre)
+- **Baixar / Instalar** ou **Executar** (nao abre segunda instancia **do mesmo** app
+  se ele ja estiver em execucao, inclusive iniciado antes do hub / pelo Startup;
+  outros apps do catalogo podem ficar abertos ao mesmo tempo)
+- **Atualizar versao** (quando `versao` do catalogo difere da instalada; se **esse**
+  processo estiver aberto, o hub encerra, instala e reabre)
 - Barra de progresso com percentual durante download/update (indeterminado no WebLogin)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**

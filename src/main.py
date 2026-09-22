@@ -349,22 +349,15 @@ class SuiteApp:
         self._refresh_running()
         return bool(self._running_pids.get(app_id))
 
-    def _other_app_running(self, app_id: str) -> bool:
+    def _running_app_names(self) -> str:
         self._refresh_running()
-        return any(aid != app_id and pids for aid, pids in self._running_pids.items())
-
-    def _running_app_name(self) -> str:
-        self._refresh_running()
+        names: list[str] = []
         for app_id, pids in self._running_pids.items():
             if not pids:
                 continue
             app = self.apps_by_id.get(app_id)
-            return app.nome if app is not None else app_id
-        return ""
-
-    def _catalog_locked(self) -> bool:
-        self._refresh_running()
-        return any(bool(pids) for pids in self._running_pids.values())
+            names.append(app.nome if app is not None else app_id)
+        return ", ".join(names)
 
     # ------------------------------------------------------------------
     def _go_home(self) -> None:
@@ -415,11 +408,6 @@ class SuiteApp:
             self.run_error = "Este aplicativo ja esta em execucao."
             self._render()
             return
-        if self._other_app_running(app.id):
-            who = self._running_app_name() or "outro aplicativo"
-            self.run_error = f"Aguarde: {who} em execucao. So um app por vez."
-            self._render()
-            return
         state = self.storage.get_state(app.id)
         if not state.local_path:
             self.run_error = "Arquivo nao encontrado. Use Baixar / Instalar."
@@ -446,11 +434,6 @@ class SuiteApp:
         if self.app_job_busy or self.update_busy:
             return
         self._refresh_running(force=True)
-        if self._other_app_running(app.id):
-            who = self._running_app_name() or "outro aplicativo"
-            self.run_error = f"Aguarde: {who} em execucao. So um app por vez."
-            self._render()
-            return
         self.app_job_busy = True
         self.app_job_app_id = app.id
         self.app_job_progress = -1.0
@@ -650,7 +633,7 @@ class SuiteApp:
             and not self.show_favorites
         )
         favorites_selected = self.show_favorites and self.selected_id is None
-        running_name = self._running_app_name()
+        running_name = self._running_app_names()
 
         self.sidebar_holder.content = build_sidebar(
             self.view_catalog,
@@ -694,12 +677,9 @@ class SuiteApp:
                     self.manager,
                     is_favorite=app.id in fav_ids,
                     on_toggle_favorite=self._toggle_favorite,
-                    catalog_locked=self._other_app_running(app.id),
-                    running_app_name=running_name,
                     on_run=self._run_catalog_app,
                     on_update_app=self._request_app_update,
                     this_app_running=self._this_app_running(app.id),
-                    other_app_running=self._other_app_running(app.id),
                     work_busy=self.app_job_busy and self.app_job_app_id == app.id,
                     work_progress=self.app_job_progress,
                     work_message=self.app_job_message or self.run_error,
