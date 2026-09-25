@@ -76,7 +76,7 @@ def build_publish_view(
                                 ),
                             ],
                         ),
-                        ft.TextButton("Editar", on_click=lambda e, aid=app.id: on_edit(aid)),
+                        ft.TextButton(content="Editar", on_click=lambda e, aid=app.id: on_edit(aid)),
                     ],
                 ),
             )
@@ -105,7 +105,7 @@ def build_publish_view(
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.OutlinedButton(
-                    label,
+                    content=label,
                     icon=ft.Icons.FOLDER_OPEN,
                     disabled=form.busy,
                     on_click=lambda e, k=key: on_pick(k),
@@ -184,14 +184,14 @@ def build_publish_view(
             spacing=12,
             controls=[
                 ft.FilledButton(
-                    "Salvar no catalogo",
+                    content="Salvar no catalogo",
                     icon=ft.Icons.SAVE,
                     disabled=form.busy,
                     on_click=lambda e: on_save(),
                 ),
-                ft.TextButton("Cancelar", disabled=form.busy, on_click=lambda e: on_cancel()),
+                ft.TextButton(content="Cancelar", disabled=form.busy, on_click=lambda e: on_cancel()),
                 ft.TextButton(
-                    "Reabrir catalogo",
+                    content="Reabrir catalogo",
                     visible=form.conflict,
                     on_click=lambda e: on_reopen(),
                 ),
@@ -215,7 +215,11 @@ def build_publish_view(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 controls=[
                     ft.Text("Aplicativos", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                    ft.FilledButton("Novo aplicativo", icon=ft.Icons.ADD, on_click=lambda e: on_new()),
+                    ft.FilledButton(
+                        content="Novo aplicativo",
+                        icon=ft.Icons.ADD,
+                        on_click=lambda e: on_new(),
+                    ),
                 ],
             ),
             ft.Column(spacing=8, controls=rows),

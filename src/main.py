@@ -129,15 +129,18 @@ class SuiteApp:
             self._tray.start()
         self.page.add(self.root_row)
         if self.can_publish and hasattr(ft, "FilePicker"):
-            picker = ft.FilePicker(on_result=self._on_publish_file)
+            picker = ft.FilePicker()
             self._file_picker = picker
-            overlay = getattr(self.page, "overlay", None)
-            if overlay is not None:
-                overlay.append(picker)
+            services = getattr(self.page, "services", None)
+            if services is not None:
                 try:
-                    self.page.update()
+                    services.append(picker)
                 except Exception:
                     pass
+            else:
+                overlay = getattr(self.page, "overlay", None)
+                if overlay is not None:
+                    overlay.append(picker)
         if sys.platform.startswith("win"):
             try:
                 self.page.update()
@@ -526,29 +529,55 @@ class SuiteApp:
 
     def _publish_pick(self, kind: str) -> None:
         self._publish_pick_kind = kind
-        picker = self._file_picker
-        if picker is None or not hasattr(picker, "pick_files"):
+        if not hasattr(ft, "FilePicker"):
             self.publish_form.message = "Seletor de arquivo indisponivel neste ambiente."
             self._render()
             return
+        try:
+            self.page.run_task(self._publish_pick_async)
+        except Exception as exc:
+            self.publish_form.message = f"Nao foi possivel abrir o seletor: {exc}"
+            self._render()
+
+    async def _publish_pick_async(self) -> None:
+        kind = self._publish_pick_kind
         allowed = {
             "app": ["exe", "xlsx", "xlsm"],
             "capa": ["png", "jpg", "jpeg", "webp"],
             "icone": ["png", "jpg", "jpeg", "webp", "ico"],
-        }.get(kind, None)
+        }.get(kind)
+        picker = self._file_picker
+        if picker is None:
+            picker = ft.FilePicker()
+            self._file_picker = picker
+            services = getattr(self.page, "services", None)
+            if services is not None:
+                try:
+                    services.append(picker)
+                    self.page.update()
+                except Exception:
+                    pass
+        kwargs: dict = {"allow_multiple": False}
+        file_type = getattr(ft, "FilePickerFileType", None)
+        if allowed and file_type is not None:
+            kwargs["file_type"] = file_type.CUSTOM
+            kwargs["allowed_extensions"] = allowed
+        elif allowed:
+            kwargs["allowed_extensions"] = allowed
         try:
-            picker.pick_files(allow_multiple=False, allowed_extensions=allowed)
+            files = await picker.pick_files(**kwargs)
         except TypeError:
-            picker.pick_files(allow_multiple=False)
-
-    def _on_publish_file(self, e) -> None:
-        files = getattr(e, "files", None) or []
+            files = await picker.pick_files(allow_multiple=False)
         if not files:
             return
-        path = getattr(files[0], "path", None) or ""
+        selected = files[0]
+        path = getattr(selected, "path", None) or ""
         if not path:
+            self.publish_form.message = (
+                "O seletor nao devolveu o caminho do arquivo. Tente de novo."
+            )
+            self._render()
             return
-        kind = self._publish_pick_kind
         if kind == "app":
             self.publish_form.app_path = path
         elif kind == "capa":
