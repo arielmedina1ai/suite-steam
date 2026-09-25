@@ -53,6 +53,10 @@ def _template_upload() -> Path:
     return _scripts_dir() / name
 
 
+def _template_upload_by_id() -> Path:
+    return _scripts_dir() / "template_sp_upload_by_id.ps1"
+
+
 @dataclass
 class SharePointResult:
     ok: bool
@@ -207,9 +211,22 @@ def parsear_link_pasta_sharepoint(url: str) -> dict:
         ]
     ):
         info = parsear_link_sharepoint(url)
-        partes = info["caminho_sp"].split("/")
-        caminho_pasta = "/".join(partes[:-1])
+        partes = (info.get("caminho_sp") or "").split("/")
+        caminho_pasta = "/".join(partes[:-1]) if info.get("nome_arquivo") else "/".join(partes)
         return {"site_url": info["site_url"], "caminho_sp": caminho_pasta}
+
+    path = unquote(parsed.path).strip("/")
+    partes = [p for p in path.split("/") if p]
+    if (
+        parsed.scheme in {"http", "https"}
+        and len(partes) >= 3
+        and partes[0].lower() in {"sites", "teams"}
+    ):
+        site_path = "/" + "/".join(partes[:2])
+        site_url = base + site_path
+        caminho_pasta = "/".join(partes[2:])
+        if caminho_pasta:
+            return {"site_url": site_url, "caminho_sp": caminho_pasta}
 
     raise ValueError(f"Formato de URL do SharePoint nao reconhecido: {url}")
 
@@ -567,6 +584,47 @@ def enviar_para_sharepoint(
             stdout=log,
         )
 
+    return SharePointResult(
+        ok=False,
+        message=f"Falha no upload. {log or f'returncode={code}'}",
+        stdout=log,
+    )
+
+
+def enviar_por_unique_id(
+    arquivo_local: str | Path,
+    *,
+    site_url: str,
+    unique_id: str,
+    progress: ProgressCb | None = None,
+) -> SharePointResult:
+    """Sobrescreve o arquivo do UniqueId (catalog.json) via PnP WebLogin."""
+    arquivo = Path(arquivo_local)
+    if not arquivo.exists():
+        return SharePointResult(ok=False, message=f"Arquivo local nao encontrado: {arquivo}")
+    if not site_url or not unique_id:
+        return SharePointResult(ok=False, message="UniqueId ou site_url ausente.")
+    if progress:
+        progress(0.05, "Preparando envio do catalog.json...")
+    try:
+        code, stdout, stderr = _run_templated_ps1(
+            _template_upload_by_id(),
+            {
+                "{{SITE_URL}}": site_url,
+                "{{ARQUIVO_LOCAL}}": str(arquivo.resolve()),
+                "{{UNIQUE_ID}}": unique_id,
+            },
+            progress=progress,
+        )
+    except FileNotFoundError as exc:
+        return SharePointResult(ok=False, message=str(exc))
+    except Exception as exc:
+        return SharePointResult(ok=False, message=f"Falha ao executar PowerShell: {exc}")
+    log = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+    if code == 0:
+        if progress:
+            progress(1.0, "Upload concluido")
+        return SharePointResult(ok=True, path=arquivo, message="Upload concluido.", stdout=log)
     return SharePointResult(
         ok=False,
         message=f"Falha no upload. {log or f'returncode={code}'}",

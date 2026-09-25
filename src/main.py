@@ -20,6 +20,11 @@ if __name__ == "__main__":
 import flet as ft
 from catalog import SharePointCatalogProvider
 from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
+from services.catalog_publish import (
+    PublishFormState,
+    fingerprint_cache_file,
+    publish_app,
+)
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.favorites import FavoritesStore
 from services.preferences import PreferencesStore
@@ -36,11 +41,13 @@ from services.self_update import (
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
 from services.tray import TrayController
+from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
 from ui.home_view import build_favoritos_view, build_home, build_setor_view
 from ui.progress_util import bar_value, label as progress_label
+from ui.publish_view import build_publish_view
 
 
 class SuiteApp:
@@ -58,6 +65,11 @@ class SuiteApp:
         self.selected_id: str | None = None
         self.selected_setor: str | None = None
         self.show_favorites = False
+        self.show_publish = False
+        self.can_publish = user_can_publish(current_windows_login(), config.PUBLISH_USERS)
+        self.publish_form = PublishFormState()
+        self._publish_pick_kind = ""
+        self._file_picker = None
         self.sync_message = ""
         self.sync_busy = True
         self.sync_progress: float | None = -1.0
@@ -116,6 +128,16 @@ class SuiteApp:
             self._tray = TrayController(on_show=self._show_from_tray, on_quit=self._quit_app)
             self._tray.start()
         self.page.add(self.root_row)
+        if self.can_publish and hasattr(ft, "FilePicker"):
+            picker = ft.FilePicker(on_result=self._on_publish_file)
+            self._file_picker = picker
+            overlay = getattr(self.page, "overlay", None)
+            if overlay is not None:
+                overlay.append(picker)
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
         if sys.platform.startswith("win"):
             try:
                 self.page.update()
@@ -364,18 +386,32 @@ class SuiteApp:
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
+        self.show_publish = False
         self._render()
 
     def _go_favorites(self) -> None:
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = True
+        self.show_publish = False
+        self._render()
+
+    def _go_publish(self) -> None:
+        if not self.can_publish:
+            return
+        self.selected_id = None
+        self.selected_setor = None
+        self.show_favorites = False
+        self.show_publish = True
+        if not self.publish_form.fingerprint:
+            self.publish_form.fingerprint = fingerprint_cache_file()
         self._render()
 
     def _select_setor(self, setor_id: str) -> None:
         self.selected_setor = setor_id
         self.selected_id = None
         self.show_favorites = False
+        self.show_publish = False
         self._render()
 
     def _select_app(self, app_id: str) -> None:
@@ -384,6 +420,7 @@ class SuiteApp:
         if app is not None and app.setor:
             self.selected_setor = app.setor
         self.show_favorites = False
+        self.show_publish = False
         self._render()
 
     def _select_gerencia(self, gerencia_id: str) -> None:
@@ -394,12 +431,171 @@ class SuiteApp:
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
+        self.show_publish = False
         self._render()
 
     def _toggle_favorite(self, app_id: str) -> None:
         self.favorites.toggle(app_id)
         if self.show_favorites and not self._has_visible_favorites():
             self.show_favorites = False
+        self._render()
+
+    def _publish_new(self) -> None:
+        if not self.can_publish:
+            return
+        fp = self.publish_form.fingerprint or fingerprint_cache_file()
+        self.publish_form = PublishFormState(fingerprint=fp, show_form=True)
+        self._render()
+
+    def _publish_edit(self, app_id: str) -> None:
+        if not self.can_publish:
+            return
+        app = next((a for a in self.catalog.apps if a.id == app_id), None)
+        if app is None:
+            return
+        gid = ""
+        for g in self.catalog.gerencias:
+            if app.id in g.apps:
+                gid = g.id
+                break
+        fp = self.publish_form.fingerprint or fingerprint_cache_file()
+        self.publish_form = PublishFormState(
+            editing_id=app.id,
+            nome=app.nome,
+            descricao=app.descricao,
+            versao=app.versao,
+            tipo=app.tipo.value,
+            gerencia_id=gid,
+            setor_id=app.setor,
+            sub_setor_id=app.sub_setor,
+            upload_url=app.upload_url,
+            original_gerencia_id=gid,
+            show_form=True,
+            fingerprint=fp,
+        )
+        self._render()
+
+    def _publish_field(self, key: str, value: str) -> None:
+        if key == "setor_id":
+            self.publish_form.setor_id = "" if value in {"", "_none_"} else value
+            setor = self.catalog.setor_by_id(value)
+            known = {s.id for s in setor.sub_setores} if setor is not None else set()
+            if self.publish_form.sub_setor_id not in known:
+                self.publish_form.sub_setor_id = ""
+            self._render()
+            return
+        if hasattr(self.publish_form, key):
+            setattr(self.publish_form, key, "" if value in {"", "_none_"} else value)
+
+    def _publish_cancel(self) -> None:
+        fp = self.publish_form.fingerprint
+        self.publish_form = PublishFormState(fingerprint=fp)
+        self._render()
+
+    def _publish_reopen(self) -> None:
+        if self.publish_form.busy:
+            return
+        self.publish_form.busy = True
+        self.publish_form.message = "Relendo catalogo remoto..."
+        self._render()
+        self.page.run_thread(self._publish_reopen_worker)
+
+    def _publish_reopen_worker(self) -> None:
+        provider = SharePointCatalogProvider()
+        result = provider.sync(progress=self._on_publish_progress)
+        self.publish_form.busy = False
+        if result.ok:
+            self.catalog = result.catalog
+            self._apply_gerencia_filter()
+            self.publish_form = PublishFormState(
+                fingerprint=fingerprint_cache_file(),
+                message="Catalogo recarregado. Abra o aplicativo novamente para editar.",
+            )
+        else:
+            self.publish_form.conflict = True
+            self.publish_form.message = result.message or "Falha ao reler o catalogo."
+        self._render()
+
+    def _on_publish_progress(self, pct: float, msg: str) -> None:
+        self.publish_form.progress = pct
+        self.publish_form.message = msg
+        try:
+            self._render()
+        except Exception:
+            pass
+
+    def _publish_pick(self, kind: str) -> None:
+        self._publish_pick_kind = kind
+        picker = self._file_picker
+        if picker is None or not hasattr(picker, "pick_files"):
+            self.publish_form.message = "Seletor de arquivo indisponivel neste ambiente."
+            self._render()
+            return
+        allowed = {
+            "app": ["exe", "xlsx", "xlsm"],
+            "capa": ["png", "jpg", "jpeg", "webp"],
+            "icone": ["png", "jpg", "jpeg", "webp", "ico"],
+        }.get(kind, None)
+        try:
+            picker.pick_files(allow_multiple=False, allowed_extensions=allowed)
+        except TypeError:
+            picker.pick_files(allow_multiple=False)
+
+    def _on_publish_file(self, e) -> None:
+        files = getattr(e, "files", None) or []
+        if not files:
+            return
+        path = getattr(files[0], "path", None) or ""
+        if not path:
+            return
+        kind = self._publish_pick_kind
+        if kind == "app":
+            self.publish_form.app_path = path
+        elif kind == "capa":
+            self.publish_form.capa_path = path
+        elif kind == "icone":
+            self.publish_form.icone_path = path
+        self._render()
+
+    def _publish_save(self) -> None:
+        if not self.can_publish or self.publish_form.busy:
+            return
+        self.publish_form.busy = True
+        self.publish_form.conflict = False
+        self.publish_form.message = "Publicando..."
+        self.publish_form.progress = -1.0
+        self._render()
+        form = self.publish_form
+        self.page.run_thread(lambda: self._publish_save_worker(form))
+
+    def _publish_save_worker(self, form: PublishFormState) -> None:
+        result = publish_app(
+            form,
+            expected_fingerprint=form.fingerprint,
+            progress=self._on_publish_progress,
+        )
+        if result.conflict:
+            self.publish_form.busy = False
+            self.publish_form.conflict = True
+            self.publish_form.message = result.message
+            self._render()
+            return
+        if not result.ok:
+            self.publish_form.busy = False
+            self.publish_form.message = result.message
+            self._render()
+            return
+        provider = SharePointCatalogProvider()
+        synced = provider.sync(progress=self._on_publish_progress)
+        if synced.ok:
+            self.catalog = synced.catalog
+        elif result.catalog is not None:
+            self.catalog = result.catalog
+        self._apply_gerencia_filter()
+        self.publish_form = PublishFormState(
+            fingerprint=result.fingerprint or fingerprint_cache_file(),
+            message=result.message,
+        )
         self._render()
 
     def _run_catalog_app(self, app: AppInfo) -> None:
@@ -631,6 +827,7 @@ class SuiteApp:
             self.selected_id is None
             and self.selected_setor is None
             and not self.show_favorites
+            and not self.show_publish
         )
         favorites_selected = self.show_favorites and self.selected_id is None
         running_name = self._running_app_names()
@@ -661,9 +858,24 @@ class SuiteApp:
             on_toggle_startup=self._toggle_startup,
             show_startup_toggle=sys.platform.startswith("win"),
             running_app_name=running_name,
+            show_publish=self.can_publish,
+            publish_selected=self.show_publish,
+            on_publish=self._go_publish if self.can_publish else None,
         )
 
-        if self.selected_id is not None:
+        if self.show_publish and self.can_publish:
+            self.content_holder.content = build_publish_view(
+                self.catalog,
+                self.publish_form,
+                on_new=self._publish_new,
+                on_edit=self._publish_edit,
+                on_save=self._publish_save,
+                on_cancel=self._publish_cancel,
+                on_pick=self._publish_pick,
+                on_field=self._publish_field,
+                on_reopen=self._publish_reopen,
+            )
+        elif self.selected_id is not None:
             app = self.apps_by_id.get(self.selected_id)
             if app is None:
                 self.content_holder.content = ft.Text(

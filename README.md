@@ -20,6 +20,7 @@ aparecem; sem selecao, o SuiteApps mostra todos.
 - Atualizacao do proprio SuiteApps: o banner aparece no sync; **Baixar Atualizacao** baixa, substitui o `.exe` e relanca (Windows empacotado). Arquivo com o nome padrao do exe, sem sufixo de versao. `settings.json` ao lado e preservado.
 - Barra com percentual (ou indeterminado + texto no WebLogin) em download/update/sync.
 - Executar nao abre segunda instancia **do mesmo** app ja em execucao (mesmo fora desta sessao). Outros apps do catalogo podem rodar ao mesmo tempo. Com atualizacao pendente, **Atualizar versao** encerra so aquele processo, instala e reabre.
+- **Publicar** (sidebar): so aparece se o login Windows estiver em `settings.json` > `publish.users`. Cria/edita apps e envia arquivos ao SharePoint (PnP WebLogin).
 - Bandeja no Windows (fechar/minimizar nao encerra) e **iniciar com o Windows** ligado por padrao.
 - Branding local em `assets/branding/` (logo, hero, icone da janela e da bandeja).
 - Capas/icones em cache por `*_versao`.
