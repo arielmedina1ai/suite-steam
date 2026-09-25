@@ -1,0 +1,17 @@
+{
+  "name": "SuiteApps",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "suiteapps-web",
+      "command": "bash .cursor/run_web.sh",
+      "description": "Runs the SuiteApps hub as a Flutter web app on http://localhost:8550 (the native desktop UI cannot open on a headless VM). Open the URL in a browser to inspect the hub."
+    }
+  ],
+  "ports": [
+    {
+      "name": "SuiteApps web preview",
+      "port": 8550
+    }
+  ]
+}
