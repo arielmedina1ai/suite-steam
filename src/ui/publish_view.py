@@ -75,22 +75,18 @@ def _full_link(url: str, empty: str) -> ft.Control:
     raw = (url or "").strip()
     if raw and not raw.lower().startswith(("http://", "https://")):
         raw = ""
-    shown = (
-        raw.replace("/", "/\u200b").replace("?", "?\u200b").replace("&", "&\u200b")
-        if raw
-        else empty
-    )
-    overflow_kw = {}
-    visible = getattr(getattr(ft, "TextOverflow", None), "VISIBLE", None)
-    if visible is not None:
-        overflow_kw["overflow"] = visible
-    return ft.Text(
-        shown,
-        size=12,
-        color="#B9CEC3" if raw else "#8AA797",
-        selectable=True,
-        no_wrap=False,
-        **overflow_kw,
+    return ft.TextField(
+        value=raw if raw else empty,
+        read_only=True,
+        multiline=True,
+        min_lines=2,
+        max_lines=8,
+        text_size=12,
+        filled=True,
+        fill_color=config.COLOR_SURFACE,
+        color=config.COLOR_TEXT if raw else "#8AA797",
+        cursor_color=config.COLOR_ACCENT,
+        **_borderless(),
     )
 
 
@@ -268,21 +264,31 @@ def build_publish_form(
         current_url: str,
         *,
         preview: bool,
+        empty: str,
         extra: list[ft.Control] | None = None,
     ) -> ft.Control:
         picked = Path(path).name if (path or "").strip() else ""
         changed = form.is_changed(key)
         detail: list[ft.Control] = [
-            _full_link(current_url, "nenhum link compartilhado ainda"),
+            _full_link(current_url, empty),
         ]
         if extra:
             detail.extend(extra)
-        detail.append(
+        actions: list[ft.Control] = [
             ft.OutlinedButton(
                 content="Escolher arquivo",
                 icon=ft.Icons.FOLDER_OPEN,
                 disabled=form.busy,
                 on_click=lambda e, k=key: on_pick(k),
+            )
+        ]
+        if preview:
+            actions.append(_image_preview(current_url))
+        detail.append(
+            ft.Row(
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=actions,
             )
         )
         if picked:
@@ -294,16 +300,9 @@ def build_publish_form(
                     weight=ft.FontWeight.W_600,
                 )
             )
-        body: list[ft.Control] = [ft.Column(spacing=6, tight=True, expand=True, controls=detail)]
-        if preview:
-            body.append(_image_preview(current_url))
         return option7_row(
             label,
-            ft.Row(
-                spacing=12,
-                vertical_alignment=ft.CrossAxisAlignment.START,
-                controls=body,
-            ),
+            ft.Column(spacing=6, tight=True, controls=detail),
             align=ft.CrossAxisAlignment.START,
             changed=changed,
         )
@@ -405,10 +404,25 @@ def build_publish_form(
                 form.app_path,
                 form.current_download,
                 preview=False,
+                empty="vazio no catalog.json (download_url)",
                 extra=folder_extra,
             ),
-            _file_block("Capa", "capa", form.capa_path, form.current_capa, preview=True),
-            _file_block("Icone", "icone", form.icone_path, form.current_icone, preview=True),
+            _file_block(
+                "Capa",
+                "capa",
+                form.capa_path,
+                form.current_capa,
+                preview=True,
+                empty="vazio no catalog.json (imagem)",
+            ),
+            _file_block(
+                "Icone",
+                "icone",
+                form.icone_path,
+                form.current_icone,
+                preview=True,
+                empty="vazio no catalog.json (icone)",
+            ),
             _tf("upload_url", "upload_url", form.upload_url),
             ft.ProgressBar(
                 value=bar_value(form.progress),

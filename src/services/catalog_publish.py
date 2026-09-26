@@ -192,6 +192,27 @@ def fingerprint_cache_file() -> str:
         return ""
 
 
+def catalog_json_media_urls(app_id: str) -> tuple[str, str]:
+    """Le `imagem` e `icone` do catalog.json em cache (nao do path local de midia)."""
+    path = config.CATALOG_CACHE_FILE
+    alvo = (app_id or "").strip()
+    if not alvo or not path.exists():
+        return "", ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "", ""
+    if not isinstance(data, dict):
+        return "", ""
+    for item in data.get("apps") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id") or "").strip() != alvo:
+            continue
+        return str(item.get("imagem") or "").strip(), str(item.get("icone") or "").strip()
+    return "", ""
+
+
 def slug_from_name(nome: str) -> str:
     raw = unicodedata.normalize("NFKD", nome or "")
     ascii_name = raw.encode("ascii", "ignore").decode("ascii")
@@ -210,10 +231,13 @@ def unique_app_id(nome: str, existing: set[str]) -> str:
 
 
 def bump_media_version(value: str) -> str:
-    raw = (value or "1").strip() or "1"
+    raw = (value or "").strip() or "1"
     if raw.isdigit():
         return str(int(raw) + 1)
-    return f"{raw}.1"
+    match = re.match(r"^(\d+)", raw)
+    if match:
+        return str(int(match.group(1)) + 1)
+    return "2"
 
 
 def sharing_url(site_url: str, caminho_sp: str, filename: str, kind: str) -> str:

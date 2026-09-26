@@ -28,6 +28,7 @@ from services.catalog_publish import (
     PublishFormState,
     ROOT_FOLDER,
     StructureFormState,
+    catalog_json_media_urls,
     fingerprint_cache_file,
     publish_app,
     save_catalog_structure,
@@ -538,6 +539,7 @@ class SuiteApp:
             if app.id in g.apps:
                 gid = g.id
                 break
+        file_capa, file_icone = catalog_json_media_urls(app.id)
         self.publish_form = self._fresh_publish_form(
             editing_id=app.id,
             nome=app.nome,
@@ -549,8 +551,8 @@ class SuiteApp:
             sub_setor_id=app.sub_setor,
             upload_url=app.upload_url,
             current_download=app.download_url,
-            current_capa=app.imagem,
-            current_icone=app.icone,
+            current_capa=file_capa or app.catalog_imagem,
+            current_icone=file_icone or app.catalog_icone,
             original_gerencia_id=gid,
             show_form=True,
         )
