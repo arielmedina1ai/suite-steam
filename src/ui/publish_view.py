@@ -144,17 +144,24 @@ def field_kwargs(*, changed: bool = False) -> dict:
     }
 
 
-def form_section(title: str, controls: list[ft.Control]) -> ft.Control:
+def form_section(title: str, controls: list[ft.Control], *, expand: int | bool = 1) -> ft.Control:
     return ft.Container(
+        expand=expand,
         bgcolor=config.COLOR_BG,
         border_radius=10,
         padding=16,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
         content=ft.Column(
+            expand=True,
             spacing=10,
-            tight=True,
             controls=[
                 ft.Text(title, size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
-                *controls,
+                ft.Column(
+                    expand=True,
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=10,
+                    controls=controls,
+                ),
             ],
         ),
     )
@@ -433,4 +440,4 @@ def build_publish_form(
             ),
         ],
     )
-    return ft.Column(spacing=14, tight=True, controls=[upper, lower])
+    return ft.Column(expand=True, spacing=12, controls=[upper, lower])

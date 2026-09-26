@@ -75,8 +75,7 @@ def build_catalog_view(
     )
     return ft.Column(
         expand=True,
-        scroll=ft.ScrollMode.AUTO,
-        spacing=16,
+        spacing=12,
         controls=[
             ft.Text("Catalogo", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
             ft.Row(
@@ -87,9 +86,11 @@ def build_catalog_view(
                 ],
             ),
             ft.Container(
+                expand=True,
                 bgcolor=config.COLOR_SURFACE,
                 border_radius=10,
-                padding=20,
+                padding=12,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
                 content=body,
             ),
         ],

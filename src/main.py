@@ -102,7 +102,11 @@ class SuiteApp:
         self.run_error = ""
 
         self.sidebar_holder = ft.Container()
-        self.content_holder = ft.Container(expand=True, padding=28)
+        self.content_holder = ft.Container(
+            expand=True,
+            padding=28,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        )
         self.root_row = ft.Row(
             expand=True,
             spacing=0,

@@ -230,7 +230,7 @@ def build_structure_form(
             ),
         ],
     )
-    return ft.Column(spacing=14, tight=True, controls=[upper, lower])
+    return ft.Column(expand=True, spacing=12, controls=[upper, lower])
 
 
 def _editor(
