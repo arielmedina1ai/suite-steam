@@ -68,7 +68,7 @@ abertura do programa.
 O unico link sensivel necessario no PC e `catalog.remote_url` (PnP + WebLogin).
 
 `publish.users`: logins Windows (`DOMINIO\usuario` ou `usuario`), comparacao sem
-maiusculas. Lista vazia ou ausente: ninguem ve **Publicar**. Nao use e-mail nem
+maiusculas. Lista vazia ou ausente: ninguem ve **Catalogo**. Nao use e-mail nem
 grupo do SharePoint. `publish.folder_url`: pasta onde sobem exe/planilha/capa/icone.
 O `catalog.json` continua em `catalog.remote_url`. Trocar a lista exige novo `.exe`.
 
@@ -231,8 +231,7 @@ notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
   outros apps do catalogo podem ficar abertos ao mesmo tempo)
 - **Atualizar versao** (quando `versao` do catalogo difere da instalada; se **esse**
   processo estiver aberto, o hub encerra, instala e reabre)
-- **Publicar** (so se o login Windows estiver em `publish.users`): criar/editar apps
-  do catalogo e enviar arquivos para `publish.folder_url`
+- **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps) e Estrutura (gerencias, setores, sub-setores); envio para `publish.folder_url`
 - Barra de progresso com percentual durante download/update (indeterminado no WebLogin)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**

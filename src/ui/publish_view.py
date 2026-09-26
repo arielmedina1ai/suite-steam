@@ -1,4 +1,4 @@
-"""Tela Publicar: dropdown de app e formulario em duas colunas (Opcao 7)."""
+"""Tela Catálogo: formulario Publicar (Opcao 7, uma coluna)."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -12,18 +12,28 @@ from services.catalog_publish import PublishFormState
 from ui.progress_util import bar_value, label as progress_label
 
 NEW_APP_KEY = "__new__"
+GERAL_KEY = "_none_"
 
 _NONE = getattr(getattr(ft, "InputBorder", None), "NONE", None)
-_LABEL_WIDTH = 150
+_LABEL_CHARS = 15
+_LABEL_WIDTH = 128
+_FIELD_SIZE = 12
 
 
 def _none_to_empty(value: str | None) -> str:
     raw = (value or "").strip()
-    return "" if raw in {"", "_none_"} else raw
+    return "" if raw in {"", GERAL_KEY} else raw
 
 
 def _borderless() -> dict:
     return {"border": _NONE} if _NONE is not None else {}
+
+
+def _fit_label(label: str) -> str:
+    raw = (label or "").strip()
+    if len(raw) <= _LABEL_CHARS:
+        return raw
+    return raw[: _LABEL_CHARS - 1] + "…"
 
 
 def _image_preview(src: str, *, size: int = 72) -> ft.Control:
@@ -74,23 +84,28 @@ def _full_link(url: str, empty: str) -> ft.Control:
     )
 
 
-def _option7_row(
+def option7_row(
     label: str,
     control: ft.Control,
     *,
     align: ft.CrossAxisAlignment = ft.CrossAxisAlignment.CENTER,
 ) -> ft.Control:
     return ft.Row(
-        spacing=16,
+        spacing=12,
         vertical_alignment=align,
         controls=[
             ft.Container(
                 width=_LABEL_WIDTH,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
                 content=ft.Text(
-                    label,
-                    size=14,
+                    _fit_label(label),
+                    size=13,
                     weight=ft.FontWeight.BOLD,
                     color=config.COLOR_TEXT,
+                    width=_LABEL_WIDTH,
+                    no_wrap=False,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
             ),
             ft.Container(expand=True, content=control),
@@ -98,7 +113,18 @@ def _option7_row(
     )
 
 
-def build_publish_view(
+def field_kwargs() -> dict:
+    return {
+        "filled": True,
+        "fill_color": config.COLOR_BG,
+        "color": config.COLOR_TEXT,
+        "cursor_color": config.COLOR_ACCENT,
+        "text_size": _FIELD_SIZE,
+        **_borderless(),
+    }
+
+
+def build_publish_form(
     catalog: CatalogData,
     form: PublishFormState,
     *,
@@ -109,19 +135,37 @@ def build_publish_view(
     on_field: Callable[[str, str], None],
     on_reopen: Callable[[], None],
 ) -> ft.Control:
-    setor_options = [ft.DropdownOption(key="_none_", text="(nenhum)")]
+    setor_options = [ft.DropdownOption(key=GERAL_KEY, text="(nenhum)")]
     for setor in catalog.setores:
         setor_options.append(ft.DropdownOption(key=setor.id, text=setor.nome))
 
-    sub_options = [ft.DropdownOption(key="_none_", text="(nenhum)")]
+    sub_options = [ft.DropdownOption(key=GERAL_KEY, text="(nenhum)")]
     setor = catalog.setor_by_id(form.setor_id)
     if setor is not None:
         for sub in setor.sub_setores:
             sub_options.append(ft.DropdownOption(key=sub.id, text=sub.nome))
 
-    gerencia_options = [ft.DropdownOption(key="_none_", text="(nenhuma)")]
+    gerencia_options = [
+        ft.DropdownOption(
+            key=GERAL_KEY,
+            text="(Geral)",
+            content=ft.Text(
+                "(Geral)",
+                size=_FIELD_SIZE,
+                italic=True,
+                color=config.COLOR_ACCENT,
+                weight=ft.FontWeight.W_600,
+            ),
+        )
+    ]
     for g in catalog.gerencias:
-        gerencia_options.append(ft.DropdownOption(key=g.id, text=g.nome))
+        gerencia_options.append(
+            ft.DropdownOption(
+                key=g.id,
+                text=g.nome,
+                content=ft.Text(g.nome, size=_FIELD_SIZE, color=config.COLOR_TEXT),
+            )
+        )
 
     tipo_value = form.tipo if form.tipo in {"exe", "xlsx", "xlsm"} else "exe"
     app_value = form.editing_id or NEW_APP_KEY
@@ -133,16 +177,10 @@ def build_publish_view(
     if app_value not in known_ids:
         app_value = NEW_APP_KEY
 
-    field_kw = {
-        "filled": True,
-        "fill_color": config.COLOR_BG,
-        "color": config.COLOR_TEXT,
-        "cursor_color": config.COLOR_ACCENT,
-        **_borderless(),
-    }
+    kw = field_kwargs()
 
     def _tf(label: str, key: str, value: str, *, multiline: bool = False) -> ft.Control:
-        return _option7_row(
+        return option7_row(
             label,
             ft.TextField(
                 value=value,
@@ -150,13 +188,13 @@ def build_publish_view(
                 min_lines=3 if multiline else 1,
                 max_lines=6 if multiline else 1,
                 on_change=lambda e, k=key: on_field(k, e.control.value or ""),
-                **field_kw,
+                **kw,
             ),
             align=ft.CrossAxisAlignment.START if multiline else ft.CrossAxisAlignment.CENTER,
         )
 
     def _dd(label: str, key: str, value: str, options: list, *, default: str = "") -> ft.Control:
-        return _option7_row(
+        return option7_row(
             label,
             ft.Dropdown(
                 value=value,
@@ -164,6 +202,7 @@ def build_publish_view(
                 filled=True,
                 fill_color=config.COLOR_BG,
                 color=config.COLOR_TEXT,
+                text_size=_FIELD_SIZE,
                 **_borderless(),
                 on_select=lambda e, k=key, d=default: on_field(k, e.control.value or d),
             ),
@@ -200,7 +239,7 @@ def build_publish_view(
         body: list[ft.Control] = [ft.Column(spacing=6, tight=True, expand=True, controls=detail)]
         if preview:
             body.append(_image_preview(src))
-        return _option7_row(
+        return option7_row(
             label,
             ft.Row(
                 spacing=12,
@@ -211,8 +250,21 @@ def build_publish_view(
         )
 
     heading = "Novo aplicativo" if not form.editing_id else f"Editar: {form.nome or form.editing_id}"
-
-    left_col = [
+    rows = [
+        option7_row(
+            "Aplicativo",
+            ft.Dropdown(
+                value=app_value,
+                options=app_options,
+                filled=True,
+                fill_color=config.COLOR_BG,
+                color=config.COLOR_TEXT,
+                text_size=_FIELD_SIZE,
+                **_borderless(),
+                on_select=lambda e: on_select_app(e.control.value or NEW_APP_KEY),
+            ),
+        ),
+        ft.Text(heading, size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
         _tf("Nome", "nome", form.nome),
         _tf("Descricao", "descricao", form.descricao, multiline=True),
         _tf("Versao", "versao", form.versao),
@@ -227,92 +279,40 @@ def build_publish_view(
             ],
             default="exe",
         ),
-        _dd("Gerencia", "gerencia_id", form.gerencia_id or "_none_", gerencia_options),
-        _dd("Setor", "setor_id", form.setor_id or "_none_", setor_options),
-        _dd("Sub-setor", "sub_setor_id", form.sub_setor_id or "_none_", sub_options),
-        _tf("upload_url", "upload_url", form.upload_url),
-    ]
-    right_col = [
+        _dd("Gerencia", "gerencia_id", form.gerencia_id or GERAL_KEY, gerencia_options),
+        _dd("Setor", "setor_id", form.setor_id or GERAL_KEY, setor_options),
+        _dd("Sub-setor", "sub_setor_id", form.sub_setor_id or GERAL_KEY, sub_options),
         _file_block("Arquivo do app", "app", form.app_path, form.current_download, preview=False),
         _file_block("Capa", "capa", form.capa_path, form.current_capa, preview=True),
         _file_block("Icone", "icone", form.icone_path, form.current_icone, preview=True),
-    ]
-
-    return ft.Column(
-        expand=True,
-        scroll=ft.ScrollMode.AUTO,
-        spacing=16,
-        controls=[
-            ft.Text("Publicar", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
-            ft.Text(
-                "Cria ou edita entradas do catalog.json no SharePoint. "
-                "Gerencias e setores novos continuam sendo feitos no JSON.",
-                size=13,
-                color="#8AA797",
-            ),
-            ft.Container(
-                bgcolor=config.COLOR_SURFACE,
-                border_radius=10,
-                padding=20,
-                content=ft.Column(
-                    spacing=16,
-                    tight=True,
-                    controls=[
-                        _option7_row(
-                            "Aplicativo",
-                            ft.Dropdown(
-                                value=app_value,
-                                options=app_options,
-                                filled=True,
-                                fill_color=config.COLOR_BG,
-                                color=config.COLOR_TEXT,
-                                **_borderless(),
-                                on_select=lambda e: on_select_app(e.control.value or NEW_APP_KEY),
-                            ),
-                        ),
-                        ft.Text(heading, size=18, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                        ft.Row(
-                            spacing=24,
-                            vertical_alignment=ft.CrossAxisAlignment.START,
-                            controls=[
-                                ft.Column(spacing=10, expand=True, tight=True, controls=left_col),
-                                ft.Column(spacing=10, expand=True, tight=True, controls=right_col),
-                            ],
-                        ),
-                        ft.ProgressBar(
-                            value=bar_value(form.progress),
-                            visible=form.busy,
-                            color=config.COLOR_ACCENT,
-                            bgcolor="#0A0F0C",
-                        ),
-                        ft.Text(
-                            progress_label(form.progress, form.message) if form.busy else form.message,
-                            size=13,
-                            color=config.COLOR_ACCENT if form.conflict else "#B9CEC3",
-                        ),
-                        ft.Row(
-                            spacing=12,
-                            controls=[
-                                ft.FilledButton(
-                                    content="Salvar no catalogo",
-                                    icon=ft.Icons.SAVE,
-                                    disabled=form.busy,
-                                    on_click=lambda e: on_save(),
-                                ),
-                                ft.TextButton(
-                                    content="Limpar",
-                                    disabled=form.busy,
-                                    on_click=lambda e: on_cancel(),
-                                ),
-                                ft.TextButton(
-                                    content="Reabrir catalogo",
-                                    visible=form.conflict,
-                                    on_click=lambda e: on_reopen(),
-                                ),
-                            ],
-                        ),
-                    ],
+        _tf("upload_url", "upload_url", form.upload_url),
+        ft.ProgressBar(
+            value=bar_value(form.progress),
+            visible=form.busy,
+            color=config.COLOR_ACCENT,
+            bgcolor="#0A0F0C",
+        ),
+        ft.Text(
+            progress_label(form.progress, form.message) if form.busy else form.message,
+            size=13,
+            color=config.COLOR_ACCENT if form.conflict else "#B9CEC3",
+        ),
+        ft.Row(
+            spacing=12,
+            controls=[
+                ft.FilledButton(
+                    content="Salvar no catalogo",
+                    icon=ft.Icons.SAVE,
+                    disabled=form.busy,
+                    on_click=lambda e: on_save(),
                 ),
-            ),
-        ],
-    )
+                ft.TextButton(content="Limpar", disabled=form.busy, on_click=lambda e: on_cancel()),
+                ft.TextButton(
+                    content="Reabrir catalogo",
+                    visible=form.conflict,
+                    on_click=lambda e: on_reopen(),
+                ),
+            ],
+        ),
+    ]
+    return ft.Column(spacing=10, tight=True, controls=rows)

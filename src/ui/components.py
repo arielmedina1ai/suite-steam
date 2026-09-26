@@ -312,7 +312,7 @@ def build_sidebar(
     if show_publish and on_publish is not None:
         items.append(
             _nav_item(
-                label="Publicar",
+                label="Catalogo",
                 icon=ft.Icons.CLOUD_UPLOAD,
                 selected=publish_selected,
                 on_click=on_publish,

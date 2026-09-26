@@ -7,7 +7,7 @@ import re
 import shutil
 import tempfile
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlparse
@@ -49,6 +49,46 @@ class PublishFormState:
     conflict: bool = False
     message: str = ""
     progress: float | None = None
+
+
+@dataclass
+class DraftSubSetor:
+    orig_id: str = ""
+    id: str = ""
+    nome: str = ""
+    descricao: str = ""
+
+
+@dataclass
+class DraftSetor:
+    orig_id: str = ""
+    id: str = ""
+    nome: str = ""
+    descricao: str = ""
+    sub_setores: list[DraftSubSetor] = field(default_factory=list)
+
+
+@dataclass
+class DraftGerencia:
+    orig_id: str = ""
+    id: str = ""
+    nome: str = ""
+    descricao: str = ""
+    apps: list[str] = field(default_factory=list)
+
+
+@dataclass
+class StructureFormState:
+    gerencia_geral: str = "Geral"
+    gerencias: list[DraftGerencia] = field(default_factory=list)
+    setores: list[DraftSetor] = field(default_factory=list)
+    sel: str = ""
+    fingerprint: str = ""
+    busy: bool = False
+    conflict: bool = False
+    message: str = ""
+    progress: float | None = None
+    dirty: bool = False
 
 
 @dataclass
@@ -490,3 +530,191 @@ def publish_app(
         catalog=catalog,
         fingerprint=catalog_fingerprint(new_text),
     )
+
+
+def structure_from_catalog(catalog: CatalogData, fingerprint: str = "") -> StructureFormState:
+    return StructureFormState(
+        gerencia_geral=(catalog.gerencia_geral or "").strip() or "Geral",
+        gerencias=[
+            DraftGerencia(
+                orig_id=g.id,
+                id=g.id,
+                nome=g.nome,
+                descricao=g.descricao,
+                apps=list(g.apps),
+            )
+            for g in catalog.gerencias
+        ],
+        setores=[
+            DraftSetor(
+                orig_id=s.id,
+                id=s.id,
+                nome=s.nome,
+                descricao=s.descricao,
+                sub_setores=[
+                    DraftSubSetor(
+                        orig_id=sub.id,
+                        id=sub.id,
+                        nome=sub.nome,
+                        descricao=sub.descricao,
+                    )
+                    for sub in s.sub_setores
+                ],
+            )
+            for s in catalog.setores
+        ],
+        fingerprint=fingerprint,
+    )
+
+
+def _upload_catalog_text(data: dict[str, Any], progress: ProgressCb | None) -> PublishOutcome:
+    new_text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        prefix="catalog-",
+        delete=False,
+        encoding="utf-8",
+    ) as tmp:
+        tmp.write(new_text)
+        tmp_path = Path(tmp.name)
+    try:
+        result = upload_catalog_json(tmp_path, progress=progress)
+        if not result.ok:
+            return PublishOutcome(
+                ok=False,
+                message=result.message or "Falha ao enviar catalog.json. O catalogo anterior permanece.",
+            )
+        config.CATALOG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(tmp_path, config.CATALOG_CACHE_FILE)
+    finally:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+    catalog = parse_catalog_dict(data)
+    return PublishOutcome(
+        ok=True,
+        message="Catalogo publicado.",
+        catalog=catalog,
+        fingerprint=catalog_fingerprint(new_text),
+    )
+
+
+def _fill_ids(nome: str, current_id: str, existing: set[str]) -> str:
+    cid = (current_id or "").strip()
+    if cid and cid not in existing:
+        return cid
+    return unique_app_id(nome or cid or "item", existing)
+
+
+def save_catalog_structure(
+    form: StructureFormState,
+    *,
+    expected_fingerprint: str,
+    progress: ProgressCb | None = None,
+) -> PublishOutcome:
+    def report(pct: float, msg: str) -> None:
+        if progress:
+            progress(pct, msg)
+
+    g_ids: set[str] = set()
+    gerencias_out: list[dict[str, Any]] = []
+    for g in form.gerencias:
+        nome = (g.nome or "").strip() or (g.id or "").strip()
+        if not nome:
+            return PublishOutcome(ok=False, message="Toda gerencia precisa de nome.")
+        gid = _fill_ids(nome, g.id, g_ids)
+        g_ids.add(gid)
+        g.id = gid
+        gerencias_out.append(
+            {
+                "id": gid,
+                "nome": nome,
+                "descricao": (g.descricao or "").strip(),
+                "apps": [a for a in g.apps if a],
+            }
+        )
+
+    s_ids: set[str] = set()
+    setor_map: dict[str, str] = {}
+    sub_map: dict[tuple[str, str], str] = {}
+    setores_out: list[dict[str, Any]] = []
+    for s in form.setores:
+        nome = (s.nome or "").strip() or (s.id or "").strip()
+        if not nome:
+            return PublishOutcome(ok=False, message="Todo setor precisa de nome.")
+        sid = _fill_ids(nome, s.id, s_ids)
+        s_ids.add(sid)
+        s.id = sid
+        if s.orig_id:
+            setor_map[s.orig_id] = sid
+        sub_ids: set[str] = set()
+        subs_out: list[dict[str, Any]] = []
+        for sub in s.sub_setores:
+            snome = (sub.nome or "").strip() or (sub.id or "").strip()
+            if not snome:
+                return PublishOutcome(ok=False, message="Todo sub-setor precisa de nome.")
+            sub_id = _fill_ids(snome, sub.id, sub_ids)
+            sub_ids.add(sub_id)
+            sub.id = sub_id
+            if s.orig_id and sub.orig_id:
+                sub_map[(s.orig_id, sub.orig_id)] = sub_id
+            subs_out.append(
+                {
+                    "id": sub_id,
+                    "nome": snome,
+                    "descricao": (sub.descricao or "").strip(),
+                }
+            )
+        setores_out.append(
+            {
+                "id": sid,
+                "nome": nome,
+                "descricao": (s.descricao or "").strip(),
+                "sub_setores": subs_out,
+            }
+        )
+
+    report(-1.0, "Relendo catalogo remoto...")
+    text, err = fetch_remote_catalog_text(progress=report)
+    if err:
+        return PublishOutcome(ok=False, message=err)
+    remote_fp = catalog_fingerprint(text)
+    if expected_fingerprint and remote_fp != expected_fingerprint:
+        return PublishOutcome(
+            ok=False,
+            conflict=True,
+            message=(
+                "O catalogo remoto mudou desde que esta tela abriu. "
+                "Reabra o catalogo e tente de novo."
+            ),
+            fingerprint=remote_fp,
+        )
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
+    if not isinstance(data, dict):
+        return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
+
+    apps = data.get("apps")
+    if isinstance(apps, list):
+        for item in apps:
+            if not isinstance(item, dict):
+                continue
+            old_setor = str(item.get("setor") or "").strip()
+            old_sub = str(item.get("sub_setor") or "").strip()
+            if old_setor in setor_map:
+                item["setor"] = setor_map[old_setor]
+            mapped_sub = sub_map.get((old_setor, old_sub))
+            if mapped_sub:
+                item["sub_setor"] = mapped_sub
+
+    geral = (form.gerencia_geral or "").strip() or "Geral"
+    data["gerencia_geral"] = geral
+    data["gerencias"] = gerencias_out
+    data["setores"] = setores_out
+
+    report(-1.0, "Enviando catalog.json...")
+    return _upload_catalog_text(data, report)

@@ -21,9 +21,15 @@ import flet as ft
 from catalog import SharePointCatalogProvider
 from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
 from services.catalog_publish import (
+    DraftGerencia,
+    DraftSetor,
+    DraftSubSetor,
     PublishFormState,
+    StructureFormState,
     fingerprint_cache_file,
     publish_app,
+    save_catalog_structure,
+    structure_from_catalog,
 )
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.favorites import FavoritesStore
@@ -45,9 +51,10 @@ from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
+from ui.catalog_view import build_catalog_view
 from ui.home_view import build_favoritos_view, build_home, build_setor_view
 from ui.progress_util import bar_value, label as progress_label
-from ui.publish_view import NEW_APP_KEY, build_publish_view
+from ui.publish_view import GERAL_KEY, NEW_APP_KEY
 
 
 class SuiteApp:
@@ -66,8 +73,10 @@ class SuiteApp:
         self.selected_setor: str | None = None
         self.show_favorites = False
         self.show_publish = False
+        self.catalog_tab = "publish"
         self.can_publish = user_can_publish(current_windows_login(), config.PUBLISH_USERS)
         self.publish_form = PublishFormState()
+        self.structure = StructureFormState()
         self._publish_pick_kind = ""
         self._file_picker = None
         self.sync_message = ""
@@ -406,8 +415,17 @@ class SuiteApp:
         self.selected_setor = None
         self.show_favorites = False
         self.show_publish = True
+        fp = fingerprint_cache_file()
         if not self.publish_form.fingerprint:
-            self.publish_form.fingerprint = fingerprint_cache_file()
+            self.publish_form.fingerprint = fp
+        if not self.structure.fingerprint or not self.structure.dirty:
+            self.structure = structure_from_catalog(self.catalog, fp or self.publish_form.fingerprint)
+        self._render()
+
+    def _catalog_tab(self, tab: str) -> None:
+        if not self.can_publish:
+            return
+        self.catalog_tab = "estrutura" if tab == "estrutura" else "publish"
         self._render()
 
     def _select_setor(self, setor_id: str) -> None:
@@ -491,7 +509,7 @@ class SuiteApp:
 
     def _publish_field(self, key: str, value: str) -> None:
         if key == "setor_id":
-            self.publish_form.setor_id = "" if value in {"", "_none_"} else value
+            self.publish_form.setor_id = "" if value in {"", GERAL_KEY} else value
             setor = self.catalog.setor_by_id(value)
             known = {s.id for s in setor.sub_setores} if setor is not None else set()
             if self.publish_form.sub_setor_id not in known:
@@ -499,7 +517,7 @@ class SuiteApp:
             self._render()
             return
         if hasattr(self.publish_form, key):
-            setattr(self.publish_form, key, "" if value in {"", "_none_"} else value)
+            setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
 
     def _publish_cancel(self) -> None:
         fp = self.publish_form.fingerprint
@@ -507,10 +525,12 @@ class SuiteApp:
         self._render()
 
     def _publish_reopen(self) -> None:
-        if self.publish_form.busy:
+        if self.publish_form.busy or self.structure.busy:
             return
         self.publish_form.busy = True
+        self.structure.busy = True
         self.publish_form.message = "Relendo catalogo remoto..."
+        self.structure.message = "Relendo catalogo remoto..."
         self._render()
         self.page.run_thread(self._publish_reopen_worker)
 
@@ -525,14 +545,23 @@ class SuiteApp:
                 fingerprint=fingerprint_cache_file(),
                 message="Catalogo recarregado. Escolha o aplicativo no menu acima para editar.",
             )
+            self.structure = structure_from_catalog(self.catalog, self.publish_form.fingerprint)
+            self.structure.message = "Catalogo recarregado."
         else:
             self.publish_form.conflict = True
             self.publish_form.message = result.message or "Falha ao reler o catalogo."
+            self.structure.busy = False
+            self.structure.conflict = True
+            self.structure.message = result.message or "Falha ao reler o catalogo."
         self._render()
 
     def _on_publish_progress(self, pct: float, msg: str) -> None:
-        self.publish_form.progress = pct
-        self.publish_form.message = msg
+        if self.structure.busy:
+            self.structure.progress = pct
+            self.structure.message = msg
+        else:
+            self.publish_form.progress = pct
+            self.publish_form.message = msg
         try:
             self._render()
         except Exception:
@@ -598,7 +627,7 @@ class SuiteApp:
         self._render()
 
     def _publish_save(self) -> None:
-        if not self.can_publish or self.publish_form.busy:
+        if not self.can_publish or self.publish_form.busy or self.structure.busy:
             return
         self.publish_form.busy = True
         self.publish_form.conflict = False
@@ -632,10 +661,128 @@ class SuiteApp:
         elif result.catalog is not None:
             self.catalog = result.catalog
         self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
         self.publish_form = PublishFormState(
-            fingerprint=result.fingerprint or fingerprint_cache_file(),
+            fingerprint=fp,
             message=result.message,
         )
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self._render()
+
+    def _structure_select(self, sel: str) -> None:
+        if not self.can_publish:
+            return
+        self.structure.sel = sel
+        self._render()
+
+    def _structure_target(self):
+        sel = self.structure.sel or ""
+        try:
+            if sel.startswith("g:"):
+                return self.structure.gerencias[int(sel.split(":")[1])]
+            if sel.startswith("s:"):
+                return self.structure.setores[int(sel.split(":")[1])]
+            if sel.startswith("sub:"):
+                _, si, subi = sel.split(":")
+                return self.structure.setores[int(si)].sub_setores[int(subi)]
+        except (IndexError, ValueError):
+            return None
+        return None
+
+    def _structure_field(self, key: str, value: str) -> None:
+        if not self.can_publish:
+            return
+        self.structure.dirty = True
+        if self.structure.sel == "geral" or key == "gerencia_geral":
+            if key == "gerencia_geral":
+                self.structure.gerencia_geral = value
+            return
+        target = self._structure_target()
+        if target is not None and hasattr(target, key):
+            setattr(target, key, value)
+
+    def _structure_toggle_app(self, app_id: str, checked: bool) -> None:
+        if not self.can_publish:
+            return
+        sel = self.structure.sel or ""
+        if not sel.startswith("g:"):
+            return
+        g = self.structure.gerencias[int(sel.split(":")[1])]
+        self.structure.dirty = True
+        if checked and app_id not in g.apps:
+            g.apps.append(app_id)
+        elif not checked:
+            g.apps = [x for x in g.apps if x != app_id]
+        self._render()
+
+    def _structure_new(self, kind: str) -> None:
+        if not self.can_publish:
+            return
+        self.structure.dirty = True
+        if kind == "gerencia":
+            self.structure.gerencias.append(DraftGerencia(nome="Nova gerencia"))
+            self.structure.sel = f"g:{len(self.structure.gerencias) - 1}"
+        elif kind == "setor":
+            self.structure.setores.append(DraftSetor(nome="Novo setor"))
+            self.structure.sel = f"s:{len(self.structure.setores) - 1}"
+        elif kind == "subsetor":
+            sel = self.structure.sel or ""
+            si = None
+            if sel.startswith("s:"):
+                si = int(sel.split(":")[1])
+            elif sel.startswith("sub:"):
+                si = int(sel.split(":")[1])
+            elif self.structure.setores:
+                si = len(self.structure.setores) - 1
+            if si is None:
+                self.structure.message = "Crie um setor antes do sub-setor."
+                self._render()
+                return
+            setor = self.structure.setores[si]
+            setor.sub_setores.append(DraftSubSetor(nome="Novo sub-setor"))
+            self.structure.sel = f"sub:{si}:{len(setor.sub_setores) - 1}"
+        self._render()
+
+    def _structure_save(self) -> None:
+        if not self.can_publish or self.structure.busy:
+            return
+        self.structure.busy = True
+        self.structure.conflict = False
+        self.structure.message = "Publicando estrutura..."
+        self.structure.progress = -1.0
+        self._render()
+        form = self.structure
+        self.page.run_thread(lambda: self._structure_save_worker(form))
+
+    def _structure_save_worker(self, form: StructureFormState) -> None:
+        result = save_catalog_structure(
+            form,
+            expected_fingerprint=form.fingerprint,
+            progress=self._on_publish_progress,
+        )
+        if result.conflict:
+            self.structure.busy = False
+            self.structure.conflict = True
+            self.structure.message = result.message
+            self._render()
+            return
+        if not result.ok:
+            self.structure.busy = False
+            self.structure.message = result.message
+            self._render()
+            return
+        provider = SharePointCatalogProvider()
+        synced = provider.sync(progress=self._on_publish_progress)
+        if synced.ok:
+            self.catalog = synced.catalog
+        elif result.catalog is not None:
+            self.catalog = result.catalog
+        self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
+        self.publish_form.fingerprint = fp
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self.structure.message = result.message
+        self.catalog_tab = "estrutura"
         self._render()
 
     def _run_catalog_app(self, app: AppInfo) -> None:
@@ -904,15 +1051,24 @@ class SuiteApp:
         )
 
         if self.show_publish and self.can_publish:
-            self.content_holder.content = build_publish_view(
+            self.content_holder.content = build_catalog_view(
                 self.catalog,
                 self.publish_form,
+                self.structure,
+                self.catalog_tab,
+                on_tab=self._catalog_tab,
                 on_select_app=self._publish_select,
                 on_save=self._publish_save,
                 on_cancel=self._publish_cancel,
                 on_pick=self._publish_pick,
                 on_field=self._publish_field,
                 on_reopen=self._publish_reopen,
+                on_structure_select=self._structure_select,
+                on_structure_field=self._structure_field,
+                on_structure_toggle_app=self._structure_toggle_app,
+                on_structure_new=self._structure_new,
+                on_structure_save=self._structure_save,
+                on_structure_reopen=self._publish_reopen,
             )
         elif self.selected_id is not None:
             app = self.apps_by_id.get(self.selected_id)
