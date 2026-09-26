@@ -39,8 +39,11 @@ class PublishFormState:
     app_path: str = ""
     capa_path: str = ""
     icone_path: str = ""
+    current_download: str = ""
+    current_capa: str = ""
+    current_icone: str = ""
     original_gerencia_id: str = ""
-    show_form: bool = False
+    show_form: bool = True
     fingerprint: str = ""
     busy: bool = False
     conflict: bool = False

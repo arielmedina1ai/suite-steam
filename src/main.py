@@ -47,7 +47,7 @@ from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
 from ui.home_view import build_favoritos_view, build_home, build_setor_view
 from ui.progress_util import bar_value, label as progress_label
-from ui.publish_view import build_publish_view
+from ui.publish_view import NEW_APP_KEY, build_publish_view
 
 
 class SuiteApp:
@@ -443,6 +443,14 @@ class SuiteApp:
             self.show_favorites = False
         self._render()
 
+    def _publish_select(self, app_id: str) -> None:
+        if not self.can_publish:
+            return
+        if not app_id or app_id == NEW_APP_KEY:
+            self._publish_new()
+            return
+        self._publish_edit(app_id)
+
     def _publish_new(self) -> None:
         if not self.can_publish:
             return
@@ -472,6 +480,9 @@ class SuiteApp:
             setor_id=app.setor,
             sub_setor_id=app.sub_setor,
             upload_url=app.upload_url,
+            current_download=app.download_url,
+            current_capa=app.imagem,
+            current_icone=app.icone,
             original_gerencia_id=gid,
             show_form=True,
             fingerprint=fp,
@@ -512,7 +523,7 @@ class SuiteApp:
             self._apply_gerencia_filter()
             self.publish_form = PublishFormState(
                 fingerprint=fingerprint_cache_file(),
-                message="Catalogo recarregado. Abra o aplicativo novamente para editar.",
+                message="Catalogo recarregado. Escolha o aplicativo no menu acima para editar.",
             )
         else:
             self.publish_form.conflict = True
@@ -896,8 +907,7 @@ class SuiteApp:
             self.content_holder.content = build_publish_view(
                 self.catalog,
                 self.publish_form,
-                on_new=self._publish_new,
-                on_edit=self._publish_edit,
+                on_select_app=self._publish_select,
                 on_save=self._publish_save,
                 on_cancel=self._publish_cancel,
                 on_pick=self._publish_pick,
