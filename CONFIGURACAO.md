@@ -50,6 +50,10 @@ abertura do programa.
   },
   "catalog": {
     "remote_url": "https://empresa.sharepoint.com/teams/.../_layouts/15/download.aspx?UniqueId=..."
+  },
+  "publish": {
+    "users": ["DOMINIO\\maria", "joao"],
+    "folder_url": "https://empresa.sharepoint.com/sites/seu-site/Documentos%20Compartilhados/apps"
   }
 }
 ```
@@ -62,6 +66,11 @@ abertura do programa.
 - `sector.*`: titulo, tagline e descricao do **banner** na tela Inicio (sempre no mesmo lugar).
 
 O unico link sensivel necessario no PC e `catalog.remote_url` (PnP + WebLogin).
+
+`publish.users`: logins Windows (`DOMINIO\usuario` ou `usuario`), comparacao sem
+maiusculas. Lista vazia ou ausente: ninguem ve **Publicar**. Nao use e-mail nem
+grupo do SharePoint. `publish.folder_url`: pasta onde sobem exe/planilha/capa/icone.
+O `catalog.json` continua em `catalog.remote_url`. Trocar a lista exige novo `.exe`.
 
 ---
 
@@ -222,6 +231,8 @@ notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
   outros apps do catalogo podem ficar abertos ao mesmo tempo)
 - **Atualizar versao** (quando `versao` do catalogo difere da instalada; se **esse**
   processo estiver aberto, o hub encerra, instala e reabre)
+- **Publicar** (so se o login Windows estiver em `publish.users`): criar/editar apps
+  do catalogo e enviar arquivos para `publish.folder_url`
 - Barra de progresso com percentual durante download/update (indeterminado no WebLogin)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**

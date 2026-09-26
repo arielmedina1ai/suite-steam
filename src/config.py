@@ -150,6 +150,23 @@ REMOTE_CATALOG_URL: str | None = (
 )
 
 # ---------------------------------------------------------------------------
+# Publicar catalogo  ->  settings.json > "publish"
+# Lista de logins Windows (DOMINIO\\usuario ou usuario). Vazia = ninguem.
+# ---------------------------------------------------------------------------
+_publish = _S.get("publish", {}) if isinstance(_S.get("publish"), dict) else {}
+_publish_users_raw = _publish.get("users")
+PUBLISH_USERS: list[str] = []
+if isinstance(_publish_users_raw, list):
+    for _item in _publish_users_raw:
+        _login = str(_item).strip()
+        if _login:
+            PUBLISH_USERS.append(_login)
+_folder_raw = _publish.get("folder_url")
+PUBLISH_FOLDER_URL: str = (
+    _folder_raw.strip() if isinstance(_folder_raw, str) and _folder_raw.strip() else ""
+)
+
+# ---------------------------------------------------------------------------
 # Pasta de dados do usuario  ->  settings.json > "app.data_dir"
 # ---------------------------------------------------------------------------
 def _user_data_dir() -> Path:
