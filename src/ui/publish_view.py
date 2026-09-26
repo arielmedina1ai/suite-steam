@@ -13,6 +13,7 @@ from services.catalog_publish import (
     NEW_FOLDER,
     PublishFormState,
     ROOT_FOLDER,
+    catalog_http_url,
 )
 from ui.progress_util import bar_value, label as progress_label
 
@@ -90,6 +91,69 @@ def _full_link(url: str, empty: str) -> ft.Control:
     )
 
 
+def _remember_scroll(form, attr: str, value: float) -> None:
+    if getattr(form, "hold_scroll", False):
+        return
+    setattr(form, attr, value)
+
+
+def _scroll_pixels(e) -> float:
+    for name in ("pixels", "scroll_offset"):
+        value = getattr(e, name, None)
+        if value is None:
+            continue
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def form_section(
+    title: str,
+    controls: list[ft.Control],
+    *,
+    expand: int | bool = 1,
+    scroll_offset: float = 0.0,
+    on_scroll_offset: Callable[[float], None] | None = None,
+    scroll_ref: ft.Ref | None = None,
+) -> ft.Control:
+    def _on_scroll(e) -> None:
+        if on_scroll_offset is None:
+            return
+        on_scroll_offset(_scroll_pixels(e))
+
+    inner_kwargs: dict = {
+        "expand": True,
+        "scroll": ft.ScrollMode.AUTO,
+        "spacing": 10,
+        "controls": controls,
+        "on_scroll": _on_scroll,
+    }
+    if scroll_ref is not None:
+        inner_kwargs["ref"] = scroll_ref
+    try:
+        inner = ft.Column(auto_scroll=False, **inner_kwargs)
+    except TypeError:
+        inner = ft.Column(**inner_kwargs)
+    return ft.Container(
+        expand=expand,
+        bgcolor=config.COLOR_BG,
+        border_radius=10,
+        padding=16,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        data=scroll_offset,
+        content=ft.Column(
+            expand=True,
+            spacing=10,
+            controls=[
+                ft.Text(title, size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
+                inner,
+            ],
+        ),
+    )
+
+
 def option7_row(
     label: str,
     control: ft.Control,
@@ -140,29 +204,6 @@ def field_kwargs(*, changed: bool = False) -> dict:
     }
 
 
-def form_section(title: str, controls: list[ft.Control], *, expand: int | bool = 1) -> ft.Control:
-    return ft.Container(
-        expand=expand,
-        bgcolor=config.COLOR_BG,
-        border_radius=10,
-        padding=16,
-        clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        content=ft.Column(
-            expand=True,
-            spacing=10,
-            controls=[
-                ft.Text(title, size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
-                ft.Column(
-                    expand=True,
-                    scroll=ft.ScrollMode.AUTO,
-                    spacing=10,
-                    controls=controls,
-                ),
-            ],
-        ),
-    )
-
-
 def _root_folder_label() -> str:
     raw = (config.PUBLISH_FOLDER_URL or "").rstrip("/")
     leaf = raw.split("/")[-1] if raw else ""
@@ -181,6 +222,8 @@ def build_publish_form(
     on_field: Callable[[str, str], None],
     on_reopen: Callable[[], None],
     on_refresh_folders: Callable[[], None] | None = None,
+    select_scroll_ref: ft.Ref | None = None,
+    edit_scroll_ref: ft.Ref | None = None,
 ) -> ft.Control:
     setor_options = [ft.DropdownOption(key=GERAL_KEY, text="(nenhum)")]
     for setor in catalog.setores:
@@ -266,29 +309,52 @@ def build_publish_form(
         preview: bool,
         empty: str,
         extra: list[ft.Control] | None = None,
+        url_key: str = "",
     ) -> ft.Control:
         picked = Path(path).name if (path or "").strip() else ""
-        changed = form.is_changed(key)
-        detail: list[ft.Control] = [
-            _full_link(current_url, empty),
-        ]
+        catalog_url = catalog_http_url(current_url)
+        url_changed = bool(url_key) and form.is_changed(url_key)
+        changed = form.is_changed(key) or url_changed
+        if preview:
+            url_field = ft.TextField(
+                value=catalog_url,
+                hint_text=empty,
+                multiline=True,
+                min_lines=2,
+                max_lines=8,
+                text_size=12,
+                filled=True,
+                fill_color=_CHANGED_FILL if url_changed else config.COLOR_SURFACE,
+                color=config.COLOR_TEXT if catalog_url else "#8AA797",
+                cursor_color=config.COLOR_ACCENT,
+                on_change=lambda e, k=url_key: on_field(k, e.control.value or "") if k else None,
+                **_borderless(),
+            )
+            link_row: ft.Control = ft.Row(
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+                controls=[
+                    ft.Container(expand=True, content=url_field),
+                    _image_preview(catalog_url),
+                ],
+            )
+        else:
+            link_row = _full_link(catalog_url, empty)
+        detail: list[ft.Control] = [link_row]
         if extra:
             detail.extend(extra)
-        actions: list[ft.Control] = [
-            ft.OutlinedButton(
-                content="Escolher arquivo",
-                icon=ft.Icons.FOLDER_OPEN,
-                disabled=form.busy,
-                on_click=lambda e, k=key: on_pick(k),
-            )
-        ]
-        if preview:
-            actions.append(_image_preview(current_url))
         detail.append(
             ft.Row(
                 spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=actions,
+                controls=[
+                    ft.OutlinedButton(
+                        content="Escolher arquivo",
+                        icon=ft.Icons.FOLDER_OPEN,
+                        disabled=form.busy,
+                        on_click=lambda e, k=key: on_pick(k),
+                    )
+                ],
             )
         )
         if picked:
@@ -376,6 +442,9 @@ def build_publish_form(
                 color="#8AA797",
             ),
         ],
+        scroll_offset=form.select_scroll,
+        on_scroll_offset=lambda v: _remember_scroll(form, "select_scroll", v),
+        scroll_ref=select_scroll_ref,
     )
     lower = form_section(
         "Editar",
@@ -414,6 +483,7 @@ def build_publish_form(
                 form.current_capa,
                 preview=True,
                 empty="vazio no catalog.json (imagem)",
+                url_key="current_capa",
             ),
             _file_block(
                 "Icone",
@@ -422,6 +492,7 @@ def build_publish_form(
                 form.current_icone,
                 preview=True,
                 empty="vazio no catalog.json (icone)",
+                url_key="current_icone",
             ),
             _tf("upload_url", "upload_url", form.upload_url),
             ft.ProgressBar(
@@ -453,5 +524,8 @@ def build_publish_form(
                 ],
             ),
         ],
+        scroll_offset=form.edit_scroll,
+        on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
+        scroll_ref=edit_scroll_ref,
     )
     return ft.Column(expand=True, spacing=12, controls=[upper, lower])

@@ -46,8 +46,14 @@ def build_catalog_view(
     on_structure_field: Callable[[str, str], None],
     on_structure_toggle_app: Callable[[str, bool], None],
     on_structure_new: Callable[[str], None],
+    on_structure_new_subsetor: Callable[[int], None],
+    on_structure_delete: Callable[[str], None],
     on_structure_save: Callable[[], None],
     on_structure_reopen: Callable[[], None],
+    publish_select_scroll_ref: ft.Ref | None = None,
+    publish_edit_scroll_ref: ft.Ref | None = None,
+    structure_select_scroll_ref: ft.Ref | None = None,
+    structure_edit_scroll_ref: ft.Ref | None = None,
 ) -> ft.Control:
     body = (
         build_publish_form(
@@ -60,6 +66,8 @@ def build_catalog_view(
             on_field=on_field,
             on_reopen=on_reopen,
             on_refresh_folders=on_refresh_folders,
+            select_scroll_ref=publish_select_scroll_ref,
+            edit_scroll_ref=publish_edit_scroll_ref,
         )
         if tab != "estrutura"
         else build_structure_form(
@@ -69,8 +77,12 @@ def build_catalog_view(
             on_field=on_structure_field,
             on_toggle_app=on_structure_toggle_app,
             on_new=on_structure_new,
+            on_new_subsetor=on_structure_new_subsetor,
+            on_delete=on_structure_delete,
             on_save=on_structure_save,
             on_reopen=on_structure_reopen,
+            select_scroll_ref=structure_select_scroll_ref,
+            edit_scroll_ref=structure_edit_scroll_ref,
         )
     )
     return ft.Column(

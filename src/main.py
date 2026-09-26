@@ -29,6 +29,7 @@ from services.catalog_publish import (
     ROOT_FOLDER,
     StructureFormState,
     catalog_json_media_urls,
+    catalog_http_url,
     fingerprint_cache_file,
     publish_app,
     save_catalog_structure,
@@ -82,6 +83,10 @@ class SuiteApp:
         self.structure = StructureFormState()
         self._publish_pick_kind = ""
         self._file_picker = None
+        self._scroll_pub_sel = ft.Ref[ft.Column]()
+        self._scroll_pub_edit = ft.Ref[ft.Column]()
+        self._scroll_str_sel = ft.Ref[ft.Column]()
+        self._scroll_str_edit = ft.Ref[ft.Column]()
         self.sync_message = ""
         self.sync_busy = True
         self.sync_progress: float | None = -1.0
@@ -551,8 +556,8 @@ class SuiteApp:
             sub_setor_id=app.sub_setor,
             upload_url=app.upload_url,
             current_download=app.download_url,
-            current_capa=file_capa or app.catalog_imagem,
-            current_icone=file_icone or app.catalog_icone,
+            current_capa=file_capa or catalog_http_url(app.catalog_imagem),
+            current_icone=file_icone or catalog_http_url(app.catalog_icone),
             original_gerencia_id=gid,
             show_form=True,
         )
@@ -570,6 +575,16 @@ class SuiteApp:
             return
         if hasattr(self.publish_form, key):
             setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
+            if key in {
+                "nome",
+                "descricao",
+                "versao",
+                "upload_url",
+                "new_folder_name",
+                "current_capa",
+                "current_icone",
+            }:
+                return
             self._render()
 
     def _publish_cancel(self) -> None:
@@ -747,12 +762,10 @@ class SuiteApp:
         if self.structure.sel == "geral" or key == "gerencia_geral":
             if key == "gerencia_geral":
                 self.structure.gerencia_geral = value
-            self._render()
             return
         target = self._structure_target()
         if target is not None and hasattr(target, key):
             setattr(target, key, value)
-        self._render()
 
     def _structure_toggle_app(self, app_id: str, checked: bool) -> None:
         if not self.can_publish:
@@ -769,6 +782,12 @@ class SuiteApp:
         self._render()
 
     def _structure_new(self, kind: str) -> None:
+        self._structure_new_at(kind, None)
+
+    def _structure_new_subsetor(self, setor_index: int) -> None:
+        self._structure_new_at("subsetor", setor_index)
+
+    def _structure_new_at(self, kind: str, setor_index: int | None) -> None:
         if not self.can_publish:
             return
         self.structure.dirty = True
@@ -779,22 +798,126 @@ class SuiteApp:
             self.structure.setores.append(DraftSetor(nome="Novo setor"))
             self.structure.sel = f"s:{len(self.structure.setores) - 1}"
         elif kind == "subsetor":
+            si = setor_index
             sel = self.structure.sel or ""
-            si = None
-            if sel.startswith("s:"):
-                si = int(sel.split(":")[1])
-            elif sel.startswith("sub:"):
-                si = int(sel.split(":")[1])
-            elif self.structure.setores:
-                si = len(self.structure.setores) - 1
+            if si is None:
+                if sel.startswith("s:"):
+                    si = int(sel.split(":")[1])
+                elif sel.startswith("sub:"):
+                    si = int(sel.split(":")[1])
+                elif self.structure.setores:
+                    si = len(self.structure.setores) - 1
             if si is None:
                 self.structure.message = "Crie um setor antes do sub-setor."
                 self._render()
+                return
+            if si < 0 or si >= len(self.structure.setores):
                 return
             setor = self.structure.setores[si]
             setor.sub_setores.append(DraftSubSetor(nome="Novo sub-setor"))
             self.structure.sel = f"sub:{si}:{len(setor.sub_setores) - 1}"
         self._render()
+
+    def _structure_delete(self, sel: str) -> None:
+        if not self.can_publish or self.structure.busy:
+            return
+        label = "este item"
+        if sel.startswith("s:"):
+            try:
+                s = self.structure.setores[int(sel.split(":")[1])]
+                label = f"o setor \"{s.nome or s.id or 'Setor'}\""
+            except (IndexError, ValueError):
+                return
+        elif sel.startswith("sub:"):
+            try:
+                _, si, subi = sel.split(":")
+                sub = self.structure.setores[int(si)].sub_setores[int(subi)]
+                label = f"o sub-setor \"{sub.nome or sub.id or 'Sub-setor'}\""
+            except (IndexError, ValueError):
+                return
+        else:
+            return
+        self._confirm_dialog(
+            "Excluir?",
+            f"Excluir {label}? Sim atualiza o catalog.json agora. Nao cancela.",
+            lambda: self._structure_delete_confirmed(sel),
+        )
+
+    def _structure_delete_confirmed(self, sel: str) -> None:
+        if not self.can_publish or self.structure.busy:
+            return
+        remote = False
+        try:
+            if sel.startswith("s:"):
+                i = int(sel.split(":")[1])
+                setor = self.structure.setores[i]
+                remote = bool(setor.orig_id)
+                del self.structure.setores[i]
+                self.structure.sel = ""
+            elif sel.startswith("sub:"):
+                _, si, subi = sel.split(":")
+                si_i, sub_i = int(si), int(subi)
+                sub = self.structure.setores[si_i].sub_setores[sub_i]
+                remote = bool(sub.orig_id)
+                del self.structure.setores[si_i].sub_setores[sub_i]
+                self.structure.sel = f"s:{si_i}"
+            else:
+                return
+        except (IndexError, ValueError):
+            return
+        self.structure.dirty = True
+        if remote:
+            self._structure_save()
+        else:
+            self._render()
+
+    def _confirm_dialog(self, title: str, body: str, on_yes) -> None:
+        dlg_holder: dict = {}
+
+        def _close(_e=None) -> None:
+            dlg = dlg_holder.get("dlg")
+            pop = getattr(self.page, "pop_dialog", None)
+            if callable(pop):
+                try:
+                    pop()
+                    return
+                except Exception:
+                    pass
+            if dlg is not None:
+                try:
+                    dlg.open = False
+                    self.page.update()
+                except Exception:
+                    pass
+
+        def _yes(e) -> None:
+            _close()
+            on_yes()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(title),
+            content=ft.Text(body),
+            actions=[
+                ft.TextButton(content="Nao", on_click=_close),
+                ft.FilledButton(content="Sim", on_click=_yes),
+            ],
+        )
+        dlg_holder["dlg"] = dlg
+        show = getattr(self.page, "show_dialog", None)
+        if callable(show):
+            show(dlg)
+            return
+        open_fn = getattr(self.page, "open", None)
+        if callable(open_fn):
+            open_fn(dlg)
+            return
+        try:
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.page.update()
+        except Exception:
+            on_yes()
 
     def _structure_save(self) -> None:
         if not self.can_publish or self.structure.busy:
@@ -1050,6 +1173,14 @@ class SuiteApp:
 
     # ------------------------------------------------------------------
     def _render(self) -> None:
+        self.publish_form.hold_scroll = True
+        self.structure.hold_scroll = True
+        scroll_snap = (
+            self.publish_form.select_scroll,
+            self.publish_form.edit_scroll,
+            self.structure.select_scroll,
+            self.structure.edit_scroll,
+        )
         fav_ids = self._favorite_ids()
         has_favs = self._has_visible_favorites()
         if self.show_favorites and not has_favs:
@@ -1121,8 +1252,14 @@ class SuiteApp:
                 on_structure_field=self._structure_field,
                 on_structure_toggle_app=self._structure_toggle_app,
                 on_structure_new=self._structure_new,
+                on_structure_new_subsetor=self._structure_new_subsetor,
+                on_structure_delete=self._structure_delete,
                 on_structure_save=self._structure_save,
                 on_structure_reopen=self._publish_reopen,
+                publish_select_scroll_ref=self._scroll_pub_sel,
+                publish_edit_scroll_ref=self._scroll_pub_edit,
+                structure_select_scroll_ref=self._scroll_str_sel,
+                structure_edit_scroll_ref=self._scroll_str_edit,
             )
         elif self.selected_id is not None:
             app = self.apps_by_id.get(self.selected_id)
@@ -1227,6 +1364,71 @@ class SuiteApp:
             self.page.update()
         except Exception:
             pass
+        self._restore_form_scroll(scroll_snap)
+
+    def _restore_form_scroll(self, snap: tuple[float, float, float, float]) -> None:
+        pub_sel, pub_edit, str_sel, str_edit = snap
+        self.publish_form.select_scroll = pub_sel
+        self.publish_form.edit_scroll = pub_edit
+        self.structure.select_scroll = str_sel
+        self.structure.edit_scroll = str_edit
+        if not (self.show_publish and self.can_publish):
+            self.publish_form.hold_scroll = False
+            self.structure.hold_scroll = False
+            return
+        if self.catalog_tab == "estrutura":
+            pairs = [
+                (self._scroll_str_sel, str_sel),
+                (self._scroll_str_edit, str_edit),
+            ]
+        else:
+            pairs = [
+                (self._scroll_pub_sel, pub_sel),
+                (self._scroll_pub_edit, pub_edit),
+            ]
+        pending = 0
+        for ref, offset in pairs:
+            col = getattr(ref, "current", None)
+            if col is None:
+                continue
+            try:
+                off = float(offset or 0)
+            except (TypeError, ValueError):
+                off = 0.0
+            if off <= 0:
+                continue
+            pending += 1
+            try:
+                self.page.run_task(self._scroll_column_to, col, off)
+            except Exception:
+                try:
+                    col.scroll_to(offset=off, duration=0)
+                except Exception:
+                    pending -= 1
+        self._scroll_jobs = pending
+        if pending <= 0:
+            self.publish_form.hold_scroll = False
+            self.structure.hold_scroll = False
+
+    async def _scroll_column_to(self, col, offset: float):
+        try:
+            try:
+                await col.scroll_to(offset=offset, duration=0)
+            except TypeError:
+                try:
+                    await col.scroll_to(offset=offset)
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    col.scroll_to(offset=offset, duration=0)
+                except Exception:
+                    pass
+        finally:
+            self._scroll_jobs = getattr(self, "_scroll_jobs", 1) - 1
+            if self._scroll_jobs <= 0:
+                self.publish_form.hold_scroll = False
+                self.structure.hold_scroll = False
 
 
 def _window_event_name(e) -> str:

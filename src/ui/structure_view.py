@@ -7,9 +7,11 @@ import flet as ft
 
 import config
 from models import CatalogData
-from services.catalog_publish import DraftGerencia, StructureFormState
+from services.catalog_publish import StructureFormState
 from ui.progress_util import bar_value, label as progress_label
-from ui.publish_view import field_kwargs, form_section, option7_row
+from ui.publish_view import _remember_scroll, field_kwargs, form_section, option7_row
+
+_DEL_ICON = getattr(ft.Icons, "DELETE", None) or getattr(ft.Icons, "DELETE_FOREVER", ft.Icons.CLOSE)
 
 
 def _node(
@@ -56,22 +58,49 @@ def _apps_side(catalog: CatalogData, app_ids: list[str]) -> ft.Control:
     return ft.Row(wrap=True, spacing=6, run_spacing=6, controls=chips)
 
 
+def _icon_btn(icon, tooltip: str, on_click: Callable[[], None]) -> ft.Control:
+    attempts = [
+        {
+            "icon": icon,
+            "icon_size": 18,
+            "icon_color": config.COLOR_ACCENT,
+            "tooltip": tooltip,
+            "on_click": lambda e: on_click(),
+        },
+        {
+            "icon": icon,
+            "icon_color": config.COLOR_ACCENT,
+            "on_click": lambda e: on_click(),
+        },
+    ]
+    for kwargs in attempts:
+        try:
+            return ft.IconButton(**kwargs)
+        except TypeError:
+            continue
+    return ft.OutlinedButton(content=tooltip, on_click=lambda e: on_click())
+
+
 def _tree_row(
     node: ft.Control,
     catalog: CatalogData,
     app_ids: list[str],
     *,
     indent: int = 0,
+    actions: list[ft.Control] | None = None,
 ) -> ft.Control:
+    row_controls: list[ft.Control] = [
+        ft.Container(width=240, content=node),
+    ]
+    if actions:
+        row_controls.append(ft.Row(spacing=2, controls=actions))
+    row_controls.append(ft.Container(expand=True, content=_apps_side(catalog, app_ids)))
     return ft.Container(
         margin=ft.Margin.only(left=indent),
         content=ft.Row(
-            spacing=12,
+            spacing=8,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Container(width=240, content=node),
-                ft.Container(expand=True, content=_apps_side(catalog, app_ids)),
-            ],
+            controls=row_controls,
         ),
     )
 
@@ -89,9 +118,8 @@ def _setor_apps(catalog: CatalogData, setor_id: str, sub_id: str = "") -> list[s
     return out
 
 
-def _apps_sem_gerencia(catalog: CatalogData, gerencias: list[DraftGerencia]) -> list[str]:
-    assigned = {aid for g in gerencias for aid in g.apps}
-    return [a.id for a in catalog.apps if a.id not in assigned]
+def _all_app_ids(catalog: CatalogData) -> list[str]:
+    return [a.id for a in catalog.apps]
 
 
 def build_structure_form(
@@ -102,8 +130,12 @@ def build_structure_form(
     on_field: Callable[[str, str], None],
     on_toggle_app: Callable[[str, bool], None],
     on_new: Callable[[str], None],
+    on_new_subsetor: Callable[[int], None],
+    on_delete: Callable[[str], None],
     on_save: Callable[[], None],
     on_reopen: Callable[[], None],
+    select_scroll_ref: ft.Ref | None = None,
+    edit_scroll_ref: ft.Ref | None = None,
 ) -> ft.Control:
     tree: list[ft.Control] = [
         ft.Text("Gerencias", size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
@@ -116,12 +148,12 @@ def build_structure_form(
         _tree_row(
             _node(
                 f"(Geral) — {form.gerencia_geral or 'Geral'}",
-                "catalog default / sem gerencia especifica",
+                "lista completa do catalogo",
                 selected=form.sel == "geral",
                 on_click=lambda: on_select("geral"),
             ),
             catalog,
-            _apps_sem_gerencia(catalog, form.gerencias),
+            _all_app_ids(catalog),
         ),
     ]
     for i, g in enumerate(form.gerencias):
@@ -146,11 +178,6 @@ def build_structure_form(
                 spacing=8,
                 controls=[
                     ft.OutlinedButton(content="Novo setor", icon=ft.Icons.ADD, on_click=lambda e: on_new("setor")),
-                    ft.OutlinedButton(
-                        content="Novo sub-setor",
-                        icon=ft.Icons.ADD,
-                        on_click=lambda e: on_new("subsetor"),
-                    ),
                 ],
             ),
         ]
@@ -167,6 +194,10 @@ def build_structure_form(
                 ),
                 catalog,
                 _setor_apps(catalog, s.orig_id or s.id),
+                actions=[
+                    _icon_btn(ft.Icons.ADD, "Novo sub-setor", lambda i=si: on_new_subsetor(i)),
+                    _icon_btn(_DEL_ICON, "Excluir setor", lambda k=skey: on_delete(k)),
+                ],
             )
         )
         for subi, sub in enumerate(s.sub_setores):
@@ -182,6 +213,9 @@ def build_structure_form(
                     catalog,
                     _setor_apps(catalog, s.orig_id or s.id, sub.orig_id or sub.id),
                     indent=20,
+                    actions=[
+                        _icon_btn(_DEL_ICON, "Excluir sub-setor", lambda k=subkey: on_delete(k)),
+                    ],
                 )
             )
 
@@ -189,12 +223,15 @@ def build_structure_form(
         "Selecionar ou adicionar",
         [
             ft.Text(
-                "Arvore do catalog.json. Apps de cada no aparecem a direita.",
+                "Arvore do catalog.json. Apps de cada no aparecem a direita. (Geral) mostra todos.",
                 size=13,
                 color="#8AA797",
             ),
             *tree,
         ],
+        scroll_offset=form.select_scroll,
+        on_scroll_offset=lambda v: _remember_scroll(form, "select_scroll", v),
+        scroll_ref=select_scroll_ref,
     )
     editor = _editor(catalog, form, on_field=on_field, on_toggle_app=on_toggle_app)
     lower = form_section(
@@ -229,6 +266,9 @@ def build_structure_form(
                 ],
             ),
         ],
+        scroll_offset=form.edit_scroll,
+        on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
+        scroll_ref=edit_scroll_ref,
     )
     return ft.Column(expand=True, spacing=12, controls=[upper, lower])
 
@@ -258,7 +298,9 @@ def _editor(
                     changed=changed,
                 ),
                 ft.Text(
-                    "Opcao vazia do filtro de gerencia (gerencia_geral). Apps sem gerencia aparecem a direita.",
+                    "Opcao vazia do filtro de gerencia (gerencia_geral). "
+                    "A direita desta sessao, (Geral) lista todos os apps do catalogo — "
+                    "atribuir a uma gerencia nao remove daqui.",
                     size=12,
                     color="#8AA797",
                 ),

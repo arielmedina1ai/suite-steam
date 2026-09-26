@@ -47,6 +47,9 @@ class PublishFormState:
     current_download: str = ""
     current_capa: str = ""
     current_icone: str = ""
+    select_scroll: float = 0.0
+    edit_scroll: float = 0.0
+    hold_scroll: bool = False
     original_gerencia_id: str = ""
     folder_choice: str = ROOT_FOLDER
     new_folder_name: str = ""
@@ -76,6 +79,8 @@ class PublishFormState:
             "app_path": "",
             "capa_path": "",
             "icone_path": "",
+            "current_capa": self.current_capa,
+            "current_icone": self.current_icone,
         }
 
     def is_changed(self, key: str) -> bool:
@@ -167,6 +172,9 @@ class StructureFormState:
     message: str = ""
     progress: float | None = None
     dirty: bool = False
+    select_scroll: float = 0.0
+    edit_scroll: float = 0.0
+    hold_scroll: bool = False
 
 
 @dataclass
@@ -192,6 +200,14 @@ def fingerprint_cache_file() -> str:
         return ""
 
 
+def catalog_http_url(value: str) -> str:
+    """URL http(s) de catalog.json; ignora path local de cache de midia."""
+    raw = (value or "").strip()
+    if raw.lower().startswith(("http://", "https://")):
+        return raw
+    return ""
+
+
 def catalog_json_media_urls(app_id: str) -> tuple[str, str]:
     """Le `imagem` e `icone` do catalog.json em cache (nao do path local de midia)."""
     path = config.CATALOG_CACHE_FILE
@@ -209,7 +225,7 @@ def catalog_json_media_urls(app_id: str) -> tuple[str, str]:
             continue
         if str(item.get("id") or "").strip() != alvo:
             continue
-        return str(item.get("imagem") or "").strip(), str(item.get("icone") or "").strip()
+        return catalog_http_url(str(item.get("imagem") or "")), catalog_http_url(str(item.get("icone") or ""))
     return "", ""
 
 
@@ -547,8 +563,8 @@ def publish_app(
 
     tipo = (form.tipo or current.get("tipo") or "exe").strip().lower() or "exe"
     download_url = str(current.get("download_url") or form.current_download or "").strip()
-    imagem = str(current.get("imagem") or form.current_capa or "").strip()
-    icone_url = str(current.get("icone") or form.current_icone or "").strip()
+    imagem = catalog_http_url(form.current_capa) or catalog_http_url(str(current.get("imagem") or ""))
+    icone_url = catalog_http_url(form.current_icone) or catalog_http_url(str(current.get("icone") or ""))
     imagem_versao = str(current.get("imagem_versao") or "1")
     icone_versao = str(current.get("icone_versao") or "1")
 
@@ -880,6 +896,14 @@ def save_catalog_structure(
     if not isinstance(data, dict):
         return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
 
+    live_setor_ids = {s.id for s in form.setores}
+    kept_setor_orig = {s.orig_id for s in form.setores if s.orig_id}
+    kept_sub_orig = {
+        (s.orig_id, sub.orig_id)
+        for s in form.setores
+        for sub in s.sub_setores
+        if s.orig_id and sub.orig_id
+    }
     apps = data.get("apps")
     if isinstance(apps, list):
         for item in apps:
@@ -889,9 +913,15 @@ def save_catalog_structure(
             old_sub = str(item.get("sub_setor") or "").strip()
             if old_setor in setor_map:
                 item["setor"] = setor_map[old_setor]
+            elif old_setor and old_setor not in kept_setor_orig and old_setor not in live_setor_ids:
+                item["setor"] = ""
+                item["sub_setor"] = ""
+                old_sub = ""
             mapped_sub = sub_map.get((old_setor, old_sub))
             if mapped_sub:
                 item["sub_setor"] = mapped_sub
+            elif old_sub and (old_setor, old_sub) not in kept_sub_orig:
+                item["sub_setor"] = ""
 
     geral = (form.gerencia_geral or "").strip() or "Geral"
     data["gerencia_geral"] = geral
