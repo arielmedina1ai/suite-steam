@@ -141,6 +141,51 @@ def _upload_named(
             pass
 
 
+def replace_existing_file(
+    local: Path,
+    existing_url: str,
+    progress: ProgressCb | None = None,
+) -> tuple[bool, str]:
+    """Sobrescreve o arquivo ja referenciado no catalogo (pasta+nome ou UniqueId)."""
+    url = (existing_url or "").strip()
+    if not url:
+        return False, "Nao ha link compartilhado para substituir."
+    try:
+        info = parsear_link_sharepoint(url)
+    except ValueError as exc:
+        return False, f"Link remoto nao reconhecido para substituir: {exc}"
+    if info.get("tipo") == "unique_id":
+        result = enviar_por_unique_id(
+            local,
+            site_url=str(info.get("site_url") or ""),
+            unique_id=str(info.get("unique_id") or ""),
+            progress=progress,
+        )
+        if not result.ok:
+            return False, result.message or "Falha ao substituir pelo UniqueId."
+        return True, url
+    dest_name = str(info.get("nome_arquivo") or "").strip()
+    dest_name = Path(dest_name.replace("\\", "/")).name if dest_name else ""
+    if not dest_name or dest_name in {".", ".."}:
+        return False, "Link remoto sem nome de arquivo para substituir."
+    staged = _copy_named(local, dest_name)
+    try:
+        result = enviar_para_sharepoint(
+            staged,
+            url,
+            nome_arquivo=dest_name,
+            progress=progress,
+        )
+        if not result.ok:
+            return False, result.message or "Falha ao substituir o arquivo remoto."
+        return True, url
+    finally:
+        try:
+            shutil.rmtree(staged.parent, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def _app_kind(tipo: str) -> str:
     t = (tipo or "exe").strip().lower()
     if t in {"xlsx", "xlsm"}:
@@ -270,13 +315,7 @@ def publish_app(
         if path is not None and not path.is_file():
             return PublishOutcome(ok=False, message=f"Arquivo de {label} nao encontrado.")
 
-    needs_upload = any(p is not None for p in (app_path, capa, icone))
     folder_url = (config.PUBLISH_FOLDER_URL or "").strip()
-    if needs_upload and not folder_url:
-        return PublishOutcome(
-            ok=False,
-            message="publish.folder_url nao configurado no settings.json.",
-        )
 
     report(-1.0, "Relendo catalogo remoto...")
     text, err = fetch_remote_catalog_text(progress=report)
@@ -313,20 +352,34 @@ def publish_app(
             break
 
     tipo = (form.tipo or current.get("tipo") or "exe").strip().lower() or "exe"
-    download_url = str(current.get("download_url") or "").strip()
-    imagem = str(current.get("imagem") or "").strip()
-    icone_url = str(current.get("icone") or "").strip()
+    download_url = str(current.get("download_url") or form.current_download or "").strip()
+    imagem = str(current.get("imagem") or form.current_capa or "").strip()
+    icone_url = str(current.get("icone") or form.current_icone or "").strip()
     imagem_versao = str(current.get("imagem_versao") or "1")
     icone_versao = str(current.get("icone_versao") or "1")
 
+    needs_new_remote = any(
+        local is not None and not existing
+        for local, existing in (
+            (app_path, download_url),
+            (capa, imagem),
+            (icone, icone_url),
+        )
+    )
+    if needs_new_remote and not folder_url:
+        return PublishOutcome(
+            ok=False,
+            message="publish.folder_url nao configurado no settings.json.",
+        )
+
     folder_meta = None
-    if needs_upload:
+    if needs_new_remote:
         try:
             folder_meta = _folder_info(folder_url)
         except ValueError as exc:
             return PublishOutcome(ok=False, message=str(exc))
 
-    def _put(local: Path, dest_name: str, kind: str, msg: str) -> tuple[bool, str]:
+    def _put_new(local: Path, dest_name: str, kind: str, msg: str) -> tuple[bool, str]:
         report(-1.0, msg)
         ok, message = _upload_named(local, dest_name, folder_url, report)
         if not ok:
@@ -340,22 +393,34 @@ def publish_app(
         )
         return True, url
 
+    def _send(local: Path, existing: str, dest_name: str, kind: str, msg: str) -> tuple[bool, str]:
+        if existing:
+            report(-1.0, msg)
+            return replace_existing_file(local, existing, report)
+        return _put_new(local, dest_name, kind, msg)
+
     if app_path is not None:
         dest_name = f"{app_id}{_ext_for_tipo(tipo, app_path)}"
-        ok, payload = _put(app_path, dest_name, _app_kind(tipo), f"Enviando {dest_name}...")
+        ok, payload = _send(
+            app_path,
+            download_url,
+            dest_name,
+            _app_kind(tipo),
+            "Enviando arquivo do aplicativo...",
+        )
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload do aplicativo.")
         download_url = payload
     if capa is not None:
         dest_name = f"{app_id}-capa{capa.suffix.lower() or '.png'}"
-        ok, payload = _put(capa, dest_name, "image", "Enviando capa...")
+        ok, payload = _send(capa, imagem, dest_name, "image", "Enviando capa...")
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload da capa.")
         imagem = payload
         imagem_versao = bump_media_version(imagem_versao)
     if icone is not None:
         dest_name = f"{app_id}-icone{icone.suffix.lower() or '.png'}"
-        ok, payload = _put(icone, dest_name, "image", "Enviando icone...")
+        ok, payload = _send(icone, icone_url, dest_name, "image", "Enviando icone...")
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload do icone.")
         icone_url = payload
