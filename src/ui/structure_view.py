@@ -9,7 +9,7 @@ import config
 from models import CatalogData
 from services.catalog_publish import DraftGerencia, StructureFormState
 from ui.progress_util import bar_value, label as progress_label
-from ui.publish_view import field_kwargs, option7_row
+from ui.publish_view import field_kwargs, form_section, option7_row
 
 
 def _node(
@@ -17,11 +17,9 @@ def _node(
     subtitle: str,
     *,
     selected: bool,
-    indent: int,
     on_click: Callable[[], None],
 ) -> ft.Control:
     return ft.Container(
-        margin=ft.Margin.only(left=indent),
         bgcolor=config.COLOR_PRIMARY_DARK if selected else config.COLOR_BG,
         border_radius=8,
         padding=ft.Padding.symmetric(horizontal=10, vertical=8),
@@ -47,7 +45,7 @@ def _app_chip(nome: str) -> ft.Control:
     )
 
 
-def _apps_row(catalog: CatalogData, app_ids: list[str]) -> ft.Control:
+def _apps_side(catalog: CatalogData, app_ids: list[str]) -> ft.Control:
     by_id = {a.id: a for a in catalog.apps}
     chips: list[ft.Control] = []
     for aid in app_ids:
@@ -55,9 +53,26 @@ def _apps_row(catalog: CatalogData, app_ids: list[str]) -> ft.Control:
         chips.append(_app_chip(app.nome if app is not None else aid))
     if not chips:
         chips.append(ft.Text("nenhum app", size=11, color="#8AA797"))
+    return ft.Row(wrap=True, spacing=6, run_spacing=6, controls=chips)
+
+
+def _tree_row(
+    node: ft.Control,
+    catalog: CatalogData,
+    app_ids: list[str],
+    *,
+    indent: int = 0,
+) -> ft.Control:
     return ft.Container(
-        padding=ft.Padding.only(left=12, top=4, bottom=8),
-        content=ft.Row(wrap=True, spacing=6, run_spacing=6, controls=chips),
+        margin=ft.Margin.only(left=indent),
+        content=ft.Row(
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(width=240, content=node),
+                ft.Container(expand=True, content=_apps_side(catalog, app_ids)),
+            ],
+        ),
     )
 
 
@@ -98,27 +113,31 @@ def build_structure_form(
                 ft.OutlinedButton(content="Nova gerencia", icon=ft.Icons.ADD, on_click=lambda e: on_new("gerencia")),
             ],
         ),
-        _node(
-            f"(Geral) — {form.gerencia_geral or 'Geral'}",
-            "catalog default / sem gerencia especifica",
-            selected=form.sel == "geral",
-            indent=0,
-            on_click=lambda: on_select("geral"),
+        _tree_row(
+            _node(
+                f"(Geral) — {form.gerencia_geral or 'Geral'}",
+                "catalog default / sem gerencia especifica",
+                selected=form.sel == "geral",
+                on_click=lambda: on_select("geral"),
+            ),
+            catalog,
+            _apps_sem_gerencia(catalog, form.gerencias),
         ),
-        _apps_row(catalog, _apps_sem_gerencia(catalog, form.gerencias)),
     ]
     for i, g in enumerate(form.gerencias):
         key = f"g:{i}"
         tree.append(
-            _node(
-                g.nome or g.id or "Gerencia",
-                g.id,
-                selected=form.sel == key,
-                indent=0,
-                on_click=lambda k=key: on_select(k),
+            _tree_row(
+                _node(
+                    g.nome or g.id or "Gerencia",
+                    g.id,
+                    selected=form.sel == key,
+                    on_click=lambda k=key: on_select(k),
+                ),
+                catalog,
+                g.apps,
             )
         )
-        tree.append(_apps_row(catalog, g.apps))
 
     tree.extend(
         [
@@ -139,45 +158,48 @@ def build_structure_form(
     for si, s in enumerate(form.setores):
         skey = f"s:{si}"
         tree.append(
-            _node(
-                s.nome or s.id or "Setor",
-                s.id,
-                selected=form.sel == skey,
-                indent=0,
-                on_click=lambda k=skey: on_select(k),
+            _tree_row(
+                _node(
+                    s.nome or s.id or "Setor",
+                    s.id,
+                    selected=form.sel == skey,
+                    on_click=lambda k=skey: on_select(k),
+                ),
+                catalog,
+                _setor_apps(catalog, s.orig_id or s.id),
             )
         )
-        tree.append(_apps_row(catalog, _setor_apps(catalog, s.orig_id or s.id)))
         for subi, sub in enumerate(s.sub_setores):
             subkey = f"sub:{si}:{subi}"
             tree.append(
-                _node(
-                    sub.nome or sub.id or "Sub-setor",
-                    sub.id,
-                    selected=form.sel == subkey,
+                _tree_row(
+                    _node(
+                        sub.nome or sub.id or "Sub-setor",
+                        sub.id,
+                        selected=form.sel == subkey,
+                        on_click=lambda k=subkey: on_select(k),
+                    ),
+                    catalog,
+                    _setor_apps(catalog, s.orig_id or s.id, sub.orig_id or sub.id),
                     indent=20,
-                    on_click=lambda k=subkey: on_select(k),
-                )
-            )
-            tree.append(
-                ft.Container(
-                    padding=ft.Padding.only(left=20),
-                    content=_apps_row(catalog, _setor_apps(catalog, s.orig_id or s.id, sub.orig_id or sub.id)),
                 )
             )
 
-    editor = _editor(catalog, form, on_field=on_field, on_toggle_app=on_toggle_app)
-    return ft.Column(
-        spacing=14,
-        tight=True,
-        controls=[
+    upper = form_section(
+        "Selecionar ou adicionar",
+        [
             ft.Text(
-                "Arvore do catalog.json: gerencia, setor, sub-setor e os apps em cada ponto.",
+                "Arvore do catalog.json. Apps de cada no aparecem a direita.",
                 size=13,
                 color="#8AA797",
             ),
             *tree,
-            ft.Divider(color="#22332B"),
+        ],
+    )
+    editor = _editor(catalog, form, on_field=on_field, on_toggle_app=on_toggle_app)
+    lower = form_section(
+        "Editar",
+        [
             editor,
             ft.ProgressBar(
                 value=bar_value(form.progress),
@@ -208,6 +230,7 @@ def build_structure_form(
             ),
         ],
     )
+    return ft.Column(spacing=14, tight=True, controls=[upper, lower])
 
 
 def _editor(
@@ -217,9 +240,9 @@ def _editor(
     on_field: Callable[[str, str], None],
     on_toggle_app: Callable[[str, bool], None],
 ) -> ft.Control:
-    kw = field_kwargs()
     sel = form.sel or ""
     if sel == "geral" or not sel:
+        changed = form.gerencia_geral != form.orig_gerencia_geral
         return ft.Column(
             spacing=10,
             tight=True,
@@ -227,10 +250,15 @@ def _editor(
                 ft.Text("Geral", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
                 option7_row(
                     "Rotulo Geral",
-                    ft.TextField(value=form.gerencia_geral, on_change=lambda e: on_field("gerencia_geral", e.control.value or ""), **kw),
+                    ft.TextField(
+                        value=form.gerencia_geral,
+                        on_change=lambda e: on_field("gerencia_geral", e.control.value or ""),
+                        **field_kwargs(changed=changed),
+                    ),
+                    changed=changed,
                 ),
                 ft.Text(
-                    "Opcao vazia do filtro de gerencia (gerencia_geral). Apps sem gerencia aparecem acima.",
+                    "Opcao vazia do filtro de gerencia (gerencia_geral). Apps sem gerencia aparecem a direita.",
                     size=12,
                     color="#8AA797",
                 ),
@@ -240,6 +268,7 @@ def _editor(
     if sel.startswith("g:"):
         idx = int(sel.split(":")[1])
         g = form.gerencias[idx]
+        apps_changed = g.is_changed("apps")
         checks = [
             ft.Checkbox(
                 label=app.nome,
@@ -253,8 +282,24 @@ def _editor(
             tight=True,
             controls=[
                 ft.Text("Gerencia", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                option7_row("id", ft.TextField(value=g.id, on_change=lambda e: on_field("id", e.control.value or ""), **kw)),
-                option7_row("Nome", ft.TextField(value=g.nome, on_change=lambda e: on_field("nome", e.control.value or ""), **kw)),
+                option7_row(
+                    "id",
+                    ft.TextField(
+                        value=g.id,
+                        on_change=lambda e: on_field("id", e.control.value or ""),
+                        **field_kwargs(changed=g.is_changed("id")),
+                    ),
+                    changed=g.is_changed("id"),
+                ),
+                option7_row(
+                    "Nome",
+                    ft.TextField(
+                        value=g.nome,
+                        on_change=lambda e: on_field("nome", e.control.value or ""),
+                        **field_kwargs(changed=g.is_changed("nome")),
+                    ),
+                    changed=g.is_changed("nome"),
+                ),
                 option7_row(
                     "Descricao",
                     ft.TextField(
@@ -263,12 +308,25 @@ def _editor(
                         min_lines=2,
                         max_lines=5,
                         on_change=lambda e: on_field("descricao", e.control.value or ""),
-                        **kw,
+                        **field_kwargs(changed=g.is_changed("descricao")),
                     ),
                     align=ft.CrossAxisAlignment.START,
+                    changed=g.is_changed("descricao"),
                 ),
-                ft.Text("Apps nesta gerencia", size=13, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                *checks,
+                ft.Container(
+                    bgcolor="#2A3820" if apps_changed else None,
+                    border_radius=8,
+                    padding=8 if apps_changed else 0,
+                    border=ft.Border(left=ft.BorderSide(3, config.COLOR_ACCENT)) if apps_changed else None,
+                    content=ft.Column(
+                        spacing=6,
+                        tight=True,
+                        controls=[
+                            ft.Text("Apps nesta gerencia", size=13, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
+                            *checks,
+                        ],
+                    ),
+                ),
             ],
         )
 
@@ -281,8 +339,24 @@ def _editor(
             tight=True,
             controls=[
                 ft.Text(f"Sub-setor de {s.nome or s.id}", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                option7_row("id", ft.TextField(value=sub.id, on_change=lambda e: on_field("id", e.control.value or ""), **kw)),
-                option7_row("Nome", ft.TextField(value=sub.nome, on_change=lambda e: on_field("nome", e.control.value or ""), **kw)),
+                option7_row(
+                    "id",
+                    ft.TextField(
+                        value=sub.id,
+                        on_change=lambda e: on_field("id", e.control.value or ""),
+                        **field_kwargs(changed=sub.is_changed("id")),
+                    ),
+                    changed=sub.is_changed("id"),
+                ),
+                option7_row(
+                    "Nome",
+                    ft.TextField(
+                        value=sub.nome,
+                        on_change=lambda e: on_field("nome", e.control.value or ""),
+                        **field_kwargs(changed=sub.is_changed("nome")),
+                    ),
+                    changed=sub.is_changed("nome"),
+                ),
                 option7_row(
                     "Descricao",
                     ft.TextField(
@@ -291,9 +365,10 @@ def _editor(
                         min_lines=2,
                         max_lines=5,
                         on_change=lambda e: on_field("descricao", e.control.value or ""),
-                        **kw,
+                        **field_kwargs(changed=sub.is_changed("descricao")),
                     ),
                     align=ft.CrossAxisAlignment.START,
+                    changed=sub.is_changed("descricao"),
                 ),
             ],
         )
@@ -305,8 +380,24 @@ def _editor(
             tight=True,
             controls=[
                 ft.Text("Setor", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                option7_row("id", ft.TextField(value=s.id, on_change=lambda e: on_field("id", e.control.value or ""), **kw)),
-                option7_row("Nome", ft.TextField(value=s.nome, on_change=lambda e: on_field("nome", e.control.value or ""), **kw)),
+                option7_row(
+                    "id",
+                    ft.TextField(
+                        value=s.id,
+                        on_change=lambda e: on_field("id", e.control.value or ""),
+                        **field_kwargs(changed=s.is_changed("id")),
+                    ),
+                    changed=s.is_changed("id"),
+                ),
+                option7_row(
+                    "Nome",
+                    ft.TextField(
+                        value=s.nome,
+                        on_change=lambda e: on_field("nome", e.control.value or ""),
+                        **field_kwargs(changed=s.is_changed("nome")),
+                    ),
+                    changed=s.is_changed("nome"),
+                ),
                 option7_row(
                     "Descricao",
                     ft.TextField(
@@ -315,9 +406,10 @@ def _editor(
                         min_lines=2,
                         max_lines=5,
                         on_change=lambda e: on_field("descricao", e.control.value or ""),
-                        **kw,
+                        **field_kwargs(changed=s.is_changed("descricao")),
                     ),
                     align=ft.CrossAxisAlignment.START,
+                    changed=s.is_changed("descricao"),
                 ),
             ],
         )

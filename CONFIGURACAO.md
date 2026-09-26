@@ -69,7 +69,9 @@ O unico link sensivel necessario no PC e `catalog.remote_url` (PnP + WebLogin).
 
 `publish.users`: logins Windows (`DOMINIO\usuario` ou `usuario`), comparacao sem
 maiusculas. Lista vazia ou ausente: ninguem ve **Catalogo**. Nao use e-mail nem
-grupo do SharePoint. `publish.folder_url`: pasta onde sobem exe/planilha/capa/icone.
+grupo do SharePoint. `publish.folder_url`: pasta raiz; na aba Publicar o Arquivo
+escolhe uma subpasta (ou cria uma) para o upload. Capa/icone usam a raiz, salvo
+substituicao no mesmo destino.
 O `catalog.json` continua em `catalog.remote_url`. Trocar a lista exige novo `.exe`.
 
 ---

@@ -57,6 +57,11 @@ def _template_upload_by_id() -> Path:
     return _scripts_dir() / "template_sp_upload_by_id.ps1"
 
 
+def _template_list_folders() -> Path:
+    name = getattr(config, "SHAREPOINT_LIST_FOLDERS_SCRIPT", "template_sp_list_folders.ps1")
+    return _scripts_dir() / name
+
+
 @dataclass
 class SharePointResult:
     ok: bool
@@ -630,3 +635,69 @@ def enviar_por_unique_id(
         message=f"Falha no upload. {log or f'returncode={code}'}",
         stdout=log,
     )
+
+
+def listar_pastas_sharepoint(
+    folder_url: str,
+    progress: ProgressCb | None = None,
+) -> tuple[list[str], str]:
+    """Lista pastas imediatas sob o link de pasta (PnP WebLogin)."""
+    url = (folder_url or "").strip()
+    if not url:
+        return [], "publish.folder_url nao configurado no settings.json."
+    try:
+        info = parsear_link_pasta_sharepoint(url)
+    except ValueError as exc:
+        return [], str(exc)
+    site_url = info.get("site_url") or ""
+    caminho_sp = info.get("caminho_sp") or ""
+    if not site_url or not caminho_sp:
+        return [], "Pasta raiz do SharePoint nao determinada."
+    out_fd, out_file = tempfile.mkstemp(suffix=".json")
+    os.close(out_fd)
+    try:
+        code, stdout, stderr = _run_templated_ps1(
+            _template_list_folders(),
+            {
+                "{{SITE_URL}}": site_url,
+                "{{CAMINHO_SP}}": caminho_sp,
+                "{{OUT_FILE}}": out_file,
+            },
+            progress=progress,
+        )
+    except FileNotFoundError as exc:
+        try:
+            os.unlink(out_file)
+        except OSError:
+            pass
+        return [], str(exc)
+    except Exception as exc:
+        try:
+            os.unlink(out_file)
+        except OSError:
+            pass
+        return [], f"Falha ao listar pastas: {exc}"
+    log = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+    names: list[str] = []
+    try:
+        raw = Path(out_file).read_text(encoding="utf-8-sig")
+        data = json.loads(raw) if raw.strip() else {}
+        folders = data.get("folders") if isinstance(data, dict) else data
+        if isinstance(folders, list):
+            seen: set[str] = set()
+            for item in folders:
+                name = str(item).strip()
+                if name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        elif isinstance(folders, str) and folders.strip():
+            names.append(folders.strip())
+    except (OSError, json.JSONDecodeError):
+        names = []
+    try:
+        os.unlink(out_file)
+    except OSError:
+        pass
+    if code != 0 and not names:
+        return [], log or f"Falha ao listar pastas (returncode={code})."
+    return names, ""

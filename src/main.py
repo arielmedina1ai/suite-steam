@@ -24,7 +24,9 @@ from services.catalog_publish import (
     DraftGerencia,
     DraftSetor,
     DraftSubSetor,
+    KEEP_FOLDER,
     PublishFormState,
+    ROOT_FOLDER,
     StructureFormState,
     fingerprint_cache_file,
     publish_app,
@@ -420,6 +422,7 @@ class SuiteApp:
             self.publish_form.fingerprint = fp
         if not self.structure.fingerprint or not self.structure.dirty:
             self.structure = structure_from_catalog(self.catalog, fp or self.publish_form.fingerprint)
+        self._refresh_publish_folders()
         self._render()
 
     def _catalog_tab(self, tab: str) -> None:
@@ -469,11 +472,55 @@ class SuiteApp:
             return
         self._publish_edit(app_id)
 
+    def _fresh_publish_form(self, **kwargs) -> PublishFormState:
+        folders = list(self.publish_form.folders)
+        ferr = self.publish_form.folders_error
+        fp = kwargs.pop("fingerprint", None) or self.publish_form.fingerprint or fingerprint_cache_file()
+        form = PublishFormState(
+            fingerprint=fp,
+            folders=folders,
+            folders_error=ferr,
+            **kwargs,
+        )
+        if form.editing_id and form.current_download:
+            form.folder_choice = KEEP_FOLDER
+        else:
+            form.folder_choice = ROOT_FOLDER
+        form.capture_baseline()
+        return form
+
+    def _refresh_publish_folders(self, force: bool = False) -> None:
+        if not self.can_publish:
+            return
+        if self.publish_form.folders_busy:
+            return
+        if self.publish_form.folders and not force:
+            return
+        self.publish_form.folders_busy = True
+        self.publish_form.folders_error = ""
+        self._render()
+        self.page.run_thread(self._list_folders_worker)
+
+    def _list_folders_worker(self) -> None:
+        from services.sharepoint_manager import listar_pastas_sharepoint
+
+        names, err = listar_pastas_sharepoint(config.PUBLISH_FOLDER_URL)
+        self.publish_form.folders_busy = False
+        if err:
+            self.publish_form.folders_error = err
+        else:
+            self.publish_form.folders = names
+            self.publish_form.folders_error = ""
+        try:
+            self._render()
+        except Exception:
+            pass
+
     def _publish_new(self) -> None:
         if not self.can_publish:
             return
-        fp = self.publish_form.fingerprint or fingerprint_cache_file()
-        self.publish_form = PublishFormState(fingerprint=fp, show_form=True)
+        self.publish_form = self._fresh_publish_form(show_form=True)
+        self._refresh_publish_folders()
         self._render()
 
     def _publish_edit(self, app_id: str) -> None:
@@ -487,8 +534,7 @@ class SuiteApp:
             if app.id in g.apps:
                 gid = g.id
                 break
-        fp = self.publish_form.fingerprint or fingerprint_cache_file()
-        self.publish_form = PublishFormState(
+        self.publish_form = self._fresh_publish_form(
             editing_id=app.id,
             nome=app.nome,
             descricao=app.descricao,
@@ -503,8 +549,8 @@ class SuiteApp:
             current_icone=app.icone,
             original_gerencia_id=gid,
             show_form=True,
-            fingerprint=fp,
         )
+        self._refresh_publish_folders()
         self._render()
 
     def _publish_field(self, key: str, value: str) -> None:
@@ -518,10 +564,10 @@ class SuiteApp:
             return
         if hasattr(self.publish_form, key):
             setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
+            self._render()
 
     def _publish_cancel(self) -> None:
-        fp = self.publish_form.fingerprint
-        self.publish_form = PublishFormState(fingerprint=fp)
+        self.publish_form = self._fresh_publish_form()
         self._render()
 
     def _publish_reopen(self) -> None:
@@ -541,8 +587,7 @@ class SuiteApp:
         if result.ok:
             self.catalog = result.catalog
             self._apply_gerencia_filter()
-            self.publish_form = PublishFormState(
-                fingerprint=fingerprint_cache_file(),
+            self.publish_form = self._fresh_publish_form(
                 message="Catalogo recarregado. Escolha o aplicativo no menu acima para editar.",
             )
             self.structure = structure_from_catalog(self.catalog, self.publish_form.fingerprint)
@@ -662,7 +707,7 @@ class SuiteApp:
             self.catalog = result.catalog
         self._apply_gerencia_filter()
         fp = result.fingerprint or fingerprint_cache_file()
-        self.publish_form = PublishFormState(
+        self.publish_form = self._fresh_publish_form(
             fingerprint=fp,
             message=result.message,
         )
@@ -696,10 +741,12 @@ class SuiteApp:
         if self.structure.sel == "geral" or key == "gerencia_geral":
             if key == "gerencia_geral":
                 self.structure.gerencia_geral = value
+            self._render()
             return
         target = self._structure_target()
         if target is not None and hasattr(target, key):
             setattr(target, key, value)
+        self._render()
 
     def _structure_toggle_app(self, app_id: str, checked: bool) -> None:
         if not self.can_publish:
@@ -1063,6 +1110,7 @@ class SuiteApp:
                 on_pick=self._publish_pick,
                 on_field=self._publish_field,
                 on_reopen=self._publish_reopen,
+                on_refresh_folders=lambda: self._refresh_publish_folders(True),
                 on_structure_select=self._structure_select,
                 on_structure_field=self._structure_field,
                 on_structure_toggle_app=self._structure_toggle_app,

@@ -25,6 +25,11 @@ from services.sharepoint_manager import (
 ProgressCb = Callable[[float, str], None]
 
 
+KEEP_FOLDER = "__keep__"
+ROOT_FOLDER = "__root__"
+NEW_FOLDER = "__new__"
+
+
 @dataclass
 class PublishFormState:
     editing_id: str | None = None
@@ -43,6 +48,12 @@ class PublishFormState:
     current_capa: str = ""
     current_icone: str = ""
     original_gerencia_id: str = ""
+    folder_choice: str = ROOT_FOLDER
+    new_folder_name: str = ""
+    folders: list[str] = field(default_factory=list)
+    folders_busy: bool = False
+    folders_error: str = ""
+    baseline: dict[str, str] = field(default_factory=dict)
     show_form: bool = True
     fingerprint: str = ""
     busy: bool = False
@@ -50,36 +61,103 @@ class PublishFormState:
     message: str = ""
     progress: float | None = None
 
+    def capture_baseline(self) -> None:
+        self.baseline = {
+            "nome": self.nome,
+            "descricao": self.descricao,
+            "versao": self.versao,
+            "tipo": self.tipo,
+            "gerencia_id": self.gerencia_id,
+            "setor_id": self.setor_id,
+            "sub_setor_id": self.sub_setor_id,
+            "upload_url": self.upload_url,
+            "folder_choice": self.folder_choice,
+            "new_folder_name": self.new_folder_name,
+            "app_path": "",
+            "capa_path": "",
+            "icone_path": "",
+        }
+
+    def is_changed(self, key: str) -> bool:
+        if key in {"app_path", "capa_path", "icone_path"}:
+            return bool((getattr(self, key, "") or "").strip())
+        current = getattr(self, key, "") or ""
+        original = self.baseline.get(key, "") or ""
+        return current != original
+
 
 @dataclass
 class DraftSubSetor:
     orig_id: str = ""
+    orig_nome: str = ""
+    orig_descricao: str = ""
     id: str = ""
     nome: str = ""
     descricao: str = ""
+
+    def is_changed(self, key: str) -> bool:
+        if not self.orig_id:
+            return True
+        if key == "id":
+            return self.id != self.orig_id
+        if key == "nome":
+            return self.nome != self.orig_nome
+        if key == "descricao":
+            return self.descricao != self.orig_descricao
+        return False
 
 
 @dataclass
 class DraftSetor:
     orig_id: str = ""
+    orig_nome: str = ""
+    orig_descricao: str = ""
     id: str = ""
     nome: str = ""
     descricao: str = ""
     sub_setores: list[DraftSubSetor] = field(default_factory=list)
 
+    def is_changed(self, key: str) -> bool:
+        if not self.orig_id:
+            return True
+        if key == "id":
+            return self.id != self.orig_id
+        if key == "nome":
+            return self.nome != self.orig_nome
+        if key == "descricao":
+            return self.descricao != self.orig_descricao
+        return False
+
 
 @dataclass
 class DraftGerencia:
     orig_id: str = ""
+    orig_nome: str = ""
+    orig_descricao: str = ""
+    orig_apps: list[str] = field(default_factory=list)
     id: str = ""
     nome: str = ""
     descricao: str = ""
     apps: list[str] = field(default_factory=list)
 
+    def is_changed(self, key: str) -> bool:
+        if not self.orig_id:
+            return True
+        if key == "id":
+            return self.id != self.orig_id
+        if key == "nome":
+            return self.nome != self.orig_nome
+        if key == "descricao":
+            return self.descricao != self.orig_descricao
+        if key == "apps":
+            return list(self.apps) != list(self.orig_apps)
+        return False
+
 
 @dataclass
 class StructureFormState:
     gerencia_geral: str = "Geral"
+    orig_gerencia_geral: str = "Geral"
     gerencias: list[DraftGerencia] = field(default_factory=list)
     setores: list[DraftSetor] = field(default_factory=list)
     sel: str = ""
@@ -157,6 +235,58 @@ def _copy_named(src: Path, dest_name: str) -> Path:
 
 def _folder_info(folder_url: str) -> dict[str, str]:
     return parsear_link_pasta_sharepoint(folder_url)
+
+
+def folder_url_for_child(root_url: str, child: str) -> str:
+    info = _folder_info(root_url)
+    caminho = (info.get("caminho_sp") or "").strip("/")
+    leaf = (child or "").strip().strip("/")
+    if leaf:
+        caminho = f"{caminho}/{leaf}" if caminho else leaf
+    return f"{info['site_url']}/{caminho}"
+
+
+def existing_remote_filename(url: str, fallback: str) -> str:
+    raw = (url or "").strip()
+    if raw:
+        try:
+            info = parsear_link_sharepoint(raw)
+            nome = str(info.get("nome_arquivo") or "").strip()
+            leaf = Path(nome.replace("\\", "/")).name if nome else ""
+            if leaf and leaf not in {".", "..", "download.aspx", "download"}:
+                return leaf
+        except ValueError:
+            pass
+    return fallback
+
+
+def resolve_app_upload_folder(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
+    """Pasta de destino do Arquivo. None = manter o local remoto atual."""
+    choice = (form.folder_choice or "").strip() or KEEP_FOLDER
+    if choice == KEEP_FOLDER:
+        if (existing_url or "").strip():
+            return None, ""
+        choice = ROOT_FOLDER
+    root = (config.PUBLISH_FOLDER_URL or "").strip()
+    if not root:
+        return None, "publish.folder_url nao configurado no settings.json."
+    if choice == NEW_FOLDER:
+        raw = (form.new_folder_name or "").strip()
+        name = slug_from_name(raw)
+        if not raw:
+            return None, "Informe o nome da nova pasta."
+        if not name or name == "app":
+            name = raw.replace("/", "-").replace("\\", "-").strip("-") or raw
+        try:
+            return folder_url_for_child(root, name), ""
+        except ValueError as exc:
+            return None, str(exc)
+    try:
+        if choice == ROOT_FOLDER:
+            return root, ""
+        return folder_url_for_child(root, choice), ""
+    except ValueError as exc:
+        return None, str(exc)
 
 
 def _upload_named(
@@ -398,69 +528,88 @@ def publish_app(
     imagem_versao = str(current.get("imagem_versao") or "1")
     icone_versao = str(current.get("icone_versao") or "1")
 
-    needs_new_remote = any(
+    needs_new_media = any(
         local is not None and not existing
         for local, existing in (
-            (app_path, download_url),
             (capa, imagem),
             (icone, icone_url),
         )
     )
-    if needs_new_remote and not folder_url:
+    app_folder_url: str | None = None
+    keep_app_location = True
+    if app_path is not None:
+        app_folder_url, folder_err = resolve_app_upload_folder(form, download_url)
+        if folder_err:
+            return PublishOutcome(ok=False, message=folder_err)
+        keep_app_location = app_folder_url is None
+        if not keep_app_location and not app_folder_url:
+            return PublishOutcome(ok=False, message="Pasta de destino do arquivo nao determinada.")
+
+    if (needs_new_media or (app_path is not None and not keep_app_location)) and not folder_url:
         return PublishOutcome(
             ok=False,
             message="publish.folder_url nao configurado no settings.json.",
         )
 
-    folder_meta = None
-    if needs_new_remote:
-        try:
-            folder_meta = _folder_info(folder_url)
-        except ValueError as exc:
-            return PublishOutcome(ok=False, message=str(exc))
-
-    def _put_new(local: Path, dest_name: str, kind: str, msg: str) -> tuple[bool, str]:
+    def _put_to(local: Path, dest_name: str, dest_folder: str, kind: str, msg: str) -> tuple[bool, str]:
         report(-1.0, msg)
-        ok, message = _upload_named(local, dest_name, folder_url, report)
+        ok, message = _upload_named(local, dest_name, dest_folder, report)
         if not ok:
             return False, message
-        assert folder_meta is not None
+        try:
+            meta = _folder_info(dest_folder)
+        except ValueError as exc:
+            return False, str(exc)
         url = sharing_url(
-            folder_meta["site_url"],
-            folder_meta["caminho_sp"],
+            meta["site_url"],
+            meta["caminho_sp"],
             dest_name,
             kind,
         )
         return True, url
 
-    def _send(local: Path, existing: str, dest_name: str, kind: str, msg: str) -> tuple[bool, str]:
+    def _send_media(local: Path, existing: str, dest_name: str, kind: str, msg: str) -> tuple[bool, str]:
         if existing:
             report(-1.0, msg)
             return replace_existing_file(local, existing, report)
-        return _put_new(local, dest_name, kind, msg)
+        return _put_to(local, dest_name, folder_url, kind, msg)
 
     if app_path is not None:
-        dest_name = f"{app_id}{_ext_for_tipo(tipo, app_path)}"
-        ok, payload = _send(
-            app_path,
+        dest_name = existing_remote_filename(
             download_url,
-            dest_name,
-            _app_kind(tipo),
-            "Enviando arquivo do aplicativo...",
+            f"{app_id}{_ext_for_tipo(tipo, app_path)}",
         )
+        if keep_app_location:
+            report(-1.0, "Enviando arquivo do aplicativo...")
+            ok, payload = replace_existing_file(app_path, download_url, report)
+        else:
+            assert app_folder_url is not None
+            ok, payload = _put_to(
+                app_path,
+                dest_name,
+                app_folder_url,
+                _app_kind(tipo),
+                "Enviando arquivo do aplicativo...",
+            )
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload do aplicativo.")
         download_url = payload
     if capa is not None:
-        dest_name = f"{app_id}-capa{capa.suffix.lower() or '.png'}"
-        ok, payload = _send(capa, imagem, dest_name, "image", "Enviando capa...")
+        dest_name = existing_remote_filename(
+            imagem,
+            f"{app_id}-capa{capa.suffix.lower() or '.png'}",
+        )
+        ok, payload = _send_media(capa, imagem, dest_name, "image", "Enviando capa...")
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload da capa.")
         imagem = payload
         imagem_versao = bump_media_version(imagem_versao)
     if icone is not None:
-        dest_name = f"{app_id}-icone{icone.suffix.lower() or '.png'}"
-        ok, payload = _send(icone, icone_url, dest_name, "image", "Enviando icone...")
+        dest_name = existing_remote_filename(
+            icone_url,
+            f"{app_id}-icone{icone.suffix.lower() or '.png'}",
+        )
+        ok, payload = _send_media(icone, icone_url, dest_name, "image", "Enviando icone...")
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload do icone.")
         icone_url = payload
@@ -533,11 +682,16 @@ def publish_app(
 
 
 def structure_from_catalog(catalog: CatalogData, fingerprint: str = "") -> StructureFormState:
+    geral = (catalog.gerencia_geral or "").strip() or "Geral"
     return StructureFormState(
-        gerencia_geral=(catalog.gerencia_geral or "").strip() or "Geral",
+        gerencia_geral=geral,
+        orig_gerencia_geral=geral,
         gerencias=[
             DraftGerencia(
                 orig_id=g.id,
+                orig_nome=g.nome,
+                orig_descricao=g.descricao,
+                orig_apps=list(g.apps),
                 id=g.id,
                 nome=g.nome,
                 descricao=g.descricao,
@@ -548,12 +702,16 @@ def structure_from_catalog(catalog: CatalogData, fingerprint: str = "") -> Struc
         setores=[
             DraftSetor(
                 orig_id=s.id,
+                orig_nome=s.nome,
+                orig_descricao=s.descricao,
                 id=s.id,
                 nome=s.nome,
                 descricao=s.descricao,
                 sub_setores=[
                     DraftSubSetor(
                         orig_id=sub.id,
+                        orig_nome=sub.nome,
+                        orig_descricao=sub.descricao,
                         id=sub.id,
                         nome=sub.nome,
                         descricao=sub.descricao,

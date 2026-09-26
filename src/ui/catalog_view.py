@@ -41,6 +41,7 @@ def build_catalog_view(
     on_pick: Callable[[str], None],
     on_field: Callable[[str, str], None],
     on_reopen: Callable[[], None],
+    on_refresh_folders: Callable[[], None] | None = None,
     on_structure_select: Callable[[str], None],
     on_structure_field: Callable[[str, str], None],
     on_structure_toggle_app: Callable[[str, bool], None],
@@ -58,6 +59,7 @@ def build_catalog_view(
             on_pick=on_pick,
             on_field=on_field,
             on_reopen=on_reopen,
+            on_refresh_folders=on_refresh_folders,
         )
         if tab != "estrutura"
         else build_structure_form(
