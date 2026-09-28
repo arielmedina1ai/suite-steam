@@ -55,7 +55,7 @@ from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
-from ui.catalog_view import build_catalog_view
+from ui.catalog_view import bind_catalog_view, session_holder
 from ui.home_view import build_favoritos_view, build_home, build_setor_view
 from ui.progress_util import bar_value, label as progress_label
 from ui.publish_view import GERAL_KEY, NEW_APP_KEY
@@ -83,10 +83,14 @@ class SuiteApp:
         self.structure = StructureFormState()
         self._publish_pick_kind = ""
         self._file_picker = None
-        self._scroll_pub_sel = ft.Ref[ft.Column]()
-        self._scroll_pub_edit = ft.Ref[ft.Column]()
-        self._scroll_str_sel = ft.Ref[ft.Column]()
-        self._scroll_str_edit = ft.Ref[ft.Column]()
+        self._catalog_shell: ft.Column | None = None
+        self._catalog_tabs = ft.Row(spacing=8)
+        self._catalog_sessions = ft.Column(expand=True, spacing=12)
+        self._sess_pub_sel = session_holder()
+        self._sess_pub_edit = session_holder()
+        self._sess_str_sel = session_holder()
+        self._sess_str_edit = session_holder()
+        self._confirm_open = False
         self.sync_message = ""
         self.sync_busy = True
         self.sync_progress: float | None = -1.0
@@ -819,7 +823,7 @@ class SuiteApp:
         self._render()
 
     def _structure_delete(self, sel: str) -> None:
-        if not self.can_publish or self.structure.busy:
+        if not self.can_publish or self.structure.busy or self._confirm_open:
             return
         label = "este item"
         if sel.startswith("s:"):
@@ -872,9 +876,13 @@ class SuiteApp:
             self._render()
 
     def _confirm_dialog(self, title: str, body: str, on_yes) -> None:
-        dlg_holder: dict = {}
+        if self._confirm_open or self.structure.busy:
+            return
+        self._confirm_open = True
+        dlg_holder: dict = {"done": False}
 
         def _close(_e=None) -> None:
+            self._confirm_open = False
             dlg = dlg_holder.get("dlg")
             pop = getattr(self.page, "pop_dialog", None)
             if callable(pop):
@@ -891,6 +899,9 @@ class SuiteApp:
                     pass
 
         def _yes(e) -> None:
+            if dlg_holder["done"]:
+                return
+            dlg_holder["done"] = True
             _close()
             on_yes()
 
@@ -917,7 +928,7 @@ class SuiteApp:
             dlg.open = True
             self.page.update()
         except Exception:
-            on_yes()
+            self._confirm_open = False
 
     def _structure_save(self) -> None:
         if not self.can_publish or self.structure.busy:
@@ -1172,15 +1183,29 @@ class SuiteApp:
             pass
 
     # ------------------------------------------------------------------
-    def _render(self) -> None:
-        self.publish_form.hold_scroll = True
-        self.structure.hold_scroll = True
-        scroll_snap = (
-            self.publish_form.select_scroll,
-            self.publish_form.edit_scroll,
-            self.structure.select_scroll,
-            self.structure.edit_scroll,
+    def _ensure_catalog_shell(self) -> ft.Column:
+        if self._catalog_shell is not None:
+            return self._catalog_shell
+        self._catalog_sessions.controls = [self._sess_pub_sel, self._sess_pub_edit]
+        self._catalog_shell = ft.Column(
+            expand=True,
+            spacing=12,
+            controls=[
+                ft.Text("Catalogo", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+                self._catalog_tabs,
+                ft.Container(
+                    expand=True,
+                    bgcolor=config.COLOR_SURFACE,
+                    border_radius=10,
+                    padding=12,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                    content=self._catalog_sessions,
+                ),
+            ],
         )
+        return self._catalog_shell
+
+    def _render(self) -> None:
         fav_ids = self._favorite_ids()
         has_favs = self._has_visible_favorites()
         if self.show_favorites and not has_favs:
@@ -1235,7 +1260,8 @@ class SuiteApp:
         )
 
         if self.show_publish and self.can_publish:
-            self.content_holder.content = build_catalog_view(
+            shell = self._ensure_catalog_shell()
+            bind_catalog_view(
                 self.catalog,
                 self.publish_form,
                 self.structure,
@@ -1256,11 +1282,14 @@ class SuiteApp:
                 on_structure_delete=self._structure_delete,
                 on_structure_save=self._structure_save,
                 on_structure_reopen=self._publish_reopen,
-                publish_select_scroll_ref=self._scroll_pub_sel,
-                publish_edit_scroll_ref=self._scroll_pub_edit,
-                structure_select_scroll_ref=self._scroll_str_sel,
-                structure_edit_scroll_ref=self._scroll_str_edit,
+                tab_row=self._catalog_tabs,
+                sessions=self._catalog_sessions,
+                publish_select=self._sess_pub_sel,
+                publish_edit=self._sess_pub_edit,
+                structure_select=self._sess_str_sel,
+                structure_edit=self._sess_str_edit,
             )
+            self.content_holder.content = shell
         elif self.selected_id is not None:
             app = self.apps_by_id.get(self.selected_id)
             if app is None:
@@ -1364,71 +1393,6 @@ class SuiteApp:
             self.page.update()
         except Exception:
             pass
-        self._restore_form_scroll(scroll_snap)
-
-    def _restore_form_scroll(self, snap: tuple[float, float, float, float]) -> None:
-        pub_sel, pub_edit, str_sel, str_edit = snap
-        self.publish_form.select_scroll = pub_sel
-        self.publish_form.edit_scroll = pub_edit
-        self.structure.select_scroll = str_sel
-        self.structure.edit_scroll = str_edit
-        if not (self.show_publish and self.can_publish):
-            self.publish_form.hold_scroll = False
-            self.structure.hold_scroll = False
-            return
-        if self.catalog_tab == "estrutura":
-            pairs = [
-                (self._scroll_str_sel, str_sel),
-                (self._scroll_str_edit, str_edit),
-            ]
-        else:
-            pairs = [
-                (self._scroll_pub_sel, pub_sel),
-                (self._scroll_pub_edit, pub_edit),
-            ]
-        pending = 0
-        for ref, offset in pairs:
-            col = getattr(ref, "current", None)
-            if col is None:
-                continue
-            try:
-                off = float(offset or 0)
-            except (TypeError, ValueError):
-                off = 0.0
-            if off <= 0:
-                continue
-            pending += 1
-            try:
-                self.page.run_task(self._scroll_column_to, col, off)
-            except Exception:
-                try:
-                    col.scroll_to(offset=off, duration=0)
-                except Exception:
-                    pending -= 1
-        self._scroll_jobs = pending
-        if pending <= 0:
-            self.publish_form.hold_scroll = False
-            self.structure.hold_scroll = False
-
-    async def _scroll_column_to(self, col, offset: float):
-        try:
-            try:
-                await col.scroll_to(offset=offset, duration=0)
-            except TypeError:
-                try:
-                    await col.scroll_to(offset=offset)
-                except Exception:
-                    pass
-            except Exception:
-                try:
-                    col.scroll_to(offset=offset, duration=0)
-                except Exception:
-                    pass
-        finally:
-            self._scroll_jobs = getattr(self, "_scroll_jobs", 1) - 1
-            if self._scroll_jobs <= 0:
-                self.publish_form.hold_scroll = False
-                self.structure.hold_scroll = False
 
 
 def _window_event_name(e) -> str:

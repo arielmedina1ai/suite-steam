@@ -8,8 +8,8 @@ import flet as ft
 import config
 from models import CatalogData
 from services.catalog_publish import PublishFormState, StructureFormState
-from ui.publish_view import build_publish_form
-from ui.structure_view import build_structure_form
+from ui.publish_view import bind_publish_form
+from ui.structure_view import bind_structure_form
 
 
 def _tab_chip(label: str, *, selected: bool, on_click: Callable[[], None]) -> ft.Control:
@@ -28,7 +28,17 @@ def _tab_chip(label: str, *, selected: bool, on_click: Callable[[], None]) -> ft
     )
 
 
-def build_catalog_view(
+def session_holder() -> ft.Container:
+    return ft.Container(
+        expand=True,
+        bgcolor=config.COLOR_BG,
+        border_radius=10,
+        padding=16,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+    )
+
+
+def bind_catalog_view(
     catalog: CatalogData,
     form: PublishFormState,
     structure: StructureFormState,
@@ -50,27 +60,19 @@ def build_catalog_view(
     on_structure_delete: Callable[[str], None],
     on_structure_save: Callable[[], None],
     on_structure_reopen: Callable[[], None],
-    publish_select_scroll_ref: ft.Ref | None = None,
-    publish_edit_scroll_ref: ft.Ref | None = None,
-    structure_select_scroll_ref: ft.Ref | None = None,
-    structure_edit_scroll_ref: ft.Ref | None = None,
-) -> ft.Control:
-    body = (
-        build_publish_form(
-            catalog,
-            form,
-            on_select_app=on_select_app,
-            on_save=on_save,
-            on_cancel=on_cancel,
-            on_pick=on_pick,
-            on_field=on_field,
-            on_reopen=on_reopen,
-            on_refresh_folders=on_refresh_folders,
-            select_scroll_ref=publish_select_scroll_ref,
-            edit_scroll_ref=publish_edit_scroll_ref,
-        )
-        if tab != "estrutura"
-        else build_structure_form(
+    tab_row: ft.Row,
+    sessions: ft.Column,
+    publish_select: ft.Container,
+    publish_edit: ft.Container,
+    structure_select: ft.Container,
+    structure_edit: ft.Container,
+) -> None:
+    tab_row.controls = [
+        _tab_chip("Publicar", selected=tab != "estrutura", on_click=lambda: on_tab("publish")),
+        _tab_chip("Estrutura", selected=tab == "estrutura", on_click=lambda: on_tab("estrutura")),
+    ]
+    if tab == "estrutura":
+        bind_structure_form(
             catalog,
             structure,
             on_select=on_structure_select,
@@ -81,29 +83,25 @@ def build_catalog_view(
             on_delete=on_structure_delete,
             on_save=on_structure_save,
             on_reopen=on_structure_reopen,
-            select_scroll_ref=structure_select_scroll_ref,
-            edit_scroll_ref=structure_edit_scroll_ref,
+            select_holder=structure_select,
+            edit_holder=structure_edit,
         )
-    )
-    return ft.Column(
-        expand=True,
-        spacing=12,
-        controls=[
-            ft.Text("Catalogo", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
-            ft.Row(
-                spacing=8,
-                controls=[
-                    _tab_chip("Publicar", selected=tab != "estrutura", on_click=lambda: on_tab("publish")),
-                    _tab_chip("Estrutura", selected=tab == "estrutura", on_click=lambda: on_tab("estrutura")),
-                ],
-            ),
-            ft.Container(
-                expand=True,
-                bgcolor=config.COLOR_SURFACE,
-                border_radius=10,
-                padding=12,
-                clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                content=body,
-            ),
-        ],
-    )
+        wanted = [structure_select, structure_edit]
+    else:
+        bind_publish_form(
+            catalog,
+            form,
+            on_select_app=on_select_app,
+            on_save=on_save,
+            on_cancel=on_cancel,
+            on_pick=on_pick,
+            on_field=on_field,
+            on_reopen=on_reopen,
+            on_refresh_folders=on_refresh_folders,
+            select_holder=publish_select,
+            edit_holder=publish_edit,
+        )
+        wanted = [publish_select, publish_edit]
+    current = list(sessions.controls or [])
+    if len(current) != 2 or current[0] is not wanted[0] or current[1] is not wanted[1]:
+        sessions.controls = wanted

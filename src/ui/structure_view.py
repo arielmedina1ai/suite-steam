@@ -9,7 +9,7 @@ import config
 from models import CatalogData
 from services.catalog_publish import StructureFormState
 from ui.progress_util import bar_value, label as progress_label
-from ui.publish_view import _remember_scroll, field_kwargs, form_section, option7_row
+from ui.publish_view import _remember_scroll, bind_form_section, field_kwargs, option7_row
 
 _DEL_ICON = getattr(ft.Icons, "DELETE", None) or getattr(ft.Icons, "DELETE_FOREVER", ft.Icons.CLOSE)
 
@@ -122,7 +122,7 @@ def _all_app_ids(catalog: CatalogData) -> list[str]:
     return [a.id for a in catalog.apps]
 
 
-def build_structure_form(
+def bind_structure_form(
     catalog: CatalogData,
     form: StructureFormState,
     *,
@@ -134,9 +134,9 @@ def build_structure_form(
     on_delete: Callable[[str], None],
     on_save: Callable[[], None],
     on_reopen: Callable[[], None],
-    select_scroll_ref: ft.Ref | None = None,
-    edit_scroll_ref: ft.Ref | None = None,
-) -> ft.Control:
+    select_holder: ft.Container,
+    edit_holder: ft.Container,
+) -> None:
     tree: list[ft.Control] = [
         ft.Text("Gerencias", size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
         ft.Row(
@@ -219,7 +219,8 @@ def build_structure_form(
                 )
             )
 
-    upper = form_section(
+    bind_form_section(
+        select_holder,
         "Selecionar ou adicionar",
         [
             ft.Text(
@@ -229,12 +230,11 @@ def build_structure_form(
             ),
             *tree,
         ],
-        scroll_offset=form.select_scroll,
         on_scroll_offset=lambda v: _remember_scroll(form, "select_scroll", v),
-        scroll_ref=select_scroll_ref,
     )
     editor = _editor(catalog, form, on_field=on_field, on_toggle_app=on_toggle_app)
-    lower = form_section(
+    bind_form_section(
+        edit_holder,
         "Editar",
         [
             editor,
@@ -266,11 +266,8 @@ def build_structure_form(
                 ],
             ),
         ],
-        scroll_offset=form.edit_scroll,
         on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
-        scroll_ref=edit_scroll_ref,
     )
-    return ft.Column(expand=True, spacing=12, controls=[upper, lower])
 
 
 def _editor(

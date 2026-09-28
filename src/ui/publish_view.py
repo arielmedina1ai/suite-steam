@@ -92,8 +92,6 @@ def _full_link(url: str, empty: str) -> ft.Control:
 
 
 def _remember_scroll(form, attr: str, value: float) -> None:
-    if getattr(form, "hold_scroll", False):
-        return
     setattr(form, attr, value)
 
 
@@ -109,49 +107,69 @@ def _scroll_pixels(e) -> float:
     return 0.0
 
 
-def form_section(
+def _set_column_controls(column: ft.Column, controls: list[ft.Control]) -> None:
+    current = getattr(column, "controls", None)
+    if current is None:
+        column.controls = list(controls)
+        return
+    try:
+        current.clear()
+        current.extend(controls)
+    except Exception:
+        column.controls = list(controls)
+
+
+def bind_form_section(
+    holder: ft.Container,
     title: str,
     controls: list[ft.Control],
     *,
-    expand: int | bool = 1,
-    scroll_offset: float = 0.0,
     on_scroll_offset: Callable[[float], None] | None = None,
-    scroll_ref: ft.Ref | None = None,
-) -> ft.Control:
+) -> None:
+    """Reuse the same scroll Column so Flet keeps offset (no scroll_to)."""
+
     def _on_scroll(e) -> None:
         if on_scroll_offset is None:
             return
         on_scroll_offset(_scroll_pixels(e))
 
-    inner_kwargs: dict = {
-        "expand": True,
-        "scroll": ft.ScrollMode.AUTO,
-        "spacing": 10,
-        "controls": controls,
-        "on_scroll": _on_scroll,
-    }
-    if scroll_ref is not None:
-        inner_kwargs["ref"] = scroll_ref
-    try:
-        inner = ft.Column(auto_scroll=False, **inner_kwargs)
-    except TypeError:
-        inner = ft.Column(**inner_kwargs)
-    return ft.Container(
-        expand=expand,
-        bgcolor=config.COLOR_BG,
-        border_radius=10,
-        padding=16,
-        clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        data=scroll_offset,
-        content=ft.Column(
+    inner = getattr(holder, "_suite_scroll", None)
+    title_ctrl = getattr(holder, "_suite_title", None)
+    if inner is None or title_ctrl is None:
+        holder.expand = True
+        holder.bgcolor = config.COLOR_BG
+        holder.border_radius = 10
+        holder.padding = 16
+        holder.clip_behavior = ft.ClipBehavior.HARD_EDGE
+        title_ctrl = ft.Text(title, size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT)
+        inner_kwargs: dict = {
+            "expand": True,
+            "scroll": ft.ScrollMode.AUTO,
+            "spacing": 10,
+            "controls": controls,
+            "on_scroll": _on_scroll,
+        }
+        try:
+            inner = ft.Column(auto_scroll=False, **inner_kwargs)
+        except TypeError:
+            inner = ft.Column(**inner_kwargs)
+        holder.content = ft.Column(
             expand=True,
             spacing=10,
-            controls=[
-                ft.Text(title, size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_ACCENT),
-                inner,
-            ],
-        ),
-    )
+            controls=[title_ctrl, inner],
+        )
+        holder._suite_scroll = inner
+        holder._suite_title = title_ctrl
+        return
+    title_ctrl.value = title
+    inner.on_scroll = _on_scroll
+    _set_column_controls(inner, controls)
+
+
+def form_section(title: str, controls: list[ft.Control], *, expand: int | bool = 1) -> ft.Control:
+    holder = ft.Container(expand=expand)
+    bind_form_section(holder, title, controls)
+    return holder
 
 
 def option7_row(
@@ -211,7 +229,7 @@ def _root_folder_label() -> str:
     return f"Raiz ({leaf})"
 
 
-def build_publish_form(
+def bind_publish_form(
     catalog: CatalogData,
     form: PublishFormState,
     *,
@@ -222,9 +240,9 @@ def build_publish_form(
     on_field: Callable[[str, str], None],
     on_reopen: Callable[[], None],
     on_refresh_folders: Callable[[], None] | None = None,
-    select_scroll_ref: ft.Ref | None = None,
-    edit_scroll_ref: ft.Ref | None = None,
-) -> ft.Control:
+    select_holder: ft.Container,
+    edit_holder: ft.Container,
+) -> None:
     setor_options = [ft.DropdownOption(key=GERAL_KEY, text="(nenhum)")]
     for setor in catalog.setores:
         setor_options.append(ft.DropdownOption(key=setor.id, text=setor.nome))
@@ -420,7 +438,8 @@ def build_publish_form(
         )
 
     heading = "Novo aplicativo" if not form.editing_id else f"Editar: {form.nome or form.editing_id}"
-    upper = form_section(
+    bind_form_section(
+        select_holder,
         "Selecionar ou adicionar",
         [
             option7_row(
@@ -442,11 +461,10 @@ def build_publish_form(
                 color="#8AA797",
             ),
         ],
-        scroll_offset=form.select_scroll,
         on_scroll_offset=lambda v: _remember_scroll(form, "select_scroll", v),
-        scroll_ref=select_scroll_ref,
     )
-    lower = form_section(
+    bind_form_section(
+        edit_holder,
         "Editar",
         [
             ft.Text(heading, size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
@@ -524,8 +542,5 @@ def build_publish_form(
                 ],
             ),
         ],
-        scroll_offset=form.edit_scroll,
         on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
-        scroll_ref=edit_scroll_ref,
     )
-    return ft.Column(expand=True, spacing=12, controls=[upper, lower])
