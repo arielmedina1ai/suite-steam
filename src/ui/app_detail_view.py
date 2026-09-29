@@ -8,7 +8,6 @@ import flet as ft
 import config
 from models import AppInfo, InstallStatus
 from services.download_manager import DownloadManager, DownloadOutcome
-from services.sharepoint_manager import enviar_para_sharepoint
 from services.storage import Storage
 from ui.components import app_badge, app_icon, media_src
 from ui.progress_util import bar_value, label as progress_label
@@ -27,6 +26,8 @@ class AppDetailView:
         on_toggle_favorite=None,
         on_run=None,
         on_update_app=None,
+        on_uninstall=None,
+        on_status=None,
         this_app_running: bool = False,
         work_busy: bool = False,
         work_progress: float | None = None,
@@ -41,6 +42,8 @@ class AppDetailView:
         self.on_toggle_favorite = on_toggle_favorite
         self.on_run = on_run
         self.on_update_app = on_update_app
+        self.on_uninstall = on_uninstall
+        self.on_status = on_status
         self.this_app_running = this_app_running
         self.work_busy = work_busy
         self.work_progress = work_progress
@@ -65,12 +68,6 @@ class AppDetailView:
             icon=ft.Icons.SYSTEM_UPDATE,
             visible=False,
             on_click=self._on_update,
-        )
-        self.upload_button = ft.OutlinedButton(
-            "Enviar para SharePoint",
-            icon=ft.Icons.CLOUD_UPLOAD,
-            visible=False,
-            on_click=self._on_upload,
         )
         self.uninstall_button = ft.OutlinedButton(
             "Desinstalar",
@@ -146,7 +143,6 @@ class AppDetailView:
             controls=[
                 self.action_button,
                 self.update_button,
-                self.upload_button,
                 self.uninstall_button,
             ],
         )
@@ -197,8 +193,6 @@ class AppDetailView:
             needs_update = self._has_version_update(state)
             self.update_button.visible = needs_update
             self.update_button.disabled = self.work_busy
-            self.upload_button.visible = bool(self.app.upload_url)
-            self.upload_button.disabled = self.work_busy or this
             self.uninstall_button.visible = True
             self.uninstall_button.disabled = self.work_busy or this
             local_name = Path(state.local_path).name if state.local_path else "?"
@@ -218,7 +212,6 @@ class AppDetailView:
             self.action_button.disabled = self.work_busy
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
             self.update_button.visible = False
-            self.upload_button.visible = False
             self.uninstall_button.visible = False
             self.local_info.value = ""
         if this and not self.work_busy:
@@ -256,15 +249,31 @@ class AppDetailView:
         self._start_download()
 
     def _on_uninstall(self, e: ft.ControlEvent) -> None:
+        if self.work_busy or self.this_app_running:
+            return
+        if self.on_uninstall:
+            self.on_uninstall(self.app)
+            return
+        self._uninstall_local()
+
+    def _uninstall_local(self) -> None:
+        self._set_busy(True)
+        self._apply_progress(-1.0, "Desinstalando...")
         try:
             self.storage.uninstall(self.app.id)
-            self.status_text.value = f"{self.app.nome} desinstalado."
+            msg = "Desinstalação concluída."
         except Exception as exc:
-            self.status_text.value = f"Erro ao desinstalar: {exc}"
+            msg = f"Erro ao desinstalar: {exc}"
+        self.progress.visible = False
+        self.status_text.value = msg
+        self.work_message = msg
+        self._set_busy(False)
         self._refresh_action_buttons()
-        self._safe_update()
+        if self.on_status:
+            self.on_status(self.app.id, msg)
         if self.on_uninstalled:
             self.on_uninstalled(self.app.id)
+        self._safe_update()
 
     def _execute(self) -> None:
         if self.on_run:
@@ -278,7 +287,6 @@ class AppDetailView:
         installed = self._current_status() == InstallStatus.INSTALLED
         self.action_button.disabled = busy or (installed and self.this_app_running)
         self.update_button.disabled = busy
-        self.upload_button.disabled = busy or self.this_app_running
         self.uninstall_button.disabled = busy or self.this_app_running
 
     def _apply_progress(self, pct: float | None, msg: str) -> None:
@@ -295,52 +303,22 @@ class AppDetailView:
         )
         self.page.run_thread(self._download_worker)
 
-    def _on_upload(self, e: ft.ControlEvent) -> None:
-        if not self.app.upload_url:
-            self.status_text.value = "Este app nao tem upload_url no catalogo."
-            self._safe_update()
-            return
-        state = self.storage.get_state(self.app.id)
-        if not state.local_path or not Path(state.local_path).exists():
-            self.status_text.value = "Nao ha arquivo local para enviar. Baixe / Instale primeiro."
-            self._safe_update()
-            return
-        self._set_busy(True)
-        self._apply_progress(
-            -1.0,
-            "Enviando para SharePoint... Pode abrir uma janela de login (WebLogin).",
-        )
-        self.page.run_thread(lambda: self._upload_worker(state.local_path))
-
-    def _upload_worker(self, local_path: str) -> None:
-        def on_progress(pct: float, msg: str) -> None:
-            self._apply_progress(pct, msg)
-
-        result = enviar_para_sharepoint(
-            arquivo_local=local_path,
-            link_pasta=self.app.upload_url,
-            progress=on_progress,
-        )
-        self.progress.visible = False
-        self.status_text.value = result.message if result.ok else f"Erro no upload: {result.message}"
-        self._set_busy(False)
-        self._refresh_action_buttons()
-        self._safe_update()
-
     def _download_worker(self) -> None:
         def on_progress(pct: float, msg: str) -> None:
             self._apply_progress(pct, msg)
 
         result = self.manager.download(self.app, progress=on_progress)
         if result.outcome == DownloadOutcome.SUCCESS:
-            self._apply_progress(1.0, result.message)
-            self.progress.visible = False
-            self.status_text.value = result.message
+            msg = result.message or "Download concluido."
         else:
-            self.progress.visible = False
-            self.status_text.value = result.message or "Erro no download."
+            msg = result.message or "Erro no download."
+        self.progress.visible = False
+        self.status_text.value = msg
+        self.work_message = msg
         self._set_busy(False)
         self._refresh_action_buttons()
+        if self.on_status:
+            self.on_status(self.app.id, msg)
         self._safe_update()
 
 

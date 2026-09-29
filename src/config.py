@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,11 @@ APP_NAME = (
     else "SuiteApps"
 )
 APP_VERSION = str(_app.get("version", "0.1.0")).strip() or "0.1.0"
+
+
+def app_version_display() -> str:
+    """Versao do app com a data local de hoje (vX.Y.Z - dd/mm/yyyy)."""
+    return f"v{APP_VERSION} - {datetime.now().strftime('%d/%m/%Y')}"
 _company_raw = _app.get("company")
 APP_COMPANY = (
     _company_raw.strip()
@@ -150,6 +156,23 @@ REMOTE_CATALOG_URL: str | None = (
 )
 
 # ---------------------------------------------------------------------------
+# Publicar catalogo  ->  settings.json > "publish"
+# Lista de logins Windows (DOMINIO\\usuario ou usuario). Vazia = ninguem.
+# ---------------------------------------------------------------------------
+_publish = _S.get("publish", {}) if isinstance(_S.get("publish"), dict) else {}
+_publish_users_raw = _publish.get("users")
+PUBLISH_USERS: list[str] = []
+if isinstance(_publish_users_raw, list):
+    for _item in _publish_users_raw:
+        _login = str(_item).strip()
+        if _login:
+            PUBLISH_USERS.append(_login)
+_folder_raw = _publish.get("folder_url")
+PUBLISH_FOLDER_URL: str = (
+    _folder_raw.strip() if isinstance(_folder_raw, str) and _folder_raw.strip() else ""
+)
+
+# ---------------------------------------------------------------------------
 # Pasta de dados do usuario  ->  settings.json > "app.data_dir"
 # ---------------------------------------------------------------------------
 def _user_data_dir() -> Path:
@@ -181,6 +204,8 @@ SHAREPOINT_SCRIPTS_DIR = BUNDLE_DIR / "scripts"
 SHAREPOINT_DOWNLOAD_SCRIPT = "template_sp_download.ps1"
 SHAREPOINT_DOWNLOAD_BATCH_SCRIPT = "template_sp_download_batch.ps1"
 SHAREPOINT_UPLOAD_SCRIPT = "template_sp_upload.ps1"
+SHAREPOINT_LIST_FOLDERS_SCRIPT = "template_sp_list_folders.ps1"
+SHAREPOINT_SESSION_SCRIPT = "template_sp_session.ps1"
 
 
 def _png_to_ico(png_path: Path, ico_path: Path) -> None:

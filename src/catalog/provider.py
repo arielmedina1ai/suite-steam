@@ -9,6 +9,7 @@ images_manifest.json. So rebaixam se URL ou *_versao mudarem.
 from __future__ import annotations
 
 import json
+import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -191,6 +192,55 @@ def _apply_local_or_cache(
                 app.icone = str(local)
 
 
+def _put_media_cache(
+    manifest: dict[str, Any],
+    app: AppInfo,
+    kind: str,
+    remote_url: str,
+    local_path: Path,
+) -> None:
+    entry = manifest.get(app.id)
+    if not isinstance(entry, dict):
+        entry = {}
+        manifest[app.id] = entry
+    if kind == _KIND_IMAGEM:
+        entry["url"] = remote_url
+        entry["imagem_versao"] = str(app.imagem_versao)
+        entry["path"] = str(local_path)
+    else:
+        entry["icone_url"] = remote_url
+        entry["icone_versao"] = str(app.icone_versao)
+        entry["icone_path"] = str(local_path)
+
+
+def hydrate_catalog_images(
+    catalog: CatalogData,
+    *,
+    seed_app_id: str = "",
+    capa_local: Path | None = None,
+    icone_local: Path | None = None,
+) -> None:
+    """Aponta imagem/icone da UI para o cache local; catalog.json permanece URL."""
+    config.CATALOG_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    manifest = _load_images_manifest()
+    alvo = (seed_app_id or "").strip()
+    app = next((a for a in catalog.apps if a.id == alvo), None) if alvo else None
+    if app is not None:
+        if capa_local is not None and capa_local.is_file():
+            dest = config.CATALOG_IMAGES_DIR / _image_filename(app)
+            shutil.copy2(capa_local, dest)
+            remote = (app.catalog_imagem or app.imagem or "").strip()
+            _put_media_cache(manifest, app, _KIND_IMAGEM, remote, dest)
+        if icone_local is not None and icone_local.is_file():
+            dest = config.CATALOG_IMAGES_DIR / _icon_filename(app)
+            shutil.copy2(icone_local, dest)
+            remote = (app.catalog_icone or app.icone or "").strip()
+            _put_media_cache(manifest, app, _KIND_ICONE, remote, dest)
+        _save_images_manifest(manifest)
+        manifest = _load_images_manifest()
+    _apply_local_or_cache(catalog.apps, manifest)
+
+
 def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int:
     """Baixa capas e icones novos/alterados em lote (1 WebLogin por site)."""
 
@@ -285,20 +335,11 @@ def _sync_images(apps: list[AppInfo], progress: ProgressCb | None = None) -> int
 
     def _store(app: AppInfo, kind: str, remote_url: str, local_path: Path) -> None:
         nonlocal downloaded
-        entry = manifest.get(app.id)
-        if not isinstance(entry, dict):
-            entry = {}
-            manifest[app.id] = entry
+        _put_media_cache(manifest, app, kind, remote_url, local_path)
         if kind == _KIND_IMAGEM:
             app.imagem = str(local_path)
-            entry["url"] = remote_url
-            entry["imagem_versao"] = str(app.imagem_versao)
-            entry["path"] = str(local_path)
         else:
             app.icone = str(local_path)
-            entry["icone_url"] = remote_url
-            entry["icone_versao"] = str(app.icone_versao)
-            entry["icone_path"] = str(local_path)
         downloaded += 1
 
     for bid, local_path in batch.paths.items():

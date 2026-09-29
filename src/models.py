@@ -146,10 +146,12 @@ class AppInfo:
     descricao: str = ""
     setor: str = ""  # id do setor (catalog.json > setores[].id)
     sub_setor: str = ""  # id do sub-setor
-    imagem: str = ""  # capa (tela de detalhe) — link SharePoint
+    imagem: str = ""  # capa (tela de detalhe) — pode virar cache local na UI
     imagem_versao: str = "1"
-    icone: str = ""  # icone pequeno (cards) — link SharePoint
+    icone: str = ""  # icone pequeno (cards) — pode virar cache local na UI
     icone_versao: str = "1"
+    catalog_imagem: str = ""  # URL original de catalog.json > imagem
+    catalog_icone: str = ""  # URL original de catalog.json > icone
     tipo: AppType = AppType.EXE
     download_url: str = ""
     upload_url: str = ""  # link da pasta SharePoint para envio (opcional)
@@ -157,16 +159,20 @@ class AppInfo:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AppInfo":
+        imagem = str(data.get("imagem", "")).strip()
+        icone = str(data.get("icone", "")).strip()
         return cls(
             id=str(data["id"]).strip(),
             nome=str(data.get("nome", data["id"])).strip(),
             descricao=str(data.get("descricao", "")),
             setor=str(data.get("setor", "")).strip(),
             sub_setor=str(data.get("sub_setor", "")).strip(),
-            imagem=str(data.get("imagem", "")),
+            imagem=imagem,
             imagem_versao=str(data.get("imagem_versao", "1")),
-            icone=str(data.get("icone", "")),
+            icone=icone,
             icone_versao=str(data.get("icone_versao", "1")),
+            catalog_imagem=imagem,
+            catalog_icone=icone,
             tipo=AppType.from_str(str(data.get("tipo", "exe"))),
             download_url=str(data.get("download_url", "")).strip(),
             upload_url=str(data.get("upload_url", "")).strip(),

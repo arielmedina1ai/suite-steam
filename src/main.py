@@ -20,6 +20,25 @@ if __name__ == "__main__":
 import flet as ft
 from catalog import SharePointCatalogProvider
 from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
+from services.catalog_publish import (
+    DraftGerencia,
+    DraftSetor,
+    DraftSubSetor,
+    KEEP_FOLDER,
+    NEW_FOLDER,
+    PublishFormState,
+    ROOT_FOLDER,
+    StructureFormState,
+    catalog_json_media_urls,
+    catalog_http_url,
+    delete_catalog_app,
+    fingerprint_cache_file,
+    folder_choice_destination,
+    infer_pasta_destino,
+    publish_app,
+    save_catalog_structure,
+    structure_from_catalog,
+)
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.favorites import FavoritesStore
 from services.preferences import PreferencesStore
@@ -36,11 +55,14 @@ from services.self_update import (
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
 from services.tray import TrayController
+from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
+from ui.catalog_view import bind_catalog_view, session_holder
 from ui.home_view import build_favoritos_view, build_home, build_setor_view
 from ui.progress_util import bar_value, label as progress_label
+from ui.publish_view import GERAL_KEY, NEW_APP_KEY
 
 
 class SuiteApp:
@@ -58,7 +80,38 @@ class SuiteApp:
         self.selected_id: str | None = None
         self.selected_setor: str | None = None
         self.show_favorites = False
+        self.show_publish = False
+        self.catalog_tab = "publish"
+        self.can_publish = user_can_publish(current_windows_login(), config.PUBLISH_USERS)
+        self.publish_form = PublishFormState()
+        self.structure = StructureFormState()
+        self._publish_pick_kind = ""
+        self._file_picker = None
+        self._catalog_shell: ft.Column | None = None
+        self._catalog_tabs = ft.Row(spacing=8)
+        self._session_host = ft.Container(expand=True)
+        self._catalog_session_box = ft.Container(
+            expand=True,
+            bgcolor=config.COLOR_SURFACE,
+            border_radius=10,
+            padding=12,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=self._session_host,
+        )
+        self._publish_layout = ft.Column(expand=True, spacing=12)
+        self._estrutura_layout = ft.Row(
+            expand=True,
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
+        self._sess_pub_sel = session_holder()
+        self._sess_pub_edit = session_holder()
+        self._sess_str_sel = session_holder()
+        self._sess_str_edit = session_holder()
+        self._confirm_open = False
         self.sync_message = ""
+        self.sync_notice = ""
+        self._sync_notice_gen = 0
         self.sync_busy = True
         self.sync_progress: float | None = -1.0
         self.sync_status = "Sincronizando catalogo com SharePoint..."
@@ -74,12 +127,18 @@ class SuiteApp:
         self.app_job_app_id: str | None = None
         self.app_job_progress: float | None = None
         self.app_job_message = ""
+        self.detail_notice = ""
+        self.detail_notice_app_id: str | None = None
         self._exiting = False
         self._tray: TrayController | None = None
         self.run_error = ""
 
         self.sidebar_holder = ft.Container()
-        self.content_holder = ft.Container(expand=True, padding=28)
+        self.content_holder = ft.Container(
+            expand=True,
+            padding=28,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        )
         self.root_row = ft.Row(
             expand=True,
             spacing=0,
@@ -116,6 +175,19 @@ class SuiteApp:
             self._tray = TrayController(on_show=self._show_from_tray, on_quit=self._quit_app)
             self._tray.start()
         self.page.add(self.root_row)
+        if self.can_publish and hasattr(ft, "FilePicker"):
+            picker = ft.FilePicker()
+            self._file_picker = picker
+            services = getattr(self.page, "services", None)
+            if services is not None:
+                try:
+                    services.append(picker)
+                except Exception:
+                    pass
+            else:
+                overlay = getattr(self.page, "overlay", None)
+                if overlay is not None:
+                    overlay.append(picker)
         if sys.platform.startswith("win"):
             try:
                 self.page.update()
@@ -263,7 +335,16 @@ class SuiteApp:
             self.selected_setor = None
             self.show_favorites = False
         self.sync_busy = False
-        self.sync_progress = 1.0 if result.ok else -1.0
+        self.sync_progress = None
+        self.sync_status = ""
+        if not initial and result.ok:
+            self._sync_notice_gen += 1
+            token = self._sync_notice_gen
+            self.sync_notice = progress_label(1.0, "Catalogo sincronizado.")
+            self._render()
+            self.page.run_thread(lambda: self._clear_sync_notice(token))
+            return
+        self.sync_notice = ""
         self._render()
 
     def _on_sync_progress(self, pct: float, msg: str) -> None:
@@ -271,16 +352,30 @@ class SuiteApp:
         self.sync_status = msg
         try:
             content = self.content_holder.content
-            if isinstance(content, ft.Column) and len(content.controls) >= 3:
-                bar = content.controls[0]
-                if isinstance(bar, ft.ProgressBar):
-                    bar.value = bar_value(pct)
-                content.controls[2] = ft.Text(
-                    progress_label(pct, msg),
-                    size=13,
-                    color="#8AA797",
-                )
-                self.page.update()
+            if content is self._catalog_shell:
+                return
+            if not isinstance(content, ft.Column) or len(content.controls) < 3:
+                return
+            bar = content.controls[0]
+            if not isinstance(bar, ft.ProgressBar):
+                return
+            bar.value = bar_value(pct)
+            content.controls[2] = ft.Text(
+                progress_label(pct, msg),
+                size=13,
+                color="#8AA797",
+            )
+            self.page.update()
+        except Exception:
+            pass
+
+    def _clear_sync_notice(self, token: int) -> None:
+        time.sleep(2.5)
+        if token != self._sync_notice_gen or self.sync_busy or self._exiting:
+            return
+        self.sync_notice = ""
+        try:
+            self._render()
         except Exception:
             pass
 
@@ -289,6 +384,8 @@ class SuiteApp:
             return
         self.sync_busy = True
         self.sync_message = ""
+        self.sync_notice = ""
+        self._sync_notice_gen += 1
         self._render()
         self.page.run_thread(lambda: self._sync_catalog_worker(False))
 
@@ -360,46 +457,845 @@ class SuiteApp:
         return ", ".join(names)
 
     # ------------------------------------------------------------------
+    def _leave_app_screen(self) -> None:
+        self.run_error = ""
+        self.detail_notice = ""
+        self.detail_notice_app_id = None
+        if not self.app_job_busy:
+            self.app_job_message = ""
+            self.app_job_progress = None
+            self.app_job_app_id = None
+
+    def _set_detail_notice(self, app_id: str, message: str) -> None:
+        if self.selected_id != app_id:
+            return
+        self.detail_notice_app_id = app_id
+        self.detail_notice = (message or "").strip()
+
+    def _detail_work_message(self, app_id: str) -> str:
+        if self.app_job_app_id == app_id and (self.app_job_busy or (self.app_job_message or "").strip()):
+            return self.app_job_message
+        if self.detail_notice_app_id == app_id:
+            return self.detail_notice
+        if self.selected_id == app_id:
+            return self.run_error
+        return ""
+
     def _go_home(self) -> None:
+        self._leave_app_screen()
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
+        self.show_publish = False
         self._render()
 
     def _go_favorites(self) -> None:
+        self._leave_app_screen()
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = True
+        self.show_publish = False
+        self._render()
+
+    def _go_publish(self) -> None:
+        if not self.can_publish:
+            return
+        self._leave_app_screen()
+        self.selected_id = None
+        self.selected_setor = None
+        self.show_favorites = False
+        self.show_publish = True
+        fp = fingerprint_cache_file()
+        if not self.publish_form.fingerprint:
+            self.publish_form.fingerprint = fp
+        if not self.structure.fingerprint or not self.structure.dirty:
+            self.structure = structure_from_catalog(self.catalog, fp or self.publish_form.fingerprint)
+        self._refresh_publish_folders()
+        self._render()
+
+    def _catalog_tab(self, tab: str) -> None:
+        if not self.can_publish:
+            return
+        self.catalog_tab = "estrutura" if tab == "estrutura" else "publish"
         self._render()
 
     def _select_setor(self, setor_id: str) -> None:
+        self._leave_app_screen()
         self.selected_setor = setor_id
         self.selected_id = None
         self.show_favorites = False
+        self.show_publish = False
         self._render()
 
     def _select_app(self, app_id: str) -> None:
+        if self.selected_id != app_id:
+            self._leave_app_screen()
         self.selected_id = app_id
         app = self.apps_by_id.get(app_id)
         if app is not None and app.setor:
             self.selected_setor = app.setor
         self.show_favorites = False
+        self.show_publish = False
         self._render()
 
     def _select_gerencia(self, gerencia_id: str) -> None:
         gid = (gerencia_id or "").strip()
+        self._leave_app_screen()
         self.selected_gerencia_id = gid
         self.preferences.set_gerencia_id(gid)
         self._apply_gerencia_filter()
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
+        self.show_publish = False
         self._render()
 
     def _toggle_favorite(self, app_id: str) -> None:
         self.favorites.toggle(app_id)
         if self.show_favorites and not self._has_visible_favorites():
             self.show_favorites = False
+        self._render()
+
+    def _publish_select(self, app_id: str) -> None:
+        if not self.can_publish:
+            return
+        if not app_id or app_id == NEW_APP_KEY:
+            self._publish_new()
+            return
+        self._publish_edit(app_id)
+
+    def _fresh_publish_form(self, **kwargs) -> PublishFormState:
+        folders = list(self.publish_form.folders)
+        ferr = self.publish_form.folders_error
+        fp = kwargs.pop("fingerprint", None) or self.publish_form.fingerprint or fingerprint_cache_file()
+        form = PublishFormState(
+            fingerprint=fp,
+            folders=folders,
+            folders_error=ferr,
+            **kwargs,
+        )
+        if form.editing_id and form.current_download:
+            form.folder_choice = KEEP_FOLDER
+            form.move_files = False
+        else:
+            form.folder_choice = ROOT_FOLDER
+        if not form.editing_id and not (form.upload_url or "").strip():
+            form.upload_url = infer_pasta_destino()
+        form.capture_baseline()
+        return form
+
+    def _refresh_publish_folders(self, force: bool = False) -> None:
+        if not self.can_publish:
+            return
+        if self.publish_form.folders_busy:
+            return
+        if self.publish_form.folders and not force:
+            return
+        self.publish_form.folders_busy = True
+        self.publish_form.folders_error = ""
+        self._render()
+        self.page.run_thread(self._list_folders_worker)
+
+    def _list_folders_worker(self) -> None:
+        from services.sharepoint_manager import listar_pastas_sharepoint
+
+        names, err = listar_pastas_sharepoint(config.PUBLISH_FOLDER_URL)
+        self.publish_form.folders_busy = False
+        if err:
+            self.publish_form.folders_error = err
+        else:
+            self.publish_form.folders = names
+            self.publish_form.folders_error = ""
+        try:
+            self._render()
+        except Exception:
+            pass
+
+    def _publish_new(self) -> None:
+        if not self.can_publish:
+            return
+        self.publish_form = self._fresh_publish_form(show_form=True)
+        self._refresh_publish_folders()
+        self._render()
+
+    def _publish_edit(self, app_id: str) -> None:
+        if not self.can_publish:
+            return
+        app = next((a for a in self.catalog.apps if a.id == app_id), None)
+        if app is None:
+            return
+        gid = ""
+        for g in self.catalog.gerencias:
+            if app.id in g.apps:
+                gid = g.id
+                break
+        file_capa, file_icone = catalog_json_media_urls(app.id)
+        self.publish_form = self._fresh_publish_form(
+            editing_id=app.id,
+            nome=app.nome,
+            descricao=app.descricao,
+            versao=app.versao,
+            tipo=app.tipo.value,
+            gerencia_id=gid,
+            setor_id=app.setor,
+            sub_setor_id=app.sub_setor,
+            upload_url=app.upload_url,
+            current_download=app.download_url,
+            current_capa=file_capa or catalog_http_url(app.catalog_imagem),
+            current_icone=file_icone or catalog_http_url(app.catalog_icone),
+            preview_capa=str(app.imagem or "") if app.imagem and not str(app.imagem).lower().startswith(("http://", "https://")) else "",
+            preview_icone=str(app.icone or "") if app.icone and not str(app.icone).lower().startswith(("http://", "https://")) else "",
+            original_gerencia_id=gid,
+            show_form=True,
+        )
+        self._refresh_publish_folders()
+        self._render()
+
+    def _publish_field(self, key: str, value: str) -> None:
+        if key == "setor_id":
+            self.publish_form.setor_id = "" if value in {"", GERAL_KEY} else value
+            setor = self.catalog.setor_by_id(value)
+            known = {s.id for s in setor.sub_setores} if setor is not None else set()
+            if self.publish_form.sub_setor_id not in known:
+                self.publish_form.sub_setor_id = ""
+            self._render()
+            return
+        if key == "folder_choice":
+            self.publish_form.folder_choice = value or ROOT_FOLDER
+            self.publish_form.move_files = self.publish_form.folder_choice != KEEP_FOLDER
+            dest, _err = folder_choice_destination(
+                self.publish_form, self.publish_form.current_download
+            )
+            if dest:
+                self.publish_form.upload_url = dest
+            self._render()
+            return
+        if key == "new_folder_name":
+            self.publish_form.new_folder_name = value
+            if self.publish_form.folder_choice == NEW_FOLDER:
+                dest, _err = folder_choice_destination(
+                    self.publish_form, self.publish_form.current_download
+                )
+                if dest:
+                    self.publish_form.upload_url = dest
+            return
+        if key == "move_files":
+            self.publish_form.move_files = (value or "").strip().lower() in {
+                "1",
+                "true",
+                "on",
+                "yes",
+            }
+            return
+        if hasattr(self.publish_form, key):
+            setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
+            if key in {
+                "nome",
+                "descricao",
+                "versao",
+                "upload_url",
+                "current_download",
+                "current_capa",
+                "current_icone",
+            }:
+                return
+            self._render()
+
+    def _publish_cancel(self) -> None:
+        self.publish_form = self._fresh_publish_form()
+        self._render()
+
+    def _publish_reopen(self) -> None:
+        if self.publish_form.busy or self.structure.busy:
+            return
+        self.publish_form.busy = True
+        self.structure.busy = True
+        self.publish_form.message = "Relendo catalogo remoto..."
+        self.structure.message = "Relendo catalogo remoto..."
+        self._render()
+        self.page.run_thread(self._publish_reopen_worker)
+
+    def _publish_reopen_worker(self) -> None:
+        provider = SharePointCatalogProvider()
+        result = provider.sync(progress=self._on_publish_progress)
+        self.publish_form.busy = False
+        if result.ok:
+            self.catalog = result.catalog
+            self._apply_gerencia_filter()
+            self.publish_form = self._fresh_publish_form(
+                message="Catalogo recarregado. Escolha o aplicativo no menu acima para editar.",
+            )
+            self.structure = structure_from_catalog(self.catalog, self.publish_form.fingerprint)
+            self.structure.message = "Catalogo recarregado."
+        else:
+            self.publish_form.conflict = True
+            self.publish_form.message = result.message or "Falha ao reler o catalogo."
+            self.structure.busy = False
+            self.structure.conflict = True
+            self.structure.message = result.message or "Falha ao reler o catalogo."
+        self._render()
+
+    def _on_publish_progress(self, pct: float, msg: str) -> None:
+        if self.structure.busy:
+            self.structure.hold_scroll = True
+            self.structure.progress = pct
+            self.structure.message = msg
+        else:
+            self.publish_form.hold_scroll = True
+            self.publish_form.progress = pct
+            self.publish_form.message = msg
+        try:
+            self._render()
+        except Exception:
+            pass
+
+    def _publish_pick(self, kind: str) -> None:
+        self._publish_pick_kind = kind
+        if not hasattr(ft, "FilePicker"):
+            self.publish_form.message = "Seletor de arquivo indisponivel neste ambiente."
+            self._render()
+            return
+        try:
+            self.page.run_task(self._publish_pick_async)
+        except Exception as exc:
+            self.publish_form.message = f"Nao foi possivel abrir o seletor: {exc}"
+            self._render()
+
+    async def _publish_pick_async(self) -> None:
+        kind = self._publish_pick_kind
+        allowed = {
+            "app": ["exe", "xlsx", "xlsm"],
+            "capa": ["png", "jpg", "jpeg", "webp"],
+            "icone": ["png", "jpg", "jpeg", "webp", "ico"],
+        }.get(kind)
+        picker = self._file_picker
+        if picker is None:
+            picker = ft.FilePicker()
+            self._file_picker = picker
+            services = getattr(self.page, "services", None)
+            if services is not None:
+                try:
+                    services.append(picker)
+                    self.page.update()
+                except Exception:
+                    pass
+        kwargs: dict = {"allow_multiple": False}
+        file_type = getattr(ft, "FilePickerFileType", None)
+        if allowed and file_type is not None:
+            kwargs["file_type"] = file_type.CUSTOM
+            kwargs["allowed_extensions"] = allowed
+        elif allowed:
+            kwargs["allowed_extensions"] = allowed
+        try:
+            files = await picker.pick_files(**kwargs)
+        except TypeError:
+            files = await picker.pick_files(allow_multiple=False)
+        if not files:
+            return
+        selected = files[0]
+        path = getattr(selected, "path", None) or ""
+        if not path:
+            self.publish_form.message = (
+                "O seletor nao devolveu o caminho do arquivo. Tente de novo."
+            )
+            self._render()
+            return
+        if kind == "app":
+            self.publish_form.app_path = path
+        elif kind == "capa":
+            self.publish_form.capa_path = path
+        elif kind == "icone":
+            self.publish_form.icone_path = path
+        self._render()
+
+    def _publish_save(self) -> None:
+        if not self.can_publish or self.publish_form.busy or self.structure.busy:
+            return
+        self.publish_form.busy = True
+        self.publish_form.conflict = False
+        self.publish_form.hold_scroll = True
+        self.publish_form.notice = ""
+        self.publish_form.notice_ok = False
+        self.publish_form.message = "Publicando..."
+        self.publish_form.progress = -1.0
+        self._render()
+        form = self.publish_form
+        self.page.run_thread(lambda: self._publish_save_worker(form))
+
+    def _gerencia_id_for_app(self, app_id: str) -> str:
+        for g in self.catalog.gerencias:
+            if app_id in g.apps:
+                return g.id
+        return ""
+
+    def _apply_saved_app_to_form(self, app: AppInfo, *, notice: str) -> None:
+        gid = self._gerencia_id_for_app(app.id)
+        file_capa, file_icone = catalog_json_media_urls(app.id)
+        form = self.publish_form
+        form.editing_id = app.id
+        form.nome = app.nome
+        form.descricao = app.descricao
+        form.versao = app.versao
+        form.tipo = app.tipo.value
+        form.gerencia_id = gid
+        form.setor_id = app.setor
+        form.sub_setor_id = app.sub_setor
+        form.upload_url = app.upload_url
+        form.current_download = app.download_url
+        form.current_capa = file_capa or catalog_http_url(app.catalog_imagem)
+        form.current_icone = file_icone or catalog_http_url(app.catalog_icone)
+        form.preview_capa = (
+            str(app.imagem or "")
+            if app.imagem and not str(app.imagem).lower().startswith(("http://", "https://"))
+            else ""
+        )
+        form.preview_icone = (
+            str(app.icone or "")
+            if app.icone and not str(app.icone).lower().startswith(("http://", "https://"))
+            else ""
+        )
+        form.original_gerencia_id = gid
+        form.app_path = ""
+        form.capa_path = ""
+        form.icone_path = ""
+        form.folder_choice = KEEP_FOLDER
+        form.new_folder_name = ""
+        form.move_files = False
+        form.busy = False
+        form.conflict = False
+        form.message = ""
+        form.progress = None
+        form.notice = notice
+        form.notice_ok = True
+        form.show_form = True
+        form.capture_baseline()
+
+    def _publish_save_worker(self, form: PublishFormState) -> None:
+        result = publish_app(
+            form,
+            expected_fingerprint=form.fingerprint,
+            progress=self._on_publish_progress,
+        )
+        if result.conflict:
+            self.publish_form.busy = False
+            self.publish_form.conflict = True
+            self.publish_form.hold_scroll = True
+            self.publish_form.message = result.message
+            self._render()
+            self.publish_form.hold_scroll = False
+            return
+        if not result.ok:
+            self.publish_form.busy = False
+            self.publish_form.hold_scroll = True
+            self.publish_form.message = result.message
+            self._render()
+            self.publish_form.hold_scroll = False
+            return
+        if result.catalog is not None:
+            self.catalog = result.catalog
+        else:
+            provider = SharePointCatalogProvider()
+            synced = provider.sync(progress=self._on_publish_progress)
+            if synced.ok:
+                self.catalog = synced.catalog
+        self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
+        was_edit = bool(form.editing_id)
+        app_id = (result.app_id or form.editing_id or "").strip()
+        notice = "Item atualizado." if was_edit else "Catalogo salvo."
+        self.publish_form.fingerprint = fp
+        app = next((a for a in self.catalog.apps if a.id == app_id), None)
+        if app is not None:
+            self._apply_saved_app_to_form(app, notice=notice)
+        else:
+            self.publish_form.busy = False
+            self.publish_form.app_path = ""
+            self.publish_form.capa_path = ""
+            self.publish_form.icone_path = ""
+            self.publish_form.notice = notice
+            self.publish_form.notice_ok = True
+            self.publish_form.message = ""
+            self.publish_form.progress = None
+            self.publish_form.capture_baseline()
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self.publish_form.hold_scroll = False
+        self._render()
+
+    def _publish_delete(self) -> None:
+        if not self.can_publish or self.publish_form.busy or self.structure.busy or self._confirm_open:
+            return
+        app_id = (self.publish_form.editing_id or "").strip()
+        if not app_id:
+            return
+        nome = self.publish_form.nome or app_id
+        self._confirm_open = True
+        dlg_holder: dict = {"done": False}
+
+        def _close(_e=None) -> None:
+            self._confirm_open = False
+            dlg = dlg_holder.get("dlg")
+            pop = getattr(self.page, "pop_dialog", None)
+            if callable(pop):
+                try:
+                    pop()
+                    return
+                except Exception:
+                    pass
+            if dlg is not None:
+                try:
+                    dlg.open = False
+                    self.page.update()
+                except Exception:
+                    pass
+
+        def _pick(delete_files: bool):
+            def _run(_e=None, files=delete_files) -> None:
+                if dlg_holder["done"]:
+                    return
+                dlg_holder["done"] = True
+                _close()
+                self._publish_delete_confirmed(app_id, files)
+
+            return _run
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Excluir?"),
+            content=ft.Text(
+                f'Excluir "{nome}"? '
+                "So do catalogo remove o app do catalog.json. "
+                "Tambem os arquivos apaga o aplicativo, a capa e o icone no SharePoint."
+            ),
+            actions=[
+                ft.TextButton(content="Cancelar", on_click=_close),
+                ft.OutlinedButton(content="Excluir so do catalogo", on_click=_pick(False)),
+                ft.FilledButton(
+                    content="Excluir tambem os arquivos no SharePoint",
+                    on_click=_pick(True),
+                ),
+            ],
+        )
+        dlg_holder["dlg"] = dlg
+        show = getattr(self.page, "show_dialog", None)
+        if callable(show):
+            show(dlg)
+            return
+        open_fn = getattr(self.page, "open", None)
+        if callable(open_fn):
+            open_fn(dlg)
+            return
+        try:
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.page.update()
+        except Exception:
+            self._confirm_open = False
+
+    def _publish_delete_confirmed(self, app_id: str, delete_files: bool) -> None:
+        if not self.can_publish or self.publish_form.busy or self.structure.busy:
+            return
+        self.publish_form.busy = True
+        self.publish_form.conflict = False
+        self.publish_form.hold_scroll = True
+        self.publish_form.notice = ""
+        self.publish_form.notice_ok = False
+        self.publish_form.message = "Excluindo..."
+        self.publish_form.progress = -1.0
+        self._render()
+        self.page.run_thread(lambda: self._publish_delete_worker(app_id, delete_files))
+
+    def _publish_delete_worker(self, app_id: str, delete_files: bool) -> None:
+        result = delete_catalog_app(
+            app_id,
+            expected_fingerprint=self.publish_form.fingerprint,
+            delete_sharepoint_files=delete_files,
+            progress=self._on_publish_progress,
+        )
+        if result.conflict:
+            self.publish_form.busy = False
+            self.publish_form.conflict = True
+            self.publish_form.hold_scroll = True
+            self.publish_form.message = result.message
+            self._render()
+            self.publish_form.hold_scroll = False
+            return
+        if not result.ok:
+            self.publish_form.busy = False
+            self.publish_form.hold_scroll = True
+            self.publish_form.message = result.message
+            self._render()
+            self.publish_form.hold_scroll = False
+            return
+        if result.catalog is not None:
+            self.catalog = result.catalog
+        self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
+        self.publish_form = self._fresh_publish_form(
+            fingerprint=fp,
+            notice="Item excluido.",
+            notice_ok=True,
+        )
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self.publish_form.hold_scroll = False
+        self._render()
+
+    def _structure_select(self, sel: str) -> None:
+        if not self.can_publish:
+            return
+        self.structure.sel = sel
+        self.structure.notice = ""
+        self.structure.notice_ok = False
+        self._render()
+
+    def _structure_target(self):
+        sel = self.structure.sel or ""
+        try:
+            if sel.startswith("g:"):
+                return self.structure.gerencias[int(sel.split(":")[1])]
+            if sel.startswith("s:"):
+                return self.structure.setores[int(sel.split(":")[1])]
+            if sel.startswith("sub:"):
+                _, si, subi = sel.split(":")
+                return self.structure.setores[int(si)].sub_setores[int(subi)]
+        except (IndexError, ValueError):
+            return None
+        return None
+
+    def _structure_field(self, key: str, value: str) -> None:
+        if not self.can_publish:
+            return
+        self.structure.dirty = True
+        if self.structure.sel == "geral" or key == "gerencia_geral":
+            if key == "gerencia_geral":
+                self.structure.gerencia_geral = value
+            return
+        target = self._structure_target()
+        if target is not None and hasattr(target, key):
+            setattr(target, key, value)
+
+    def _structure_toggle_app(self, app_id: str, checked: bool) -> None:
+        if not self.can_publish:
+            return
+        sel = self.structure.sel or ""
+        if not sel.startswith("g:"):
+            return
+        g = self.structure.gerencias[int(sel.split(":")[1])]
+        self.structure.dirty = True
+        if checked and app_id not in g.apps:
+            g.apps.append(app_id)
+        elif not checked:
+            g.apps = [x for x in g.apps if x != app_id]
+        self._render()
+
+    def _structure_new(self, kind: str) -> None:
+        self._structure_new_at(kind, None)
+
+    def _structure_new_subsetor(self, setor_index: int) -> None:
+        self._structure_new_at("subsetor", setor_index)
+
+    def _structure_new_at(self, kind: str, setor_index: int | None) -> None:
+        if not self.can_publish:
+            return
+        self.structure.dirty = True
+        if kind == "gerencia":
+            self.structure.gerencias.append(DraftGerencia(nome="Nova gerencia"))
+            self.structure.sel = f"g:{len(self.structure.gerencias) - 1}"
+        elif kind == "setor":
+            self.structure.setores.append(DraftSetor(nome="Novo setor"))
+            self.structure.sel = f"s:{len(self.structure.setores) - 1}"
+        elif kind == "subsetor":
+            si = setor_index
+            sel = self.structure.sel or ""
+            if si is None:
+                if sel.startswith("s:"):
+                    si = int(sel.split(":")[1])
+                elif sel.startswith("sub:"):
+                    si = int(sel.split(":")[1])
+                elif self.structure.setores:
+                    si = len(self.structure.setores) - 1
+            if si is None:
+                self.structure.message = "Crie um setor antes do sub-setor."
+                self._render()
+                return
+            if si < 0 or si >= len(self.structure.setores):
+                return
+            setor = self.structure.setores[si]
+            setor.sub_setores.append(DraftSubSetor(nome="Novo sub-setor"))
+            self.structure.sel = f"sub:{si}:{len(setor.sub_setores) - 1}"
+        self._render()
+
+    def _structure_delete(self, sel: str) -> None:
+        if not self.can_publish or self.structure.busy or self.publish_form.busy or self._confirm_open:
+            return
+        label = "este item"
+        if sel.startswith("g:"):
+            try:
+                g = self.structure.gerencias[int(sel.split(":")[1])]
+                label = f"a gerencia \"{g.nome or g.id or 'Gerencia'}\""
+            except (IndexError, ValueError):
+                return
+        elif sel.startswith("s:"):
+            try:
+                s = self.structure.setores[int(sel.split(":")[1])]
+                label = f"o setor \"{s.nome or s.id or 'Setor'}\""
+            except (IndexError, ValueError):
+                return
+        elif sel.startswith("sub:"):
+            try:
+                _, si, subi = sel.split(":")
+                sub = self.structure.setores[int(si)].sub_setores[int(subi)]
+                label = f"o sub-setor \"{sub.nome or sub.id or 'Sub-setor'}\""
+            except (IndexError, ValueError):
+                return
+        else:
+            return
+        self._confirm_dialog(
+            "Excluir?",
+            f"Excluir {label}? Sim atualiza o catalog.json agora. Nao cancela.",
+            lambda: self._structure_delete_confirmed(sel),
+        )
+
+    def _structure_delete_confirmed(self, sel: str) -> None:
+        if not self.can_publish or self.structure.busy or self.publish_form.busy:
+            return
+        remote = False
+        try:
+            if sel.startswith("g:"):
+                i = int(sel.split(":")[1])
+                g = self.structure.gerencias[i]
+                remote = bool(g.orig_id)
+                del self.structure.gerencias[i]
+                self.structure.sel = ""
+            elif sel.startswith("s:"):
+                i = int(sel.split(":")[1])
+                setor = self.structure.setores[i]
+                remote = bool(setor.orig_id)
+                del self.structure.setores[i]
+                self.structure.sel = ""
+            elif sel.startswith("sub:"):
+                _, si, subi = sel.split(":")
+                si_i, sub_i = int(si), int(subi)
+                sub = self.structure.setores[si_i].sub_setores[sub_i]
+                remote = bool(sub.orig_id)
+                del self.structure.setores[si_i].sub_setores[sub_i]
+                self.structure.sel = f"s:{si_i}"
+            else:
+                return
+        except (IndexError, ValueError):
+            return
+        self.structure.dirty = True
+        if remote:
+            self._structure_save()
+        else:
+            self._render()
+
+    def _confirm_dialog(self, title: str, body: str, on_yes) -> None:
+        if self._confirm_open or self.structure.busy or self.publish_form.busy:
+            return
+        self._confirm_open = True
+        dlg_holder: dict = {"done": False}
+
+        def _close(_e=None) -> None:
+            self._confirm_open = False
+            dlg = dlg_holder.get("dlg")
+            pop = getattr(self.page, "pop_dialog", None)
+            if callable(pop):
+                try:
+                    pop()
+                    return
+                except Exception:
+                    pass
+            if dlg is not None:
+                try:
+                    dlg.open = False
+                    self.page.update()
+                except Exception:
+                    pass
+
+        def _yes(e) -> None:
+            if dlg_holder["done"]:
+                return
+            dlg_holder["done"] = True
+            _close()
+            on_yes()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(title),
+            content=ft.Text(body),
+            actions=[
+                ft.TextButton(content="Nao", on_click=_close),
+                ft.FilledButton(content="Sim", on_click=_yes),
+            ],
+        )
+        dlg_holder["dlg"] = dlg
+        show = getattr(self.page, "show_dialog", None)
+        if callable(show):
+            show(dlg)
+            return
+        open_fn = getattr(self.page, "open", None)
+        if callable(open_fn):
+            open_fn(dlg)
+            return
+        try:
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.page.update()
+        except Exception:
+            self._confirm_open = False
+
+    def _structure_save(self) -> None:
+        if not self.can_publish or self.structure.busy:
+            return
+        self.structure.busy = True
+        self.structure.conflict = False
+        self.structure.hold_scroll = True
+        self.structure.notice = ""
+        self.structure.notice_ok = False
+        self.structure.message = "Publicando estrutura..."
+        self.structure.progress = -1.0
+        self._render()
+        form = self.structure
+        self.page.run_thread(lambda: self._structure_save_worker(form))
+
+    def _structure_save_worker(self, form: StructureFormState) -> None:
+        result = save_catalog_structure(
+            form,
+            expected_fingerprint=form.fingerprint,
+            progress=self._on_publish_progress,
+        )
+        if result.conflict:
+            self.structure.busy = False
+            self.structure.conflict = True
+            self.structure.hold_scroll = True
+            self.structure.message = result.message
+            self._render()
+            self.structure.hold_scroll = False
+            return
+        if not result.ok:
+            self.structure.busy = False
+            self.structure.hold_scroll = True
+            self.structure.message = result.message
+            self._render()
+            self.structure.hold_scroll = False
+            return
+        if result.catalog is not None:
+            self.catalog = result.catalog
+        else:
+            provider = SharePointCatalogProvider()
+            synced = provider.sync(progress=self._on_publish_progress)
+            if synced.ok:
+                self.catalog = synced.catalog
+        self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
+        self.publish_form.fingerprint = fp
+        sel = form.sel
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self.structure.sel = sel
+        self.structure.notice = "Catalogo salvo."
+        self.structure.notice_ok = True
+        self.structure.hold_scroll = False
+        self.catalog_tab = "estrutura"
         self._render()
 
     def _run_catalog_app(self, app: AppInfo) -> None:
@@ -441,6 +1337,48 @@ class SuiteApp:
         self.run_error = ""
         self._render()
         self.page.run_thread(lambda: self._update_catalog_app_worker(app))
+
+    def _request_uninstall(self, app: AppInfo) -> None:
+        if self.app_job_busy or self.update_busy or self._confirm_open:
+            return
+        self._refresh_running(force=True)
+        if self._this_app_running(app.id):
+            self.run_error = "Feche o aplicativo antes de desinstalar."
+            self._set_detail_notice(app.id, self.run_error)
+            self._render()
+            return
+        nome = app.nome or app.id
+        self._confirm_dialog(
+            "Desinstalar?",
+            f'Desinstalar "{nome}"? Sim remove os arquivos locais. Nao cancela.',
+            lambda: self._uninstall_confirmed(app),
+        )
+
+    def _uninstall_confirmed(self, app: AppInfo) -> None:
+        if self.app_job_busy or self.update_busy:
+            return
+        self.app_job_busy = True
+        self.app_job_app_id = app.id
+        self.app_job_progress = -1.0
+        self.app_job_message = "Desinstalando..."
+        self.run_error = ""
+        self.detail_notice = ""
+        self.detail_notice_app_id = None
+        self._render()
+        self.page.run_thread(lambda: self._uninstall_worker(app))
+
+    def _uninstall_worker(self, app: AppInfo) -> None:
+        try:
+            self.storage.uninstall(app.id)
+            msg = "Desinstalação concluída."
+        except Exception as exc:
+            msg = f"Erro ao desinstalar: {exc}"
+        self.app_job_busy = False
+        self.app_job_app_id = None
+        self.app_job_progress = None
+        self.app_job_message = msg
+        self._set_detail_notice(app.id, msg)
+        self._render()
 
     def _update_catalog_app_worker(self, app: AppInfo) -> None:
         reopen = False
@@ -494,6 +1432,7 @@ class SuiteApp:
                     self.run_error = str(exc)
         self.app_job_busy = False
         self.app_job_app_id = None
+        self._set_detail_notice(app.id, self.app_job_message)
         self._refresh_running(force=True)
         self._render()
 
@@ -613,6 +1552,28 @@ class SuiteApp:
             pass
 
     # ------------------------------------------------------------------
+    def _ensure_catalog_shell(self) -> ft.Column:
+        self._publish_layout.controls = [self._sess_pub_sel, self._sess_pub_edit]
+        self._estrutura_layout.controls = [self._sess_str_sel, self._sess_str_edit]
+        self._catalog_session_box.content = self._session_host
+        if self._catalog_shell is None:
+            self._session_host.content = self._publish_layout
+            self._catalog_shell = ft.Column(
+                expand=True,
+                spacing=12,
+                controls=[
+                    ft.Text("Catalogo", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+                    self._catalog_tabs,
+                    self._catalog_session_box,
+                ],
+            )
+        else:
+            title = self._catalog_shell.controls[0] if self._catalog_shell.controls else None
+            if not isinstance(title, ft.Text):
+                title = ft.Text("Catalogo", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT)
+            self._catalog_shell.controls = [title, self._catalog_tabs, self._catalog_session_box]
+        return self._catalog_shell
+
     def _render(self) -> None:
         fav_ids = self._favorite_ids()
         has_favs = self._has_visible_favorites()
@@ -631,6 +1592,7 @@ class SuiteApp:
             self.selected_id is None
             and self.selected_setor is None
             and not self.show_favorites
+            and not self.show_publish
         )
         favorites_selected = self.show_favorites and self.selected_id is None
         running_name = self._running_app_names()
@@ -657,13 +1619,51 @@ class SuiteApp:
             on_download_update=self._download_suite_update,
             on_check_updates=self._check_updates,
             check_updates_busy=self.sync_busy,
+            check_updates_notice=self.sync_notice,
             start_with_windows=self.preferences.get_start_with_windows(),
             on_toggle_startup=self._toggle_startup,
             show_startup_toggle=sys.platform.startswith("win"),
             running_app_name=running_name,
+            show_publish=self.can_publish,
+            publish_selected=self.show_publish,
+            on_publish=self._go_publish if self.can_publish else None,
         )
 
-        if self.selected_id is not None:
+        if self.show_publish and self.can_publish:
+            shell = self._ensure_catalog_shell()
+            bind_catalog_view(
+                self.catalog,
+                self.publish_form,
+                self.structure,
+                self.catalog_tab,
+                on_tab=self._catalog_tab,
+                on_select_app=self._publish_select,
+                on_save=self._publish_save,
+                on_cancel=self._publish_cancel,
+                on_pick=self._publish_pick,
+                on_field=self._publish_field,
+                on_reopen=self._publish_reopen,
+                on_refresh_folders=lambda: self._refresh_publish_folders(True),
+                on_delete_app=self._publish_delete,
+                on_structure_select=self._structure_select,
+                on_structure_field=self._structure_field,
+                on_structure_toggle_app=self._structure_toggle_app,
+                on_structure_new=self._structure_new,
+                on_structure_new_subsetor=self._structure_new_subsetor,
+                on_structure_delete=self._structure_delete,
+                on_structure_save=self._structure_save,
+                on_structure_reopen=self._publish_reopen,
+                tab_row=self._catalog_tabs,
+                session_host=self._session_host,
+                publish_layout=self._publish_layout,
+                estrutura_layout=self._estrutura_layout,
+                publish_select=self._sess_pub_sel,
+                publish_edit=self._sess_pub_edit,
+                structure_select=self._sess_str_sel,
+                structure_edit=self._sess_str_edit,
+            )
+            self.content_holder.content = shell
+        elif self.selected_id is not None:
             app = self.apps_by_id.get(self.selected_id)
             if app is None:
                 self.content_holder.content = ft.Text(
@@ -679,10 +1679,12 @@ class SuiteApp:
                     on_toggle_favorite=self._toggle_favorite,
                     on_run=self._run_catalog_app,
                     on_update_app=self._request_app_update,
+                    on_uninstall=self._request_uninstall,
+                    on_status=self._set_detail_notice,
                     this_app_running=self._this_app_running(app.id),
                     work_busy=self.app_job_busy and self.app_job_app_id == app.id,
-                    work_progress=self.app_job_progress,
-                    work_message=self.app_job_message or self.run_error,
+                    work_progress=self.app_job_progress if self.app_job_app_id == app.id else None,
+                    work_message=self._detail_work_message(app.id),
                 ).build()
         elif self.show_favorites:
             self.content_holder.content = build_favoritos_view(

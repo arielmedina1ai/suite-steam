@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -53,12 +56,55 @@ def _template_upload() -> Path:
     return _scripts_dir() / name
 
 
+def _template_upload_by_id() -> Path:
+    return _scripts_dir() / "template_sp_upload_by_id.ps1"
+
+
+def _template_list_folders() -> Path:
+    name = getattr(config, "SHAREPOINT_LIST_FOLDERS_SCRIPT", "template_sp_list_folders.ps1")
+    return _scripts_dir() / name
+
+
+def _template_session() -> Path:
+    name = getattr(config, "SHAREPOINT_SESSION_SCRIPT", "template_sp_session.ps1")
+    return _scripts_dir() / name
+
+
+def _hidden_subprocess_kwargs() -> dict:
+    """powershell.exe sem janela: CREATE_NO_WINDOW + -WindowStyle Hidden."""
+    kwargs: dict = {}
+    if sys.platform.startswith("win"):
+        flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+        kwargs["creationflags"] = flags
+        startupinfo = subprocess.STARTUPINFO()
+        show = getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.dwFlags |= show
+        startupinfo.wShowWindow = 0
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
+def _powershell_file_cmd(script_path: str) -> list[str]:
+    return [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        script_path,
+    ]
+
+
 @dataclass
 class SharePointResult:
     ok: bool
     path: Path | None = None
     message: str = ""
     stdout: str = ""
+    skipped: bool = False
+    remote_name: str = ""
 
 
 @dataclass
@@ -207,9 +253,22 @@ def parsear_link_pasta_sharepoint(url: str) -> dict:
         ]
     ):
         info = parsear_link_sharepoint(url)
-        partes = info["caminho_sp"].split("/")
-        caminho_pasta = "/".join(partes[:-1])
+        partes = (info.get("caminho_sp") or "").split("/")
+        caminho_pasta = "/".join(partes[:-1]) if info.get("nome_arquivo") else "/".join(partes)
         return {"site_url": info["site_url"], "caminho_sp": caminho_pasta}
+
+    path = unquote(parsed.path).strip("/")
+    partes = [p for p in path.split("/") if p]
+    if (
+        parsed.scheme in {"http", "https"}
+        and len(partes) >= 3
+        and partes[0].lower() in {"sites", "teams"}
+    ):
+        site_path = "/" + "/".join(partes[:2])
+        site_url = base + site_path
+        caminho_pasta = "/".join(partes[2:])
+        if caminho_pasta:
+            return {"site_url": site_url, "caminho_sp": caminho_pasta}
 
     raise ValueError(f"Formato de URL do SharePoint nao reconhecido: {url}")
 
@@ -239,11 +298,12 @@ def _run_templated_ps1(
 
     try:
         resultado = subprocess.run(
-            ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", tmp_path],
+            _powershell_file_cmd(tmp_path),
             capture_output=True,
             text=True,
             encoding="cp850",
             errors="replace",
+            **_hidden_subprocess_kwargs(),
         )
         return resultado.returncode, resultado.stdout or "", resultado.stderr or ""
     finally:
@@ -251,6 +311,311 @@ def _run_templated_ps1(
             os.unlink(tmp_path)
         except OSError:
             pass
+
+
+class PnPWebLoginSession:
+    """Um powershell.exe + um Connect-PnPOnline para varias operacoes."""
+
+    def __init__(self, site_url: str, progress: ProgressCb | None = None) -> None:
+        self.site_url = (site_url or "").strip()
+        self.progress = progress
+        self._proc: subprocess.Popen | None = None
+        self._dir: Path | None = None
+        self._script: str | None = None
+
+    def start(self) -> str:
+        if not self.site_url:
+            return "site_url vazio para WebLogin."
+        template = _template_session()
+        if not template.exists():
+            return f"Template nao encontrado: {template}"
+        self._dir = Path(tempfile.mkdtemp(prefix="suite-pnp-"))
+        script = template.read_text(encoding="utf-8")
+        script = script.replace("{{SITE_URL}}", self.site_url)
+        script = script.replace("{{CONTROL_DIR}}", str(self._dir))
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".ps1", delete=False, encoding="utf-8-sig"
+        ) as tmp:
+            tmp.write(script)
+            self._script = tmp.name
+        if self.progress:
+            self.progress(-1.0, "Abrindo autenticacao SharePoint (WebLogin)...")
+        try:
+            popen_kwargs = _hidden_subprocess_kwargs()
+            if sys.platform.startswith("win"):
+                popen_kwargs["creationflags"] = int(popen_kwargs.get("creationflags", 0)) | int(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+                )
+            self._proc = subprocess.Popen(
+                _powershell_file_cmd(self._script),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                **popen_kwargs,
+            )
+        except Exception as exc:
+            return f"Falha ao iniciar PowerShell: {exc}"
+        ready = self._dir / "ready.txt"
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            if ready.is_file():
+                return ""
+            if self._proc.poll() is not None:
+                return "PowerShell encerrou antes do WebLogin."
+            time.sleep(0.2)
+        return "Tempo esgotado aguardando o WebLogin."
+
+    def close(self) -> None:
+        proc = self._proc
+        if self._dir is not None:
+            try:
+                (self._dir / "quit").write_text("1", encoding="ascii")
+            except OSError:
+                pass
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+        if proc is not None and proc.poll() is None and sys.platform.startswith("win"):
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=5,
+                    **_hidden_subprocess_kwargs(),
+                )
+            except Exception:
+                pass
+        self._proc = None
+        if self._script:
+            try:
+                os.unlink(self._script)
+            except OSError:
+                pass
+            self._script = None
+        if self._dir is not None:
+            shutil.rmtree(self._dir, ignore_errors=True)
+            self._dir = None
+
+    def __enter__(self) -> "PnPWebLoginSession":
+        err = self.start()
+        if err:
+            self.close()
+            raise RuntimeError(err)
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.close()
+        return False
+
+    def _send(self, payload: dict[str, Any], timeout: float = 600) -> dict[str, Any]:
+        if self._dir is None or self._proc is None:
+            return {"ok": False, "error": "Sessao PnP nao iniciada."}
+        ack = self._dir / "ack.json"
+        cmd = self._dir / "cmd.json"
+        tmp = self._dir / "cmd.json.tmp"
+        try:
+            if ack.exists():
+                ack.unlink()
+        except OSError:
+            pass
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(cmd)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if ack.is_file() and ack.stat().st_size > 0:
+                try:
+                    raw = ack.read_text(encoding="utf-8-sig")
+                    data = json.loads(raw) if raw.strip() else {}
+                except (OSError, json.JSONDecodeError):
+                    time.sleep(0.05)
+                    continue
+                try:
+                    ack.unlink()
+                except OSError:
+                    pass
+                if not isinstance(data, dict):
+                    return {"ok": False, "error": "ack invalido"}
+                return data
+            if self._proc.poll() is not None:
+                return {"ok": False, "error": "PowerShell encerrou no meio da operacao."}
+            time.sleep(0.1)
+        return {"ok": False, "error": "Tempo esgotado na operacao SharePoint."}
+
+    def download(
+        self,
+        info: dict[str, Any],
+        pasta_final: str,
+        nome_final: str,
+    ) -> SharePointResult:
+        site = str(info.get("site_url") or self.site_url)
+        if info.get("tipo") == "unique_id":
+            ack = self._send(
+                {
+                    "op": "download_id",
+                    "site_url": site,
+                    "pasta_destino": pasta_final,
+                    "nome_arquivo": nome_final,
+                    "unique_id": info.get("unique_id") or "",
+                }
+            )
+        else:
+            caminho = info.get("caminho_sp")
+            if not caminho:
+                return SharePointResult(ok=False, message="Caminho SharePoint nao determinado.")
+            ack = self._send(
+                {
+                    "op": "download_path",
+                    "site_url": site,
+                    "pasta_destino": pasta_final,
+                    "nome_arquivo": nome_final,
+                    "caminho_sp": caminho,
+                }
+            )
+        if ack.get("ok"):
+            path = Path(str(ack.get("path") or ""))
+            if path.is_file():
+                return SharePointResult(ok=True, path=path, message="Download concluido.")
+            return SharePointResult(ok=False, message="Download sem arquivo local.")
+        return SharePointResult(ok=False, message=str(ack.get("error") or "Falha no download."))
+
+    def upload_folder(
+        self,
+        arquivo: Path,
+        info: dict[str, Any],
+        nome_final: str,
+    ) -> SharePointResult:
+        ack = self._send(
+            {
+                "op": "upload_folder",
+                "site_url": str(info.get("site_url") or self.site_url),
+                "arquivo_local": str(arquivo.resolve()),
+                "nome_arquivo": nome_final,
+                "caminho_sp": info.get("caminho_sp") or "",
+            }
+        )
+        if ack.get("ok"):
+            return SharePointResult(ok=True, path=arquivo, message="Upload concluido.")
+        return SharePointResult(ok=False, message=str(ack.get("error") or "Falha no upload."))
+
+    def upload_unique_id(
+        self,
+        arquivo: Path,
+        *,
+        site_url: str,
+        unique_id: str,
+    ) -> SharePointResult:
+        ack = self._send(
+            {
+                "op": "upload_id",
+                "site_url": site_url or self.site_url,
+                "arquivo_local": str(arquivo.resolve()),
+                "unique_id": unique_id,
+            }
+        )
+        if ack.get("ok"):
+            return SharePointResult(ok=True, path=arquivo, message="Upload concluido.")
+        return SharePointResult(ok=False, message=str(ack.get("error") or "Falha no upload."))
+
+    def delete_remote(self, file_url: str) -> SharePointResult:
+        raw = (file_url or "").strip()
+        if not raw.lower().startswith(("http://", "https://")):
+            return SharePointResult(ok=False, message="Link remoto ausente.")
+        try:
+            info = parsear_link_sharepoint(raw)
+        except ValueError as exc:
+            return SharePointResult(ok=False, message=str(exc))
+        site = str(info.get("site_url") or self.site_url)
+        if info.get("tipo") == "unique_id":
+            ack = self._send(
+                {
+                    "op": "delete_id",
+                    "site_url": site,
+                    "unique_id": info.get("unique_id") or "",
+                }
+            )
+        else:
+            caminho = info.get("caminho_sp") or ""
+            nome = str(info.get("nome_arquivo") or "").strip()
+            if not caminho:
+                return SharePointResult(ok=False, message="Caminho SharePoint nao determinado.")
+            ack = self._send(
+                {
+                    "op": "delete_path",
+                    "site_url": site,
+                    "caminho_sp": caminho,
+                    "nome_arquivo": nome,
+                }
+            )
+        if ack.get("ok"):
+            return SharePointResult(ok=True, message="Arquivo removido no SharePoint.")
+        return SharePointResult(ok=False, message=str(ack.get("error") or "Falha ao excluir no SharePoint."))
+
+    def create_folder(self, parent_info: dict[str, Any], name: str) -> SharePointResult:
+        nome = (name or "").strip()
+        if not nome:
+            return SharePointResult(ok=False, message="Informe o nome da nova pasta.")
+        if "/" in nome or "\\" in nome:
+            return SharePointResult(ok=False, message="Nome da pasta nao pode conter barras.")
+        ack = self._send(
+            {
+                "op": "create_folder",
+                "site_url": str(parent_info.get("site_url") or self.site_url),
+                "pasta_pai": parent_info.get("caminho_sp") or "",
+                "nome_pasta": nome,
+            }
+        )
+        if ack.get("ok"):
+            return SharePointResult(ok=True, message="Pasta criada no SharePoint.")
+        return SharePointResult(
+            ok=False,
+            message=str(ack.get("error") or "Falha ao criar a pasta no SharePoint."),
+        )
+
+    def move_remote(self, file_url: str, dest_folder_url: str) -> SharePointResult:
+        raw = (file_url or "").strip()
+        dest = (dest_folder_url or "").strip()
+        if not raw.lower().startswith(("http://", "https://")):
+            return SharePointResult(ok=False, message="Link remoto ausente.")
+        if not dest:
+            return SharePointResult(ok=False, message="Pasta destino ausente.")
+        try:
+            src = parsear_link_sharepoint(raw)
+            folder = parsear_link_pasta_sharepoint(dest)
+        except ValueError as exc:
+            return SharePointResult(ok=False, message=str(exc))
+        payload: dict[str, Any] = {
+            "op": "move_file",
+            "site_url": str(folder.get("site_url") or src.get("site_url") or self.site_url),
+            "destino_sp": folder.get("caminho_sp") or "",
+        }
+        if src.get("tipo") == "unique_id":
+            payload["unique_id"] = src.get("unique_id") or ""
+        else:
+            payload["caminho_sp"] = src.get("caminho_sp") or ""
+            payload["nome_arquivo"] = src.get("nome_arquivo") or ""
+        ack = self._send(payload)
+        if ack.get("ok"):
+            return SharePointResult(
+                ok=True,
+                message="Arquivo movido no SharePoint.",
+                skipped=bool(ack.get("skipped")),
+                remote_name=str(ack.get("name") or "").strip(),
+            )
+        return SharePointResult(
+            ok=False,
+            message=str(ack.get("error") or "Falha ao mover arquivo no SharePoint."),
+        )
 
 
 def baixar_varios_do_sharepoint(
@@ -439,6 +804,7 @@ def baixar_do_sharepoint(
     pasta_destino: str | Path | None = None,
     nome_arquivo: str | None = None,
     progress: ProgressCb | None = None,
+    session: PnPWebLoginSession | None = None,
 ) -> SharePointResult:
     """Baixa um arquivo do SharePoint via template PowerShell (PnP + WebLogin).
 
@@ -464,6 +830,19 @@ def baixar_do_sharepoint(
     if progress:
         rotulo = nome_final or "arquivo do UniqueId"
         progress(0.05, f"Preparando download: {rotulo}")
+
+    if session is not None:
+        result = session.download(info, pasta_final, nome_final)
+        if result.ok and result.path and result.path.is_file():
+            if progress:
+                progress(1.0, "Download concluido")
+            tamanho_kb = result.path.stat().st_size / 1024
+            return SharePointResult(
+                ok=True,
+                path=result.path,
+                message=f"Download concluido ({tamanho_kb:.1f} KB).",
+            )
+        return result
 
     try:
         if info.get("tipo") == "unique_id":
@@ -522,6 +901,7 @@ def enviar_para_sharepoint(
     link_pasta: str,
     nome_arquivo: str | None = None,
     progress: ProgressCb | None = None,
+    session: PnPWebLoginSession | None = None,
 ) -> SharePointResult:
     """Envia um arquivo local para uma pasta do SharePoint via template PowerShell."""
     arquivo = Path(arquivo_local)
@@ -539,6 +919,12 @@ def enviar_para_sharepoint(
 
     if progress:
         progress(0.05, f"Preparando upload: {nome_final}")
+
+    if session is not None:
+        result = session.upload_folder(arquivo, info, nome_final)
+        if result.ok and progress:
+            progress(1.0, "Upload concluido")
+        return result
 
     try:
         code, stdout, stderr = _run_templated_ps1(
@@ -572,3 +958,116 @@ def enviar_para_sharepoint(
         message=f"Falha no upload. {log or f'returncode={code}'}",
         stdout=log,
     )
+
+
+def enviar_por_unique_id(
+    arquivo_local: str | Path,
+    *,
+    site_url: str,
+    unique_id: str,
+    progress: ProgressCb | None = None,
+    session: PnPWebLoginSession | None = None,
+) -> SharePointResult:
+    """Sobrescreve o arquivo do UniqueId (catalog.json) via PnP WebLogin."""
+    arquivo = Path(arquivo_local)
+    if not arquivo.exists():
+        return SharePointResult(ok=False, message=f"Arquivo local nao encontrado: {arquivo}")
+    if not site_url or not unique_id:
+        return SharePointResult(ok=False, message="UniqueId ou site_url ausente.")
+    if progress:
+        progress(0.05, "Preparando envio do catalog.json...")
+    if session is not None:
+        result = session.upload_unique_id(arquivo, site_url=site_url, unique_id=unique_id)
+        if result.ok and progress:
+            progress(1.0, "Upload concluido")
+        return result
+    try:
+        code, stdout, stderr = _run_templated_ps1(
+            _template_upload_by_id(),
+            {
+                "{{SITE_URL}}": site_url,
+                "{{ARQUIVO_LOCAL}}": str(arquivo.resolve()),
+                "{{UNIQUE_ID}}": unique_id,
+            },
+            progress=progress,
+        )
+    except FileNotFoundError as exc:
+        return SharePointResult(ok=False, message=str(exc))
+    except Exception as exc:
+        return SharePointResult(ok=False, message=f"Falha ao executar PowerShell: {exc}")
+    log = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+    if code == 0:
+        if progress:
+            progress(1.0, "Upload concluido")
+        return SharePointResult(ok=True, path=arquivo, message="Upload concluido.", stdout=log)
+    return SharePointResult(
+        ok=False,
+        message=f"Falha no upload. {log or f'returncode={code}'}",
+        stdout=log,
+    )
+
+
+def listar_pastas_sharepoint(
+    folder_url: str,
+    progress: ProgressCb | None = None,
+) -> tuple[list[str], str]:
+    """Lista pastas imediatas sob o link de pasta (PnP WebLogin)."""
+    url = (folder_url or "").strip()
+    if not url:
+        return [], "publish.folder_url nao configurado no settings.json."
+    try:
+        info = parsear_link_pasta_sharepoint(url)
+    except ValueError as exc:
+        return [], str(exc)
+    site_url = info.get("site_url") or ""
+    caminho_sp = info.get("caminho_sp") or ""
+    if not site_url or not caminho_sp:
+        return [], "Pasta raiz do SharePoint nao determinada."
+    out_fd, out_file = tempfile.mkstemp(suffix=".json")
+    os.close(out_fd)
+    try:
+        code, stdout, stderr = _run_templated_ps1(
+            _template_list_folders(),
+            {
+                "{{SITE_URL}}": site_url,
+                "{{CAMINHO_SP}}": caminho_sp,
+                "{{OUT_FILE}}": out_file,
+            },
+            progress=progress,
+        )
+    except FileNotFoundError as exc:
+        try:
+            os.unlink(out_file)
+        except OSError:
+            pass
+        return [], str(exc)
+    except Exception as exc:
+        try:
+            os.unlink(out_file)
+        except OSError:
+            pass
+        return [], f"Falha ao listar pastas: {exc}"
+    log = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+    names: list[str] = []
+    try:
+        raw = Path(out_file).read_text(encoding="utf-8-sig")
+        data = json.loads(raw) if raw.strip() else {}
+        folders = data.get("folders") if isinstance(data, dict) else data
+        if isinstance(folders, list):
+            seen: set[str] = set()
+            for item in folders:
+                name = str(item).strip()
+                if name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        elif isinstance(folders, str) and folders.strip():
+            names.append(folders.strip())
+    except (OSError, json.JSONDecodeError):
+        names = []
+    try:
+        os.unlink(out_file)
+    except OSError:
+        pass
+    if code != 0 and not names:
+        return [], log or f"Falha ao listar pastas (returncode={code})."
+    return names, ""

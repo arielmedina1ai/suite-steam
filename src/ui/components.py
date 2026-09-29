@@ -227,11 +227,17 @@ def build_sidebar(
     on_download_update: Callable[[], None],
     on_check_updates: Callable[[], None],
     check_updates_busy: bool,
+    check_updates_notice: str = "",
     start_with_windows: bool,
     on_toggle_startup: Callable[[bool], None],
     show_startup_toggle: bool,
     running_app_name: str = "",
+    show_publish: bool = False,
+    publish_selected: bool = False,
+    on_publish: Callable[[], None] | None = None,
 ) -> ft.Control:
+    home_selected = home_selected and not publish_selected
+    favorites_selected = favorites_selected and not publish_selected
     setores = setores_visiveis(catalog)
     gerencia_list = gerencias if gerencias is not None else catalog.gerencias
     items: list[ft.Control] = [
@@ -259,7 +265,7 @@ def build_sidebar(
                                 width=_SIDEBAR_INNER - 64,
                             ),
                             ft.Text(
-                                f"v{config.APP_VERSION}",
+                                config.app_version_display(),
                                 size=11,
                                 color="#8AA797",
                                 width=_SIDEBAR_INNER - 64,
@@ -301,6 +307,16 @@ def build_sidebar(
                 icon=ft.Icons.STAR,
                 selected=favorites_selected,
                 on_click=on_favorites,
+            )
+        )
+
+    if show_publish and on_publish is not None:
+        items.append(
+            _nav_item(
+                label="Catalogo",
+                icon=ft.Icons.CLOUD_UPLOAD,
+                selected=publish_selected,
+                on_click=on_publish,
             )
         )
 
@@ -385,6 +401,7 @@ def build_sidebar(
                     selected=(
                         not home_selected
                         and not favorites_selected
+                        and not publish_selected
                         and selected_setor_id == setor.id
                     ),
                     on_click=lambda s=setor.id: on_select_setor(s),
@@ -439,6 +456,13 @@ def build_sidebar(
                         color=config.COLOR_ACCENT,
                         bgcolor="#0A0F0C",
                         width=_SIDEBAR_INNER - 8,
+                    ),
+                    ft.Text(
+                        check_updates_notice,
+                        size=11,
+                        color="#8AA797",
+                        width=_SIDEBAR_INNER - 8,
+                        visible=bool(check_updates_notice) and not check_updates_busy,
                     ),
                 ],
             ),
