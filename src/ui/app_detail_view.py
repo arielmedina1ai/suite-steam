@@ -8,7 +8,6 @@ import flet as ft
 import config
 from models import AppInfo, InstallStatus
 from services.download_manager import DownloadManager, DownloadOutcome
-from services.sharepoint_manager import enviar_para_sharepoint
 from services.storage import Storage
 from ui.components import app_badge, app_icon, media_src
 from ui.progress_util import bar_value, label as progress_label
@@ -65,12 +64,6 @@ class AppDetailView:
             icon=ft.Icons.SYSTEM_UPDATE,
             visible=False,
             on_click=self._on_update,
-        )
-        self.upload_button = ft.OutlinedButton(
-            "Enviar para SharePoint",
-            icon=ft.Icons.CLOUD_UPLOAD,
-            visible=False,
-            on_click=self._on_upload,
         )
         self.uninstall_button = ft.OutlinedButton(
             "Desinstalar",
@@ -146,7 +139,6 @@ class AppDetailView:
             controls=[
                 self.action_button,
                 self.update_button,
-                self.upload_button,
                 self.uninstall_button,
             ],
         )
@@ -197,8 +189,6 @@ class AppDetailView:
             needs_update = self._has_version_update(state)
             self.update_button.visible = needs_update
             self.update_button.disabled = self.work_busy
-            self.upload_button.visible = bool(self.app.upload_url)
-            self.upload_button.disabled = self.work_busy or this
             self.uninstall_button.visible = True
             self.uninstall_button.disabled = self.work_busy or this
             local_name = Path(state.local_path).name if state.local_path else "?"
@@ -218,7 +208,6 @@ class AppDetailView:
             self.action_button.disabled = self.work_busy
             self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
             self.update_button.visible = False
-            self.upload_button.visible = False
             self.uninstall_button.visible = False
             self.local_info.value = ""
         if this and not self.work_busy:
@@ -278,7 +267,6 @@ class AppDetailView:
         installed = self._current_status() == InstallStatus.INSTALLED
         self.action_button.disabled = busy or (installed and self.this_app_running)
         self.update_button.disabled = busy
-        self.upload_button.disabled = busy or self.this_app_running
         self.uninstall_button.disabled = busy or self.this_app_running
 
     def _apply_progress(self, pct: float | None, msg: str) -> None:
@@ -294,38 +282,6 @@ class AppDetailView:
             "Iniciando download via SharePoint... Pode abrir uma janela de login (WebLogin).",
         )
         self.page.run_thread(self._download_worker)
-
-    def _on_upload(self, e: ft.ControlEvent) -> None:
-        if not self.app.upload_url:
-            self.status_text.value = "Este app nao tem upload_url no catalogo."
-            self._safe_update()
-            return
-        state = self.storage.get_state(self.app.id)
-        if not state.local_path or not Path(state.local_path).exists():
-            self.status_text.value = "Nao ha arquivo local para enviar. Baixe / Instale primeiro."
-            self._safe_update()
-            return
-        self._set_busy(True)
-        self._apply_progress(
-            -1.0,
-            "Enviando para SharePoint... Pode abrir uma janela de login (WebLogin).",
-        )
-        self.page.run_thread(lambda: self._upload_worker(state.local_path))
-
-    def _upload_worker(self, local_path: str) -> None:
-        def on_progress(pct: float, msg: str) -> None:
-            self._apply_progress(pct, msg)
-
-        result = enviar_para_sharepoint(
-            arquivo_local=local_path,
-            link_pasta=self.app.upload_url,
-            progress=on_progress,
-        )
-        self.progress.visible = False
-        self.status_text.value = result.message if result.ok else f"Erro no upload: {result.message}"
-        self._set_busy(False)
-        self._refresh_action_buttons()
-        self._safe_update()
 
     def _download_worker(self) -> None:
         def on_progress(pct: float, msg: str) -> None:
