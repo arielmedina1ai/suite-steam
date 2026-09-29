@@ -508,6 +508,7 @@ class SuiteApp:
         )
         if form.editing_id and form.current_download:
             form.folder_choice = KEEP_FOLDER
+            form.move_files = False
         else:
             form.folder_choice = ROOT_FOLDER
         if not form.editing_id and not (form.upload_url or "").strip():
@@ -593,6 +594,7 @@ class SuiteApp:
             return
         if key == "folder_choice":
             self.publish_form.folder_choice = value or ROOT_FOLDER
+            self.publish_form.move_files = self.publish_form.folder_choice != KEEP_FOLDER
             dest, _err = folder_choice_destination(
                 self.publish_form, self.publish_form.current_download
             )
@@ -608,6 +610,14 @@ class SuiteApp:
                 )
                 if dest:
                     self.publish_form.upload_url = dest
+            return
+        if key == "move_files":
+            self.publish_form.move_files = (value or "").strip().lower() in {
+                "1",
+                "true",
+                "on",
+                "yes",
+            }
             return
         if hasattr(self.publish_form, key):
             setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
@@ -782,6 +792,7 @@ class SuiteApp:
         form.icone_path = ""
         form.folder_choice = KEEP_FOLDER
         form.new_folder_name = ""
+        form.move_files = False
         form.busy = False
         form.conflict = False
         form.message = ""

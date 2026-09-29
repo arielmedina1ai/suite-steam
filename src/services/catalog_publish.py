@@ -57,6 +57,7 @@ class PublishFormState:
     original_gerencia_id: str = ""
     folder_choice: str = ROOT_FOLDER
     new_folder_name: str = ""
+    move_files: bool = False
     folders: list[str] = field(default_factory=list)
     folders_busy: bool = False
     folders_error: str = ""
@@ -82,6 +83,7 @@ class PublishFormState:
             "upload_url": self.upload_url,
             "folder_choice": self.folder_choice,
             "new_folder_name": self.new_folder_name,
+            "move_files": "1" if self.move_files else "0",
             "app_path": "",
             "capa_path": "",
             "icone_path": "",
@@ -93,6 +95,10 @@ class PublishFormState:
     def is_changed(self, key: str) -> bool:
         if key in {"app_path", "capa_path", "icone_path"}:
             return bool((getattr(self, key, "") or "").strip())
+        if key == "move_files":
+            current = "1" if self.move_files else "0"
+            original = self.baseline.get(key, "0") or "0"
+            return current != original
         current = getattr(self, key, "") or ""
         original = self.baseline.get(key, "") or ""
         return current != original
@@ -287,6 +293,36 @@ def _folder_info(folder_url: str) -> dict[str, str]:
     return parsear_link_pasta_sharepoint(folder_url)
 
 
+def exact_folder_name(raw: str) -> tuple[str | None, str]:
+    name = (raw or "").strip()
+    if not name:
+        return None, "Informe o nome da nova pasta."
+    if "/" in name or "\\" in name:
+        return None, "Nome da pasta nao pode conter barras."
+    if name in {".", ".."}:
+        return None, "Nome da pasta invalido."
+    return name, ""
+
+
+def same_sharepoint_folder(file_url: str, folder_url: str) -> bool:
+    raw_file = catalog_http_url(file_url) or (file_url or "").strip()
+    raw_folder = catalog_http_url(folder_url) or (folder_url or "").strip()
+    if not raw_file or not raw_folder:
+        return False
+    try:
+        file_info = parsear_link_sharepoint(raw_file)
+        dest = parsear_link_pasta_sharepoint(raw_folder)
+    except ValueError:
+        return False
+    if file_info.get("tipo") == "unique_id":
+        return False
+    file_folder = str(file_info.get("caminho_pasta") or "").strip("/").replace("\\", "/")
+    dest_folder = str(dest.get("caminho_sp") or "").strip("/").replace("\\", "/")
+    site_a = str(file_info.get("site_url") or "").rstrip("/").lower()
+    site_b = str(dest.get("site_url") or "").rstrip("/").lower()
+    return bool(site_a and site_a == site_b and file_folder.lower() == dest_folder.lower())
+
+
 def folder_url_for_child(root_url: str, child: str) -> str:
     info = _folder_info(root_url)
     caminho = (info.get("caminho_sp") or "").strip("/")
@@ -349,14 +385,11 @@ def folder_choice_destination(form: PublishFormState, existing_url: str) -> tupl
     if not root:
         return None, "publish.folder_url nao configurado no settings.json."
     if choice == NEW_FOLDER:
-        raw = (form.new_folder_name or "").strip()
-        name = slug_from_name(raw)
-        if not raw:
-            return None, "Informe o nome da nova pasta."
-        if not name or name == "app":
-            name = raw.replace("/", "-").replace("\\", "-").strip("-") or raw
+        name, name_err = exact_folder_name(form.new_folder_name)
+        if name_err:
+            return None, name_err
         try:
-            return folder_url_for_child(root, name), ""
+            return folder_url_for_child(root, name or ""), ""
         except ValueError as exc:
             return None, str(exc)
     try:
@@ -381,6 +414,8 @@ def infer_pasta_destino(*urls: str) -> str:
 
 def resolve_pasta_destino(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
     """Pasta Destino = upload_url, ou pasta escolhida em publish.folder_url."""
+    if (form.folder_choice or "").strip() == NEW_FOLDER:
+        return folder_choice_destination(form, existing_url)
     pasted = catalog_http_url(form.upload_url) or (form.upload_url or "").strip()
     if pasted.lower().startswith(("http://", "https://")):
         return pasted, ""
@@ -409,6 +444,63 @@ def _upload_named(
             shutil.rmtree(staged.parent, ignore_errors=True)
         except OSError:
             pass
+
+
+def _create_chosen_folder(
+    form: PublishFormState,
+    dest_folder: str,
+    session: PnPWebLoginSession,
+) -> str:
+    """Cria a pasta nova no SharePoint. Erro se falhar; nao ignora."""
+    if (form.folder_choice or "").strip() != NEW_FOLDER:
+        return ""
+    name, name_err = exact_folder_name(form.new_folder_name)
+    if name_err:
+        return name_err
+    root = (config.PUBLISH_FOLDER_URL or "").strip()
+    if not root:
+        return "publish.folder_url nao configurado no settings.json."
+    try:
+        parent = parsear_link_pasta_sharepoint(root)
+    except ValueError as exc:
+        return str(exc)
+    result = session.create_folder(parent, name or "")
+    if not result.ok:
+        return result.message or "Falha ao criar a pasta no SharePoint."
+    return ""
+
+
+def _relocate_catalog_file(
+    file_url: str,
+    dest_folder: str,
+    kind: str,
+    session: PnPWebLoginSession,
+) -> tuple[str | None, str]:
+    """Move o arquivo remoto para dest. None = manter URL atual. Erro em str."""
+    raw = catalog_http_url(file_url) or (file_url or "").strip()
+    if not raw.lower().startswith(("http://", "https://")):
+        return None, ""
+    if same_sharepoint_folder(raw, dest_folder):
+        return None, ""
+    result = session.move_remote(raw, dest_folder)
+    if not result.ok:
+        return None, result.message or "Falha ao mover arquivo no SharePoint."
+    if result.skipped:
+        return None, ""
+    name = (result.remote_name or "").strip()
+    if not name:
+        try:
+            info = parsear_link_sharepoint(raw)
+            name = str(info.get("nome_arquivo") or "").strip()
+        except ValueError:
+            name = ""
+    if not name:
+        return None, "Nao foi possivel determinar o nome do arquivo apos mover."
+    try:
+        meta = _folder_info(dest_folder)
+    except ValueError as exc:
+        return None, str(exc)
+    return sharing_url(meta["site_url"], meta["caminho_sp"], name, kind), ""
 
 
 def replace_existing_file(
@@ -654,14 +746,27 @@ def publish_app(
         imagem_versao = str(current.get("imagem_versao") or "1")
         icone_versao = str(current.get("icone_versao") or "1")
 
-        dest_folder = ""
-        if app_path is not None or capa is not None or icone is not None:
-            chosen, folder_err = resolve_pasta_destino(form, download_url)
-            if folder_err:
-                return PublishOutcome(ok=False, message=folder_err)
-            if not chosen:
-                return PublishOutcome(ok=False, message="Informe a Pasta Destino dos arquivos.")
-            dest_folder = chosen
+        chosen, folder_err = resolve_pasta_destino(form, download_url)
+        if folder_err and (
+            (form.folder_choice or "").strip() == NEW_FOLDER
+            or form.move_files
+            or app_path is not None
+            or capa is not None
+            or icone is not None
+        ):
+            return PublishOutcome(ok=False, message=folder_err)
+        dest_folder = chosen or ""
+        if (form.folder_choice or "").strip() == NEW_FOLDER:
+            if not dest_folder:
+                return PublishOutcome(ok=False, message=folder_err or "Informe o nome da nova pasta.")
+            report(-1.0, "Criando pasta no SharePoint...")
+            create_err = _create_chosen_folder(form, dest_folder, session)
+            if create_err:
+                return PublishOutcome(ok=False, message=create_err)
+        elif form.move_files and not dest_folder:
+            return PublishOutcome(ok=False, message=folder_err or "Informe a Pasta Destino para mover os arquivos.")
+        elif (app_path is not None or capa is not None or icone is not None) and not dest_folder:
+            return PublishOutcome(ok=False, message="Informe a Pasta Destino dos arquivos.")
 
         def _put_to(local: Path, dest_name: str, dest_folder_url: str, kind: str, msg: str) -> tuple[bool, str]:
             report(-1.0, msg)
@@ -682,6 +787,47 @@ def publish_app(
             )
             return True, url
 
+        pasted_download = catalog_http_url(form.current_download)
+        if pasted_download:
+            download_url = pasted_download
+        pasted_capa = catalog_http_url(form.current_capa)
+        if pasted_capa:
+            imagem = pasted_capa
+        pasted_icone = catalog_http_url(form.current_icone)
+        if pasted_icone:
+            icone_url = pasted_icone
+
+        if form.move_files and dest_folder:
+            if app_path is None and download_url:
+                report(-1.0, "Movendo arquivo do aplicativo...")
+                moved, move_err = _relocate_catalog_file(
+                    download_url, dest_folder, _app_kind(tipo), session
+                )
+                if move_err:
+                    return PublishOutcome(ok=False, message=move_err)
+                if moved:
+                    download_url = moved
+            if capa is None and imagem:
+                report(-1.0, "Movendo capa...")
+                moved, move_err = _relocate_catalog_file(
+                    imagem, dest_folder, "image", session
+                )
+                if move_err:
+                    return PublishOutcome(ok=False, message=move_err)
+                if moved:
+                    imagem = moved
+                    imagem_versao = bump_media_version(imagem_versao)
+            if icone is None and icone_url:
+                report(-1.0, "Movendo icone...")
+                moved, move_err = _relocate_catalog_file(
+                    icone_url, dest_folder, "image", session
+                )
+                if move_err:
+                    return PublishOutcome(ok=False, message=move_err)
+                if moved:
+                    icone_url = moved
+                    icone_versao = bump_media_version(icone_versao)
+
         if app_path is not None:
             ok, payload = _put_to(
                 app_path,
@@ -693,10 +839,6 @@ def publish_app(
             if not ok:
                 return PublishOutcome(ok=False, message=payload or "Falha no upload do aplicativo.")
             download_url = payload
-        else:
-            pasted = catalog_http_url(form.current_download)
-            if pasted:
-                download_url = pasted
         if capa is not None:
             ok, payload = _put_to(
                 capa,
@@ -709,10 +851,6 @@ def publish_app(
                 return PublishOutcome(ok=False, message=payload or "Falha no upload da capa.")
             imagem = payload
             imagem_versao = bump_media_version(imagem_versao)
-        else:
-            pasted = catalog_http_url(form.current_capa)
-            if pasted:
-                imagem = pasted
         if icone is not None:
             ok, payload = _put_to(
                 icone,
@@ -725,10 +863,6 @@ def publish_app(
                 return PublishOutcome(ok=False, message=payload or "Falha no upload do icone.")
             icone_url = payload
             icone_versao = bump_media_version(icone_versao)
-        else:
-            pasted = catalog_http_url(form.current_icone)
-            if pasted:
-                icone_url = pasted
 
         if not download_url:
             return PublishOutcome(ok=False, message="O aplicativo precisa de um arquivo / download_url.")
@@ -747,7 +881,7 @@ def publish_app(
             "icone": icone_url,
             "icone_versao": icone_versao,
         }
-        upload_url = (form.upload_url or "").strip() or dest_folder
+        upload_url = dest_folder if (form.folder_choice or "").strip() == NEW_FOLDER else (form.upload_url or "").strip() or dest_folder
         if upload_url:
             entry["upload_url"] = upload_url
         elif "upload_url" in current:

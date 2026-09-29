@@ -485,7 +485,12 @@ def bind_publish_form(
         folder_value = ROOT_FOLDER if ROOT_FOLDER in folder_keys else next(iter(folder_keys), ROOT_FOLDER)
 
     pasta_url_changed = form.is_changed("upload_url")
-    pasta_changed = pasta_url_changed or form.is_changed("folder_choice") or form.is_changed("new_folder_name")
+    pasta_changed = (
+        pasta_url_changed
+        or form.is_changed("folder_choice")
+        or form.is_changed("new_folder_name")
+        or form.is_changed("move_files")
+    )
     pasta_field = ft.TextField(
         value=form.upload_url,
         hint_text="Cole o caminho SharePoint ou escolha uma pasta abaixo",
@@ -516,9 +521,22 @@ def bind_publish_form(
         pasta_detail.append(
             ft.TextField(
                 value=form.new_folder_name,
-                hint_text="Nome da pasta nova",
+                hint_text="Nome da pasta nova (como digitado)",
                 on_change=lambda e: on_field("new_folder_name", e.control.value or ""),
                 **field_kwargs(changed=form.is_changed("new_folder_name")),
+            )
+        )
+    show_move = folder_value != KEEP_FOLDER or form.is_changed("upload_url")
+    if show_move:
+        pasta_detail.append(
+            ft.Checkbox(
+                label="Mover arquivos para a pasta",
+                value=form.move_files,
+                disabled=form.busy,
+                on_change=lambda e: on_field(
+                    "move_files",
+                    "1" if e.control.value else "0",
+                ),
             )
         )
     if form.folders_busy:

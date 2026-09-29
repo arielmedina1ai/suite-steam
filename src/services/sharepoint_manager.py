@@ -103,6 +103,8 @@ class SharePointResult:
     path: Path | None = None
     message: str = ""
     stdout: str = ""
+    skipped: bool = False
+    remote_name: str = ""
 
 
 @dataclass
@@ -558,6 +560,62 @@ class PnPWebLoginSession:
         if ack.get("ok"):
             return SharePointResult(ok=True, message="Arquivo removido no SharePoint.")
         return SharePointResult(ok=False, message=str(ack.get("error") or "Falha ao excluir no SharePoint."))
+
+    def create_folder(self, parent_info: dict[str, Any], name: str) -> SharePointResult:
+        nome = (name or "").strip()
+        if not nome:
+            return SharePointResult(ok=False, message="Informe o nome da nova pasta.")
+        if "/" in nome or "\\" in nome:
+            return SharePointResult(ok=False, message="Nome da pasta nao pode conter barras.")
+        ack = self._send(
+            {
+                "op": "create_folder",
+                "site_url": str(parent_info.get("site_url") or self.site_url),
+                "pasta_pai": parent_info.get("caminho_sp") or "",
+                "nome_pasta": nome,
+            }
+        )
+        if ack.get("ok"):
+            return SharePointResult(ok=True, message="Pasta criada no SharePoint.")
+        return SharePointResult(
+            ok=False,
+            message=str(ack.get("error") or "Falha ao criar a pasta no SharePoint."),
+        )
+
+    def move_remote(self, file_url: str, dest_folder_url: str) -> SharePointResult:
+        raw = (file_url or "").strip()
+        dest = (dest_folder_url or "").strip()
+        if not raw.lower().startswith(("http://", "https://")):
+            return SharePointResult(ok=False, message="Link remoto ausente.")
+        if not dest:
+            return SharePointResult(ok=False, message="Pasta destino ausente.")
+        try:
+            src = parsear_link_sharepoint(raw)
+            folder = parsear_link_pasta_sharepoint(dest)
+        except ValueError as exc:
+            return SharePointResult(ok=False, message=str(exc))
+        payload: dict[str, Any] = {
+            "op": "move_file",
+            "site_url": str(folder.get("site_url") or src.get("site_url") or self.site_url),
+            "destino_sp": folder.get("caminho_sp") or "",
+        }
+        if src.get("tipo") == "unique_id":
+            payload["unique_id"] = src.get("unique_id") or ""
+        else:
+            payload["caminho_sp"] = src.get("caminho_sp") or ""
+            payload["nome_arquivo"] = src.get("nome_arquivo") or ""
+        ack = self._send(payload)
+        if ack.get("ok"):
+            return SharePointResult(
+                ok=True,
+                message="Arquivo movido no SharePoint.",
+                skipped=bool(ack.get("skipped")),
+                remote_name=str(ack.get("name") or "").strip(),
+            )
+        return SharePointResult(
+            ok=False,
+            message=str(ack.get("error") or "Falha ao mover arquivo no SharePoint."),
+        )
 
 
 def baixar_varios_do_sharepoint(

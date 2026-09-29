@@ -255,6 +255,112 @@ function Invoke-DeleteId($cmd) {
     return $meta.Url
 }
 
+function SiteRel-ToServer([string]$siteRel) {
+    $sitePath = ([Uri]$script:currentSite).AbsolutePath.TrimEnd("/")
+    $rel = $siteRel.Trim().TrimStart("/")
+    if (-not $rel) { return $sitePath }
+    if ($sitePath) {
+        $trimSite = $sitePath.TrimStart("/")
+        if ($rel.StartsWith($trimSite + "/", [StringComparison]::OrdinalIgnoreCase) -or $rel.Equals($trimSite, [StringComparison]::OrdinalIgnoreCase)) {
+            return "/" + $rel
+        }
+        return "$sitePath/$rel"
+    }
+    return "/" + $rel
+}
+
+function Invoke-CreateFolder($cmd) {
+    $pastaPai = [string]$cmd.pasta_pai
+    $nome = [string]$cmd.nome_pasta
+    if (-not $nome -or $nome.Trim() -eq "") { throw "Nome da pasta vazio." }
+    if ($nome -match '[\\/]') { throw "Nome da pasta nao pode conter barras." }
+    $parent = Resolve-PastaSp $pastaPai
+    if (-not $parent) { throw "Pasta pai invalida." }
+    $alvo = "$parent/$nome"
+    try {
+        Get-PnPFolder -Url $alvo -ErrorAction Stop | Out-Null
+        return $alvo
+    } catch { }
+    try {
+        Add-PnPFolder -Name $nome -Folder $parent -ErrorAction Stop | Out-Null
+    } catch {
+        throw ("Falha ao criar pasta '{0}': {1}" -f $nome, $_.Exception.Message)
+    }
+    try {
+        Get-PnPFolder -Url $alvo -ErrorAction Stop | Out-Null
+    } catch {
+        throw ("Pasta '{0}' nao encontrada apos criar." -f $nome)
+    }
+    return $alvo
+}
+
+function Invoke-MoveFile($cmd) {
+    $destPasta = Resolve-PastaSp ([string]$cmd.destino_sp)
+    try {
+        Get-PnPFolder -Url $destPasta -ErrorAction Stop | Out-Null
+    } catch {
+        throw "Pasta destino nao existe: $destPasta"
+    }
+    $nome = [string]$cmd.nome_arquivo
+    $srcServer = $null
+    if ($cmd.unique_id) {
+        $meta = Get-FileByUniqueId (ConvertTo-GuidSafe ([string]$cmd.unique_id))
+        if (-not $meta.Url) { throw "UniqueId sem ServerRelativeUrl" }
+        $srcServer = [string]$meta.Url
+        if (-not $nome) { $nome = [string]$meta.Name }
+    } else {
+        $caminho = [string]$cmd.caminho_sp
+        $srcSite = if ($nome) { Resolve-CaminhoSp $caminho $nome } else { Resolve-CaminhoSp $caminho $null }
+        $srcServer = SiteRel-ToServer $srcSite
+        if (-not $nome) { $nome = $srcServer.Split("/")[-1] }
+        try {
+            $f = Get-PnPFile -Url $srcServer -ErrorAction SilentlyContinue
+            if (-not $f) { $f = Get-PnPFile -Url $srcSite -ErrorAction SilentlyContinue }
+            if ($f -and $f.Name) { $nome = [string]$f.Name }
+        } catch { }
+    }
+    if (-not $nome) { throw "Nome do arquivo remoto ausente." }
+    $destServer = SiteRel-ToServer $destPasta
+    $idx = $srcServer.LastIndexOf("/")
+    if ($idx -lt 0) { throw "Caminho de origem invalido." }
+    $srcParent = $srcServer.Substring(0, $idx)
+    $normSrc = $srcParent.TrimEnd("/").ToLower()
+    $normDest = $destServer.TrimEnd("/").ToLower()
+    if ($normSrc -eq $normDest) {
+        return @{ skipped = $true; name = $nome; path = $srcServer }
+    }
+    $alvo = "$destServer/$nome"
+    $okMove = $false
+    try {
+        Move-PnPFile -ServerRelativeUrl $srcServer -TargetUrl $alvo -Force -ErrorAction Stop
+        $okMove = $true
+    } catch {
+        try {
+            Move-PnPFile -ServerRelativeUrl $srcServer -TargetUrl $destServer -Force -ErrorAction Stop
+            $okMove = $true
+        } catch {
+            $sitePath = ([Uri]$script:currentSite).AbsolutePath.TrimEnd("/")
+            $srcSite = $srcServer
+            if ($sitePath -and $srcServer.StartsWith($sitePath, [StringComparison]::OrdinalIgnoreCase)) {
+                $srcSite = $srcServer.Substring($sitePath.Length).TrimStart("/")
+            }
+            try {
+                Move-PnPFile -SiteRelativeUrl $srcSite -TargetUrl "$destPasta/$nome" -AllowOverwrite -ErrorAction Stop
+                $okMove = $true
+            } catch {
+                throw ("Falha ao mover '{0}': {1}" -f $nome, $_.Exception.Message)
+            }
+        }
+    }
+    if (-not $okMove) { throw "Falha ao mover arquivo." }
+    $check = Get-PnPFile -Url $alvo -ErrorAction SilentlyContinue
+    if (-not $check) {
+        $check = Get-PnPFile -Url "$destPasta/$nome" -ErrorAction SilentlyContinue
+    }
+    if (-not $check) { throw "Arquivo nao encontrado na pasta destino apos mover." }
+    return @{ skipped = $false; name = $nome; path = $alvo }
+}
+
 Write-Host "Conectando ao SharePoint (WebLogin)..." -ForegroundColor Cyan
 Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue
 $script:currentSite = $siteUrl
@@ -305,6 +411,14 @@ while ($true) {
             "delete_id" {
                 $p = Invoke-DeleteId $cmd
                 Write-Ack @{ ok = $true; path = $p }
+            }
+            "create_folder" {
+                $p = Invoke-CreateFolder $cmd
+                Write-Ack @{ ok = $true; path = $p }
+            }
+            "move_file" {
+                $p = Invoke-MoveFile $cmd
+                Write-Ack @{ ok = $true; skipped = [bool]$p.skipped; name = [string]$p.name; path = [string]$p.path }
             }
             "quit" {
                 Write-Ack @{ ok = $true }
