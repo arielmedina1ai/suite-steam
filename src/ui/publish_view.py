@@ -483,10 +483,10 @@ def bind_publish_form(
     if folder_value not in folder_keys:
         folder_value = ROOT_FOLDER if ROOT_FOLDER in folder_keys else next(iter(folder_keys), ROOT_FOLDER)
 
-    pasta_url_changed = form.is_changed("upload_url")
+    pasta_url_changed = form.is_changed("dest_folder_url")
     pasta_changed = pasta_url_changed or form.is_changed("folder_choice") or form.is_changed("new_folder_name")
     pasta_field = ft.TextField(
-        value=form.upload_url,
+        value=form.dest_folder_url,
         hint_text="Cole o caminho SharePoint ou escolha uma pasta abaixo",
         multiline=True,
         min_lines=2,
@@ -494,19 +494,12 @@ def bind_publish_form(
         text_size=12,
         filled=True,
         fill_color=_CHANGED_FILL if pasta_url_changed else _INPUT_FILL,
-        color=config.COLOR_TEXT if (form.upload_url or "").strip() else "#8AA797",
+        color=config.COLOR_TEXT if (form.dest_folder_url or "").strip() else "#8AA797",
         cursor_color=config.COLOR_ACCENT,
         **_borderless(),
     )
     pasta_detail: list[ft.Control] = [
         pasta_field,
-        ft.Text(
-            "Onde um arquivo local e gravado (aplicativo, capa e icone), com o nome original. "
-            "Cole um caminho SharePoint ou escolha uma pasta em publish.folder_url. "
-            "So o link, sem arquivo novo, atualiza o catalog.json e nao envia arquivo.",
-            size=11,
-            color="#8AA797",
-        ),
         ft.Dropdown(
             value=folder_value,
             options=folder_options,
@@ -547,11 +540,11 @@ def bind_publish_form(
     )
 
     def _on_pasta(e, wrap=pasta_box, field=pasta_field) -> None:
-        on_field("upload_url", e.control.value or "")
+        on_field("dest_folder_url", e.control.value or "")
         apply_live_highlight(
             wrap,
             field,
-            form.is_changed("upload_url") or form.is_changed("folder_choice"),
+            form.is_changed("dest_folder_url") or form.is_changed("folder_choice"),
         )
 
     pasta_field.on_change = _on_pasta
@@ -636,6 +629,7 @@ def bind_publish_form(
                 url_key="current_icone",
                 preview_src=form.preview_icone,
             ),
+            _tf("upload_url", "upload_url", form.upload_url),
         ],
         on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
         preserve_inner=form.hold_scroll,

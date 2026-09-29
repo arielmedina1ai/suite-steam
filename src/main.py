@@ -33,6 +33,7 @@ from services.catalog_publish import (
     catalog_http_url,
     fingerprint_cache_file,
     folder_choice_destination,
+    infer_pasta_destino,
     publish_app,
     save_catalog_structure,
     structure_from_catalog,
@@ -508,6 +509,12 @@ class SuiteApp:
             form.folder_choice = KEEP_FOLDER
         else:
             form.folder_choice = ROOT_FOLDER
+        if not (form.dest_folder_url or "").strip():
+            form.dest_folder_url = infer_pasta_destino(
+                form.current_download,
+                form.current_capa,
+                form.current_icone,
+            )
         form.capture_baseline()
         return form
 
@@ -567,6 +574,11 @@ class SuiteApp:
             setor_id=app.setor,
             sub_setor_id=app.sub_setor,
             upload_url=app.upload_url,
+            dest_folder_url=infer_pasta_destino(
+                app.download_url,
+                file_capa or catalog_http_url(app.catalog_imagem),
+                file_icone or catalog_http_url(app.catalog_icone),
+            ),
             current_download=app.download_url,
             current_capa=file_capa or catalog_http_url(app.catalog_imagem),
             current_icone=file_icone or catalog_http_url(app.catalog_icone),
@@ -593,7 +605,7 @@ class SuiteApp:
                 self.publish_form, self.publish_form.current_download
             )
             if dest:
-                self.publish_form.upload_url = dest
+                self.publish_form.dest_folder_url = dest
             self._render()
             return
         if key == "new_folder_name":
@@ -603,7 +615,7 @@ class SuiteApp:
                     self.publish_form, self.publish_form.current_download
                 )
                 if dest:
-                    self.publish_form.upload_url = dest
+                    self.publish_form.dest_folder_url = dest
             return
         if hasattr(self.publish_form, key):
             setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
@@ -612,6 +624,7 @@ class SuiteApp:
                 "descricao",
                 "versao",
                 "upload_url",
+                "dest_folder_url",
                 "current_download",
                 "current_capa",
                 "current_icone",
@@ -759,6 +772,11 @@ class SuiteApp:
         form.setor_id = app.setor
         form.sub_setor_id = app.sub_setor
         form.upload_url = app.upload_url
+        form.dest_folder_url = infer_pasta_destino(
+            app.download_url,
+            file_capa or catalog_http_url(app.catalog_imagem),
+            file_icone or catalog_http_url(app.catalog_icone),
+        )
         form.current_download = app.download_url
         form.current_capa = file_capa or catalog_http_url(app.catalog_imagem)
         form.current_icone = file_icone or catalog_http_url(app.catalog_icone)

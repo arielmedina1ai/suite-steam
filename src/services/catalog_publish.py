@@ -43,6 +43,7 @@ class PublishFormState:
     setor_id: str = ""
     sub_setor_id: str = ""
     upload_url: str = ""
+    dest_folder_url: str = ""
     app_path: str = ""
     capa_path: str = ""
     icone_path: str = ""
@@ -80,6 +81,7 @@ class PublishFormState:
             "setor_id": self.setor_id,
             "sub_setor_id": self.sub_setor_id,
             "upload_url": self.upload_url,
+            "dest_folder_url": self.dest_folder_url,
             "folder_choice": self.folder_choice,
             "new_folder_name": self.new_folder_name,
             "app_path": "",
@@ -328,11 +330,11 @@ def folder_url_of_file(file_url: str) -> str:
 
 
 def folder_choice_destination(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
-    """Pasta escolhida no dropdown (publish.folder_url), independente do texto colado."""
+    """Pasta escolhida no dropdown (publish.folder_url). Nao usa upload_url."""
     choice = (form.folder_choice or "").strip() or KEEP_FOLDER
     root = (config.PUBLISH_FOLDER_URL or "").strip()
     if choice == KEEP_FOLDER:
-        pasted = catalog_http_url(form.upload_url) or (form.upload_url or "").strip()
+        pasted = catalog_http_url(form.dest_folder_url) or (form.dest_folder_url or "").strip()
         if pasted.lower().startswith(("http://", "https://")):
             return pasted, ""
         for url in (existing_url, form.current_download, form.current_capa, form.current_icone):
@@ -367,9 +369,21 @@ def folder_choice_destination(form: PublishFormState, existing_url: str) -> tupl
         return None, str(exc)
 
 
-def resolve_upload_folder(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
-    """Pasta Destino: texto colado, ou pasta escolhida em publish.folder_url."""
-    pasted = catalog_http_url(form.upload_url) or (form.upload_url or "").strip()
+def infer_pasta_destino(*urls: str) -> str:
+    for url in urls:
+        raw = catalog_http_url(url) or (url or "").strip()
+        if not raw:
+            continue
+        try:
+            return folder_url_of_file(raw)
+        except ValueError:
+            continue
+    return (config.PUBLISH_FOLDER_URL or "").strip()
+
+
+def resolve_pasta_destino(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
+    """Pasta Destino: texto do campo, ou pasta escolhida em publish.folder_url."""
+    pasted = catalog_http_url(form.dest_folder_url) or (form.dest_folder_url or "").strip()
     if pasted.lower().startswith(("http://", "https://")):
         return pasted, ""
     return folder_choice_destination(form, existing_url)
@@ -636,15 +650,15 @@ def publish_app(
                 break
 
         tipo = (form.tipo or current.get("tipo") or "exe").strip().lower() or "exe"
-        download_url = pasted_download or str(current.get("download_url") or "").strip()
-        imagem = catalog_http_url(form.current_capa) or catalog_http_url(str(current.get("imagem") or ""))
-        icone_url = catalog_http_url(form.current_icone) or catalog_http_url(str(current.get("icone") or ""))
+        download_url = str(current.get("download_url") or "").strip()
+        imagem = catalog_http_url(str(current.get("imagem") or ""))
+        icone_url = catalog_http_url(str(current.get("icone") or ""))
         imagem_versao = str(current.get("imagem_versao") or "1")
         icone_versao = str(current.get("icone_versao") or "1")
 
         dest_folder = ""
         if app_path is not None or capa is not None or icone is not None:
-            chosen, folder_err = resolve_upload_folder(form, download_url)
+            chosen, folder_err = resolve_pasta_destino(form, download_url)
             if folder_err:
                 return PublishOutcome(ok=False, message=folder_err)
             if not chosen:
@@ -681,6 +695,10 @@ def publish_app(
             if not ok:
                 return PublishOutcome(ok=False, message=payload or "Falha no upload do aplicativo.")
             download_url = payload
+        else:
+            pasted = catalog_http_url(form.current_download)
+            if pasted:
+                download_url = pasted
         if capa is not None:
             ok, payload = _put_to(
                 capa,
@@ -693,6 +711,10 @@ def publish_app(
                 return PublishOutcome(ok=False, message=payload or "Falha no upload da capa.")
             imagem = payload
             imagem_versao = bump_media_version(imagem_versao)
+        else:
+            pasted = catalog_http_url(form.current_capa)
+            if pasted:
+                imagem = pasted
         if icone is not None:
             ok, payload = _put_to(
                 icone,
@@ -705,6 +727,10 @@ def publish_app(
                 return PublishOutcome(ok=False, message=payload or "Falha no upload do icone.")
             icone_url = payload
             icone_versao = bump_media_version(icone_versao)
+        else:
+            pasted = catalog_http_url(form.current_icone)
+            if pasted:
+                icone_url = pasted
 
         if not download_url:
             return PublishOutcome(ok=False, message="O aplicativo precisa de um arquivo / download_url.")
