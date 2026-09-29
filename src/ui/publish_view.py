@@ -521,7 +521,7 @@ def bind_publish_form(
         pasta_detail.append(
             ft.TextField(
                 value=form.new_folder_name,
-                hint_text="Nome da pasta nova (como digitado)",
+                hint_text="Nome da pasta nova",
                 on_change=lambda e: on_field("new_folder_name", e.control.value or ""),
                 **field_kwargs(changed=form.is_changed("new_folder_name")),
             )
