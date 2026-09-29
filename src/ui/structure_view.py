@@ -14,6 +14,14 @@ from ui.publish_view import _remember_scroll, bind_form_section, notice_banner, 
 _DEL_ICON = getattr(ft.Icons, "DELETE", None) or getattr(ft.Icons, "DELETE_FOREVER", ft.Icons.CLOSE)
 
 
+def _section_divider() -> ft.Control:
+    return ft.Container(
+        height=1,
+        bgcolor="#2A3A33",
+        margin=ft.Margin.symmetric(vertical=10),
+    )
+
+
 def _node(
     title: str,
     subtitle: str,
@@ -138,6 +146,7 @@ def bind_structure_form(
     edit_holder: ft.Container,
 ) -> None:
     tree: list[ft.Control] = [
+        _section_divider(),
         ft.Text("Gerencias", size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
         ft.Row(
             spacing=8,
@@ -173,6 +182,7 @@ def bind_structure_form(
 
     tree.extend(
         [
+            _section_divider(),
             ft.Text("Setores", size=14, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
             ft.Row(
                 spacing=8,
@@ -237,14 +247,16 @@ def bind_structure_form(
     bind_form_section(
         edit_holder,
         "Editar",
-        [
+        [editor],
+        on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
+        preserve_inner=form.hold_scroll,
+        footer=[
             notice_banner(
                 done_text,
                 success=form.notice_ok,
                 conflict=form.conflict,
                 busy=form.busy,
             ),
-            editor,
             ft.ProgressBar(
                 value=bar_value(form.progress),
                 visible=form.busy,
@@ -274,7 +286,6 @@ def bind_structure_form(
                 ],
             ),
         ],
-        on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
     )
 
 

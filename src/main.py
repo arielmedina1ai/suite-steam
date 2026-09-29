@@ -25,12 +25,14 @@ from services.catalog_publish import (
     DraftSetor,
     DraftSubSetor,
     KEEP_FOLDER,
+    NEW_FOLDER,
     PublishFormState,
     ROOT_FOLDER,
     StructureFormState,
     catalog_json_media_urls,
     catalog_http_url,
     fingerprint_cache_file,
+    folder_choice_destination,
     publish_app,
     save_catalog_structure,
     structure_from_catalog,
@@ -585,6 +587,24 @@ class SuiteApp:
                 self.publish_form.sub_setor_id = ""
             self._render()
             return
+        if key == "folder_choice":
+            self.publish_form.folder_choice = value or ROOT_FOLDER
+            dest, _err = folder_choice_destination(
+                self.publish_form, self.publish_form.current_download
+            )
+            if dest:
+                self.publish_form.upload_url = dest
+            self._render()
+            return
+        if key == "new_folder_name":
+            self.publish_form.new_folder_name = value
+            if self.publish_form.folder_choice == NEW_FOLDER:
+                dest, _err = folder_choice_destination(
+                    self.publish_form, self.publish_form.current_download
+                )
+                if dest:
+                    self.publish_form.upload_url = dest
+            return
         if hasattr(self.publish_form, key):
             setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
             if key in {
@@ -592,7 +612,7 @@ class SuiteApp:
                 "descricao",
                 "versao",
                 "upload_url",
-                "new_folder_name",
+                "current_download",
                 "current_capa",
                 "current_icone",
             }:
@@ -635,9 +655,11 @@ class SuiteApp:
 
     def _on_publish_progress(self, pct: float, msg: str) -> None:
         if self.structure.busy:
+            self.structure.hold_scroll = True
             self.structure.progress = pct
             self.structure.message = msg
         else:
+            self.publish_form.hold_scroll = True
             self.publish_form.progress = pct
             self.publish_form.message = msg
         try:
@@ -709,11 +731,61 @@ class SuiteApp:
             return
         self.publish_form.busy = True
         self.publish_form.conflict = False
+        self.publish_form.hold_scroll = True
+        self.publish_form.notice = ""
+        self.publish_form.notice_ok = False
         self.publish_form.message = "Publicando..."
         self.publish_form.progress = -1.0
         self._render()
         form = self.publish_form
         self.page.run_thread(lambda: self._publish_save_worker(form))
+
+    def _gerencia_id_for_app(self, app_id: str) -> str:
+        for g in self.catalog.gerencias:
+            if app_id in g.apps:
+                return g.id
+        return ""
+
+    def _apply_saved_app_to_form(self, app: AppInfo, *, notice: str) -> None:
+        gid = self._gerencia_id_for_app(app.id)
+        file_capa, file_icone = catalog_json_media_urls(app.id)
+        form = self.publish_form
+        form.editing_id = app.id
+        form.nome = app.nome
+        form.descricao = app.descricao
+        form.versao = app.versao
+        form.tipo = app.tipo.value
+        form.gerencia_id = gid
+        form.setor_id = app.setor
+        form.sub_setor_id = app.sub_setor
+        form.upload_url = app.upload_url
+        form.current_download = app.download_url
+        form.current_capa = file_capa or catalog_http_url(app.catalog_imagem)
+        form.current_icone = file_icone or catalog_http_url(app.catalog_icone)
+        form.preview_capa = (
+            str(app.imagem or "")
+            if app.imagem and not str(app.imagem).lower().startswith(("http://", "https://"))
+            else ""
+        )
+        form.preview_icone = (
+            str(app.icone or "")
+            if app.icone and not str(app.icone).lower().startswith(("http://", "https://"))
+            else ""
+        )
+        form.original_gerencia_id = gid
+        form.app_path = ""
+        form.capa_path = ""
+        form.icone_path = ""
+        form.folder_choice = KEEP_FOLDER
+        form.new_folder_name = ""
+        form.busy = False
+        form.conflict = False
+        form.message = ""
+        form.progress = None
+        form.notice = notice
+        form.notice_ok = True
+        form.show_form = True
+        form.capture_baseline()
 
     def _publish_save_worker(self, form: PublishFormState) -> None:
         result = publish_app(
@@ -724,13 +796,17 @@ class SuiteApp:
         if result.conflict:
             self.publish_form.busy = False
             self.publish_form.conflict = True
+            self.publish_form.hold_scroll = True
             self.publish_form.message = result.message
             self._render()
+            self.publish_form.hold_scroll = False
             return
         if not result.ok:
             self.publish_form.busy = False
+            self.publish_form.hold_scroll = True
             self.publish_form.message = result.message
             self._render()
+            self.publish_form.hold_scroll = False
             return
         provider = SharePointCatalogProvider()
         synced = provider.sync(progress=self._on_publish_progress)
@@ -741,13 +817,26 @@ class SuiteApp:
         self._apply_gerencia_filter()
         fp = result.fingerprint or fingerprint_cache_file()
         was_edit = bool(form.editing_id)
-        self.publish_form = self._fresh_publish_form(
-            fingerprint=fp,
-            notice="Item atualizado." if was_edit else "Catalogo salvo.",
-            notice_ok=True,
-        )
+        app_id = (result.app_id or form.editing_id or "").strip()
+        notice = "Item atualizado." if was_edit else "Catalogo salvo."
+        self.publish_form.fingerprint = fp
+        self.publish_form.hold_scroll = True
+        app = next((a for a in self.catalog.apps if a.id == app_id), None)
+        if app is not None:
+            self._apply_saved_app_to_form(app, notice=notice)
+        else:
+            self.publish_form.busy = False
+            self.publish_form.app_path = ""
+            self.publish_form.capa_path = ""
+            self.publish_form.icone_path = ""
+            self.publish_form.notice = notice
+            self.publish_form.notice_ok = True
+            self.publish_form.message = ""
+            self.publish_form.progress = None
+            self.publish_form.capture_baseline()
         self.structure = structure_from_catalog(self.catalog, fp)
         self._render()
+        self.publish_form.hold_scroll = False
 
     def _structure_select(self, sel: str) -> None:
         if not self.can_publish:
@@ -947,6 +1036,9 @@ class SuiteApp:
             return
         self.structure.busy = True
         self.structure.conflict = False
+        self.structure.hold_scroll = True
+        self.structure.notice = ""
+        self.structure.notice_ok = False
         self.structure.message = "Publicando estrutura..."
         self.structure.progress = -1.0
         self._render()
@@ -962,13 +1054,17 @@ class SuiteApp:
         if result.conflict:
             self.structure.busy = False
             self.structure.conflict = True
+            self.structure.hold_scroll = True
             self.structure.message = result.message
             self._render()
+            self.structure.hold_scroll = False
             return
         if not result.ok:
             self.structure.busy = False
+            self.structure.hold_scroll = True
             self.structure.message = result.message
             self._render()
+            self.structure.hold_scroll = False
             return
         provider = SharePointCatalogProvider()
         synced = provider.sync(progress=self._on_publish_progress)
@@ -979,11 +1075,15 @@ class SuiteApp:
         self._apply_gerencia_filter()
         fp = result.fingerprint or fingerprint_cache_file()
         self.publish_form.fingerprint = fp
+        sel = form.sel
         self.structure = structure_from_catalog(self.catalog, fp)
+        self.structure.sel = sel
         self.structure.notice = "Catalogo salvo."
         self.structure.notice_ok = True
+        self.structure.hold_scroll = True
         self.catalog_tab = "estrutura"
         self._render()
+        self.structure.hold_scroll = False
 
     def _run_catalog_app(self, app: AppInfo) -> None:
         self._refresh_running(force=True)

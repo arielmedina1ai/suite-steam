@@ -27,7 +27,7 @@ _FIELD_SIZE = 12
 _CHANGED_FILL = "#2A3820"
 _CHANGED_BORDER = config.COLOR_ACCENT
 _INPUT_FILL = "#1A2621"
-PUBLISH_SELECT_HEIGHT = 300
+PUBLISH_SELECT_HEIGHT = 150
 
 
 def _none_to_empty(value: str | None) -> str:
@@ -91,25 +91,6 @@ def _local_preview(*candidates: str) -> str:
     return ""
 
 
-def _full_link(url: str, empty: str) -> ft.Control:
-    raw = (url or "").strip()
-    if raw and not raw.lower().startswith(("http://", "https://")):
-        raw = ""
-    return ft.TextField(
-        value=raw if raw else empty,
-        read_only=True,
-        multiline=True,
-        min_lines=2,
-        max_lines=8,
-        text_size=12,
-        filled=True,
-        fill_color=_INPUT_FILL,
-        color=config.COLOR_TEXT if raw else "#8AA797",
-        cursor_color=config.COLOR_ACCENT,
-        **_borderless(),
-    )
-
-
 def _remember_scroll(form, attr: str, value: float) -> None:
     setattr(form, attr, value)
 
@@ -146,6 +127,8 @@ def bind_form_section(
     on_scroll_offset: Callable[[float], None] | None = None,
     expand: bool | int = True,
     height: int | None = None,
+    footer: list[ft.Control] | None = None,
+    preserve_inner: bool = False,
 ) -> None:
     """Reuse the same scroll Column so Flet keeps offset (no scroll_to)."""
 
@@ -163,6 +146,7 @@ def bind_form_section(
 
     inner = getattr(holder, "_suite_scroll", None)
     title_ctrl = getattr(holder, "_suite_title", None)
+    footer_col = getattr(holder, "_suite_footer", None)
     if inner is None or title_ctrl is None:
         holder.bgcolor = config.COLOR_BG
         holder.border_radius = 10
@@ -180,17 +164,38 @@ def bind_form_section(
             inner = ft.Column(auto_scroll=False, **inner_kwargs)
         except TypeError:
             inner = ft.Column(**inner_kwargs)
+        parts: list[ft.Control] = [title_ctrl, inner]
+        if footer is not None:
+            footer_col = ft.Column(spacing=8, tight=True, controls=list(footer))
+            parts.append(footer_col)
         holder.content = ft.Column(
             expand=True,
             spacing=10,
-            controls=[title_ctrl, inner],
+            controls=parts,
         )
         holder._suite_scroll = inner
         holder._suite_title = title_ctrl
+        holder._suite_footer = footer_col
         return
     title_ctrl.value = title
     inner.on_scroll = _on_scroll
-    _set_column_controls(inner, controls)
+    if footer is not None:
+        if footer_col is None:
+            footer_col = ft.Column(spacing=8, tight=True, controls=list(footer))
+            holder._suite_footer = footer_col
+            host = holder.content
+            host_controls = getattr(host, "controls", None)
+            if host_controls is None:
+                holder.content = ft.Column(expand=True, spacing=10, controls=[title_ctrl, inner, footer_col])
+            else:
+                try:
+                    host_controls.append(footer_col)
+                except Exception:
+                    holder.content = ft.Column(expand=True, spacing=10, controls=[title_ctrl, inner, footer_col])
+        else:
+            _set_column_controls(footer_col, footer)
+    if not preserve_inner:
+        _set_column_controls(inner, controls)
 
 
 def form_section(title: str, controls: list[ft.Control], *, expand: int | bool = 1) -> ft.Control:
@@ -287,18 +292,20 @@ def notice_banner(text: str, *, success: bool = False, conflict: bool = False, b
     raw = (text or "").strip()
     if busy or not raw:
         return ft.Container(visible=False)
-    if success:
-        bg, color, size, weight = "#1F3A2C", config.COLOR_ACCENT, 16, ft.FontWeight.BOLD
-    elif conflict:
-        bg, color, size, weight = "#3A2A1F", config.COLOR_ACCENT, 15, ft.FontWeight.W_600
-    else:
-        bg, color, size, weight = "#2A241C", config.COLOR_TEXT, 14, ft.FontWeight.W_600
+    if conflict:
+        return ft.Container(
+            bgcolor="#3A2A1F",
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            border=ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)),
+            content=ft.Text(raw, size=13, weight=ft.FontWeight.W_600, color=config.COLOR_ACCENT),
+        )
     return ft.Container(
-        bgcolor=bg,
-        border_radius=10,
-        padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-        border=ft.Border(left=ft.BorderSide(4, config.COLOR_ACCENT)),
-        content=ft.Text(raw, size=size, weight=weight, color=color),
+        bgcolor=_CHANGED_FILL,
+        border_radius=8,
+        padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+        border=ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)),
+        content=ft.Text(raw, size=13, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
     )
 
 
@@ -343,28 +350,6 @@ def bind_publish_form(
     if setor is not None:
         for sub in setor.sub_setores:
             sub_options.append(ft.DropdownOption(key=sub.id, text=sub.nome))
-
-    gerencia_options = [
-        ft.DropdownOption(
-            key=GERAL_KEY,
-            text="(Geral)",
-            content=ft.Text(
-                "(Geral)",
-                size=_FIELD_SIZE,
-                italic=True,
-                color=config.COLOR_ACCENT,
-                weight=ft.FontWeight.W_600,
-            ),
-        )
-    ]
-    for g in catalog.gerencias:
-        gerencia_options.append(
-            ft.DropdownOption(
-                key=g.id,
-                text=g.nome,
-                content=ft.Text(g.nome, size=_FIELD_SIZE, color=config.COLOR_TEXT),
-            )
-        )
 
     tipo_value = form.tipo if form.tipo in {"exe", "xlsx", "xlsm"} else "exe"
     app_value = form.editing_id or NEW_APP_KEY
@@ -421,20 +406,20 @@ def bind_publish_form(
         catalog_url = catalog_http_url(current_url)
         url_changed = bool(url_key) and form.is_changed(url_key)
         changed = form.is_changed(key) or url_changed
+        url_field = ft.TextField(
+            value=catalog_url,
+            hint_text=empty,
+            multiline=True,
+            min_lines=2,
+            max_lines=8,
+            text_size=12,
+            filled=True,
+            fill_color=_CHANGED_FILL if url_changed else _INPUT_FILL,
+            color=config.COLOR_TEXT if catalog_url else "#8AA797",
+            cursor_color=config.COLOR_ACCENT,
+            **_borderless(),
+        )
         if preview:
-            url_field = ft.TextField(
-                value=catalog_url,
-                hint_text=empty,
-                multiline=True,
-                min_lines=2,
-                max_lines=8,
-                text_size=12,
-                filled=True,
-                fill_color=_CHANGED_FILL if url_changed else _INPUT_FILL,
-                color=config.COLOR_TEXT if catalog_url else "#8AA797",
-                cursor_color=config.COLOR_ACCENT,
-                **_borderless(),
-            )
             preview_box = _image_preview(_local_preview(path, preview_src))
             link_row: ft.Control = ft.Row(
                 spacing=12,
@@ -445,8 +430,7 @@ def bind_publish_form(
                 ],
             )
         else:
-            url_field = None
-            link_row = _full_link(catalog_url or current_url, empty)
+            link_row = url_field
         detail: list[ft.Control] = [link_row]
         if extra:
             detail.extend(extra)
@@ -479,7 +463,7 @@ def bind_publish_form(
             align=ft.CrossAxisAlignment.START,
             changed=changed,
         )
-        if preview and url_key and url_field is not None:
+        if url_key:
             def _on_url(e, k=url_key, wrap=box, field=url_field) -> None:
                 on_field(k, e.control.value or "")
                 apply_live_highlight(wrap, field, form.is_changed(k) or form.is_changed(key))
@@ -499,10 +483,27 @@ def bind_publish_form(
     if folder_value not in folder_keys:
         folder_value = ROOT_FOLDER if ROOT_FOLDER in folder_keys else next(iter(folder_keys), ROOT_FOLDER)
 
-    folder_extra: list[ft.Control] = [
+    pasta_url_changed = form.is_changed("upload_url")
+    pasta_changed = pasta_url_changed or form.is_changed("folder_choice") or form.is_changed("new_folder_name")
+    pasta_field = ft.TextField(
+        value=form.upload_url,
+        hint_text="Cole o caminho SharePoint ou escolha uma pasta abaixo",
+        multiline=True,
+        min_lines=2,
+        max_lines=6,
+        text_size=12,
+        filled=True,
+        fill_color=_CHANGED_FILL if pasta_url_changed else _INPUT_FILL,
+        color=config.COLOR_TEXT if (form.upload_url or "").strip() else "#8AA797",
+        cursor_color=config.COLOR_ACCENT,
+        **_borderless(),
+    )
+    pasta_detail: list[ft.Control] = [
+        pasta_field,
         ft.Text(
-            "Pasta de destino de todos os envios desta gravacao: aplicativo, capa e icone. "
-            "Os arquivos mantem o nome original.",
+            "Onde um arquivo local e gravado (aplicativo, capa e icone), com o nome original. "
+            "Cole um caminho SharePoint ou escolha uma pasta em publish.folder_url. "
+            "So o link, sem arquivo novo, atualiza o catalog.json e nao envia arquivo.",
             size=11,
             color="#8AA797",
         ),
@@ -518,7 +519,7 @@ def bind_publish_form(
         ),
     ]
     if folder_value == NEW_FOLDER:
-        folder_extra.append(
+        pasta_detail.append(
             ft.TextField(
                 value=form.new_folder_name,
                 hint_text="Nome da pasta nova",
@@ -527,17 +528,33 @@ def bind_publish_form(
             )
         )
     if form.folders_busy:
-        folder_extra.append(ft.Text("Listando pastas no SharePoint...", size=11, color="#8AA797"))
+        pasta_detail.append(ft.Text("Listando pastas no SharePoint...", size=11, color="#8AA797"))
     elif form.folders_error:
-        folder_extra.append(ft.Text(form.folders_error, size=11, color=config.COLOR_ACCENT))
+        pasta_detail.append(ft.Text(form.folders_error, size=11, color=config.COLOR_ACCENT))
     if on_refresh_folders is not None:
-        folder_extra.append(
+        pasta_detail.append(
             ft.TextButton(
                 content="Atualizar pastas",
                 disabled=form.folders_busy or form.busy,
                 on_click=lambda e: on_refresh_folders(),
             )
         )
+    pasta_box = option7_row(
+        "Pasta Destino",
+        ft.Column(spacing=6, tight=True, controls=pasta_detail),
+        align=ft.CrossAxisAlignment.START,
+        changed=pasta_changed,
+    )
+
+    def _on_pasta(e, wrap=pasta_box, field=pasta_field) -> None:
+        on_field("upload_url", e.control.value or "")
+        apply_live_highlight(
+            wrap,
+            field,
+            form.is_changed("upload_url") or form.is_changed("folder_choice"),
+        )
+
+    pasta_field.on_change = _on_pasta
 
     heading = "Novo aplicativo" if not form.editing_id else f"Editar: {form.nome or form.editing_id}"
     done_text = form.notice if form.notice else ("" if form.busy else form.message)
@@ -572,12 +589,6 @@ def bind_publish_form(
         edit_holder,
         "Editar",
         [
-            notice_banner(
-                done_text,
-                success=form.notice_ok,
-                conflict=form.conflict,
-                busy=form.busy,
-            ),
             ft.Text(heading, size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
             _tf("Nome", "nome", form.nome),
             _tf("Descricao", "descricao", form.descricao, multiline=True),
@@ -593,9 +604,9 @@ def bind_publish_form(
                 ],
                 default="exe",
             ),
-            _dd("Gerencia", "gerencia_id", form.gerencia_id or GERAL_KEY, gerencia_options),
             _dd("Setor", "setor_id", form.setor_id or GERAL_KEY, setor_options),
             _dd("Sub-setor", "sub_setor_id", form.sub_setor_id or GERAL_KEY, sub_options),
+            pasta_box,
             _file_block(
                 "Arquivo",
                 "app",
@@ -603,7 +614,7 @@ def bind_publish_form(
                 form.current_download,
                 preview=False,
                 empty="vazio no catalog.json (download_url)",
-                extra=folder_extra,
+                url_key="current_download",
             ),
             _file_block(
                 "Capa",
@@ -625,7 +636,16 @@ def bind_publish_form(
                 url_key="current_icone",
                 preview_src=form.preview_icone,
             ),
-            _tf("upload_url", "upload_url", form.upload_url),
+        ],
+        on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
+        preserve_inner=form.hold_scroll,
+        footer=[
+            notice_banner(
+                done_text,
+                success=form.notice_ok,
+                conflict=form.conflict,
+                busy=form.busy,
+            ),
             ft.ProgressBar(
                 value=bar_value(form.progress),
                 visible=form.busy,
@@ -656,5 +676,4 @@ def bind_publish_form(
                 ],
             ),
         ],
-        on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
     )

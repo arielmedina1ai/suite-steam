@@ -83,6 +83,7 @@ class PublishFormState:
             "app_path": "",
             "capa_path": "",
             "icone_path": "",
+            "current_download": self.current_download,
             "current_capa": self.current_capa,
             "current_icone": self.current_icone,
         }
@@ -190,6 +191,7 @@ class PublishOutcome:
     conflict: bool = False
     catalog: CatalogData | None = None
     fingerprint: str = ""
+    app_id: str = ""
 
 
 def catalog_fingerprint(text: str) -> str:
@@ -323,11 +325,14 @@ def folder_url_of_file(file_url: str) -> str:
     return f"{site}/{caminho}" if caminho else site
 
 
-def resolve_upload_folder(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
-    """Pasta escolhida em Arquivo: destino de aplicativo, capa e icone."""
+def folder_choice_destination(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
+    """Pasta escolhida no dropdown (publish.folder_url), independente do texto colado."""
     choice = (form.folder_choice or "").strip() or KEEP_FOLDER
     root = (config.PUBLISH_FOLDER_URL or "").strip()
     if choice == KEEP_FOLDER:
+        pasted = catalog_http_url(form.upload_url) or (form.upload_url or "").strip()
+        if pasted.lower().startswith(("http://", "https://")):
+            return pasted, ""
         for url in (existing_url, form.current_download, form.current_capa, form.current_icone):
             raw = catalog_http_url(url) or (url or "").strip()
             if not raw:
@@ -338,7 +343,7 @@ def resolve_upload_folder(form: PublishFormState, existing_url: str) -> tuple[st
                 continue
         if root:
             return root, ""
-        return None, "Nao foi possivel determinar a pasta atual. Escolha uma pasta em Arquivo."
+        return None, "Nao foi possivel determinar a pasta atual. Escolha uma pasta em Pasta Destino."
     if not root:
         return None, "publish.folder_url nao configurado no settings.json."
     if choice == NEW_FOLDER:
@@ -358,6 +363,14 @@ def resolve_upload_folder(form: PublishFormState, existing_url: str) -> tuple[st
         return folder_url_for_child(root, choice), ""
     except ValueError as exc:
         return None, str(exc)
+
+
+def resolve_upload_folder(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
+    """Pasta Destino: texto colado, ou pasta escolhida em publish.folder_url."""
+    pasted = catalog_http_url(form.upload_url) or (form.upload_url or "").strip()
+    if pasted.lower().startswith(("http://", "https://")):
+        return pasted, ""
+    return folder_choice_destination(form, existing_url)
 
 
 def _upload_named(
@@ -546,8 +559,9 @@ def publish_app(
         return PublishOutcome(ok=False, message="Informe o nome do aplicativo.")
     is_new = not (form.editing_id or "").strip()
     app_path = Path(form.app_path) if form.app_path else None
-    if is_new and (app_path is None or not app_path.is_file()):
-        return PublishOutcome(ok=False, message="Escolha o arquivo do aplicativo.")
+    pasted_download = catalog_http_url(form.current_download)
+    if is_new and (app_path is None or not app_path.is_file()) and not pasted_download:
+        return PublishOutcome(ok=False, message="Escolha o arquivo do aplicativo ou cole o link em Arquivo.")
     if app_path is not None and not app_path.is_file():
         return PublishOutcome(ok=False, message="Arquivo do aplicativo nao encontrado.")
     capa = Path(form.capa_path) if form.capa_path else None
@@ -591,7 +605,7 @@ def publish_app(
             break
 
     tipo = (form.tipo or current.get("tipo") or "exe").strip().lower() or "exe"
-    download_url = str(current.get("download_url") or form.current_download or "").strip()
+    download_url = pasted_download or str(current.get("download_url") or "").strip()
     imagem = catalog_http_url(form.current_capa) or catalog_http_url(str(current.get("imagem") or ""))
     icone_url = catalog_http_url(form.current_icone) or catalog_http_url(str(current.get("icone") or ""))
     imagem_versao = str(current.get("imagem_versao") or "1")
@@ -599,11 +613,12 @@ def publish_app(
 
     dest_folder = ""
     if app_path is not None or capa is not None or icone is not None:
-        dest_folder, folder_err = resolve_upload_folder(form, download_url)
+        chosen, folder_err = resolve_upload_folder(form, download_url)
         if folder_err:
             return PublishOutcome(ok=False, message=folder_err)
-        if not dest_folder:
-            return PublishOutcome(ok=False, message="Pasta de destino dos arquivos nao determinada.")
+        if not chosen:
+            return PublishOutcome(ok=False, message="Informe a Pasta Destino dos arquivos.")
+        dest_folder = chosen
 
     def _put_to(local: Path, dest_name: str, dest_folder_url: str, kind: str, msg: str) -> tuple[bool, str]:
         report(-1.0, msg)
@@ -721,6 +736,7 @@ def publish_app(
         message="Catalogo publicado.",
         catalog=catalog,
         fingerprint=catalog_fingerprint(new_text),
+        app_id=app_id,
     )
 
 
