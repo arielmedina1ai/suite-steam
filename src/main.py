@@ -85,7 +85,13 @@ class SuiteApp:
         self._file_picker = None
         self._catalog_shell: ft.Column | None = None
         self._catalog_tabs = ft.Row(spacing=8)
-        self._catalog_sessions = ft.Column(expand=True, spacing=12)
+        self._session_host = ft.Container(expand=True)
+        self._publish_layout = ft.Column(expand=True, spacing=12)
+        self._estrutura_layout = ft.Row(
+            expand=True,
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
         self._sess_pub_sel = session_holder()
         self._sess_pub_edit = session_holder()
         self._sess_str_sel = session_holder()
@@ -562,6 +568,8 @@ class SuiteApp:
             current_download=app.download_url,
             current_capa=file_capa or catalog_http_url(app.catalog_imagem),
             current_icone=file_icone or catalog_http_url(app.catalog_icone),
+            preview_capa=str(app.imagem or "") if app.imagem and not str(app.imagem).lower().startswith(("http://", "https://")) else "",
+            preview_icone=str(app.icone or "") if app.icone and not str(app.icone).lower().startswith(("http://", "https://")) else "",
             original_gerencia_id=gid,
             show_form=True,
         )
@@ -732,9 +740,11 @@ class SuiteApp:
             self.catalog = result.catalog
         self._apply_gerencia_filter()
         fp = result.fingerprint or fingerprint_cache_file()
+        was_edit = bool(form.editing_id)
         self.publish_form = self._fresh_publish_form(
             fingerprint=fp,
-            message=result.message,
+            notice="Item atualizado." if was_edit else "Catalogo salvo.",
+            notice_ok=True,
         )
         self.structure = structure_from_catalog(self.catalog, fp)
         self._render()
@@ -743,6 +753,8 @@ class SuiteApp:
         if not self.can_publish:
             return
         self.structure.sel = sel
+        self.structure.notice = ""
+        self.structure.notice_ok = False
         self._render()
 
     def _structure_target(self):
@@ -968,7 +980,8 @@ class SuiteApp:
         fp = result.fingerprint or fingerprint_cache_file()
         self.publish_form.fingerprint = fp
         self.structure = structure_from_catalog(self.catalog, fp)
-        self.structure.message = result.message
+        self.structure.notice = "Catalogo salvo."
+        self.structure.notice_ok = True
         self.catalog_tab = "estrutura"
         self._render()
 
@@ -1186,7 +1199,9 @@ class SuiteApp:
     def _ensure_catalog_shell(self) -> ft.Column:
         if self._catalog_shell is not None:
             return self._catalog_shell
-        self._catalog_sessions.controls = [self._sess_pub_sel, self._sess_pub_edit]
+        self._publish_layout.controls = [self._sess_pub_sel, self._sess_pub_edit]
+        self._estrutura_layout.controls = [self._sess_str_sel, self._sess_str_edit]
+        self._session_host.content = self._publish_layout
         self._catalog_shell = ft.Column(
             expand=True,
             spacing=12,
@@ -1199,7 +1214,7 @@ class SuiteApp:
                     border_radius=10,
                     padding=12,
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                    content=self._catalog_sessions,
+                    content=self._session_host,
                 ),
             ],
         )
@@ -1283,7 +1298,9 @@ class SuiteApp:
                 on_structure_save=self._structure_save,
                 on_structure_reopen=self._publish_reopen,
                 tab_row=self._catalog_tabs,
-                sessions=self._catalog_sessions,
+                session_host=self._session_host,
+                publish_layout=self._publish_layout,
+                estrutura_layout=self._estrutura_layout,
                 publish_select=self._sess_pub_sel,
                 publish_edit=self._sess_pub_edit,
                 structure_select=self._sess_str_sel,

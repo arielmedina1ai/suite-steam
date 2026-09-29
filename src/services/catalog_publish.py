@@ -47,6 +47,8 @@ class PublishFormState:
     current_download: str = ""
     current_capa: str = ""
     current_icone: str = ""
+    preview_capa: str = ""
+    preview_icone: str = ""
     select_scroll: float = 0.0
     edit_scroll: float = 0.0
     hold_scroll: bool = False
@@ -62,6 +64,8 @@ class PublishFormState:
     busy: bool = False
     conflict: bool = False
     message: str = ""
+    notice: str = ""
+    notice_ok: bool = False
     progress: float | None = None
 
     def capture_baseline(self) -> None:
@@ -170,6 +174,8 @@ class StructureFormState:
     busy: bool = False
     conflict: bool = False
     message: str = ""
+    notice: str = ""
+    notice_ok: bool = False
     progress: float | None = None
     dirty: bool = False
     select_scroll: float = 0.0
@@ -300,14 +306,39 @@ def existing_remote_filename(url: str, fallback: str) -> str:
     return fallback
 
 
-def resolve_app_upload_folder(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
-    """Pasta de destino do Arquivo. None = manter o local remoto atual."""
+def original_upload_name(local: Path) -> str:
+    raw = str(local)
+    name = raw.replace("\\", "/").rstrip("/").split("/")[-1].strip()
+    if not name or name in {".", ".."}:
+        return "arquivo"
+    return name
+
+
+def folder_url_of_file(file_url: str) -> str:
+    info = parsear_link_pasta_sharepoint(file_url)
+    site = (info.get("site_url") or "").rstrip("/")
+    caminho = (info.get("caminho_sp") or "").strip("/")
+    if not site:
+        raise ValueError("Link sem site para determinar a pasta.")
+    return f"{site}/{caminho}" if caminho else site
+
+
+def resolve_upload_folder(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
+    """Pasta escolhida em Arquivo: destino de aplicativo, capa e icone."""
     choice = (form.folder_choice or "").strip() or KEEP_FOLDER
-    if choice == KEEP_FOLDER:
-        if (existing_url or "").strip():
-            return None, ""
-        choice = ROOT_FOLDER
     root = (config.PUBLISH_FOLDER_URL or "").strip()
+    if choice == KEEP_FOLDER:
+        for url in (existing_url, form.current_download, form.current_capa, form.current_icone):
+            raw = catalog_http_url(url) or (url or "").strip()
+            if not raw:
+                continue
+            try:
+                return folder_url_of_file(raw), ""
+            except ValueError:
+                continue
+        if root:
+            return root, ""
+        return None, "Nao foi possivel determinar a pasta atual. Escolha uma pasta em Arquivo."
     if not root:
         return None, "publish.folder_url nao configurado no settings.json."
     if choice == NEW_FOLDER:
@@ -525,8 +556,6 @@ def publish_app(
         if path is not None and not path.is_file():
             return PublishOutcome(ok=False, message=f"Arquivo de {label} nao encontrado.")
 
-    folder_url = (config.PUBLISH_FOLDER_URL or "").strip()
-
     report(-1.0, "Relendo catalogo remoto...")
     text, err = fetch_remote_catalog_text(progress=report)
     if err:
@@ -568,36 +597,21 @@ def publish_app(
     imagem_versao = str(current.get("imagem_versao") or "1")
     icone_versao = str(current.get("icone_versao") or "1")
 
-    needs_new_media = any(
-        local is not None and not existing
-        for local, existing in (
-            (capa, imagem),
-            (icone, icone_url),
-        )
-    )
-    app_folder_url: str | None = None
-    keep_app_location = True
-    if app_path is not None:
-        app_folder_url, folder_err = resolve_app_upload_folder(form, download_url)
+    dest_folder = ""
+    if app_path is not None or capa is not None or icone is not None:
+        dest_folder, folder_err = resolve_upload_folder(form, download_url)
         if folder_err:
             return PublishOutcome(ok=False, message=folder_err)
-        keep_app_location = app_folder_url is None
-        if not keep_app_location and not app_folder_url:
-            return PublishOutcome(ok=False, message="Pasta de destino do arquivo nao determinada.")
+        if not dest_folder:
+            return PublishOutcome(ok=False, message="Pasta de destino dos arquivos nao determinada.")
 
-    if (needs_new_media or (app_path is not None and not keep_app_location)) and not folder_url:
-        return PublishOutcome(
-            ok=False,
-            message="publish.folder_url nao configurado no settings.json.",
-        )
-
-    def _put_to(local: Path, dest_name: str, dest_folder: str, kind: str, msg: str) -> tuple[bool, str]:
+    def _put_to(local: Path, dest_name: str, dest_folder_url: str, kind: str, msg: str) -> tuple[bool, str]:
         report(-1.0, msg)
-        ok, message = _upload_named(local, dest_name, dest_folder, report)
+        ok, message = _upload_named(local, dest_name, dest_folder_url, report)
         if not ok:
             return False, message
         try:
-            meta = _folder_info(dest_folder)
+            meta = _folder_info(dest_folder_url)
         except ValueError as exc:
             return False, str(exc)
         url = sharing_url(
@@ -608,48 +622,37 @@ def publish_app(
         )
         return True, url
 
-    def _send_media(local: Path, existing: str, dest_name: str, kind: str, msg: str) -> tuple[bool, str]:
-        if existing:
-            report(-1.0, msg)
-            return replace_existing_file(local, existing, report)
-        return _put_to(local, dest_name, folder_url, kind, msg)
-
     if app_path is not None:
-        dest_name = existing_remote_filename(
-            download_url,
-            f"{app_id}{_ext_for_tipo(tipo, app_path)}",
+        ok, payload = _put_to(
+            app_path,
+            original_upload_name(app_path),
+            dest_folder,
+            _app_kind(tipo),
+            "Enviando arquivo do aplicativo...",
         )
-        if keep_app_location:
-            report(-1.0, "Enviando arquivo do aplicativo...")
-            ok, payload = replace_existing_file(app_path, download_url, report)
-        else:
-            assert app_folder_url is not None
-            ok, payload = _put_to(
-                app_path,
-                dest_name,
-                app_folder_url,
-                _app_kind(tipo),
-                "Enviando arquivo do aplicativo...",
-            )
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload do aplicativo.")
         download_url = payload
     if capa is not None:
-        dest_name = existing_remote_filename(
-            imagem,
-            f"{app_id}-capa{capa.suffix.lower() or '.png'}",
+        ok, payload = _put_to(
+            capa,
+            original_upload_name(capa),
+            dest_folder,
+            "image",
+            "Enviando capa...",
         )
-        ok, payload = _send_media(capa, imagem, dest_name, "image", "Enviando capa...")
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload da capa.")
         imagem = payload
         imagem_versao = bump_media_version(imagem_versao)
     if icone is not None:
-        dest_name = existing_remote_filename(
-            icone_url,
-            f"{app_id}-icone{icone.suffix.lower() or '.png'}",
+        ok, payload = _put_to(
+            icone,
+            original_upload_name(icone),
+            dest_folder,
+            "image",
+            "Enviando icone...",
         )
-        ok, payload = _send_media(icone, icone_url, dest_name, "image", "Enviando icone...")
         if not ok:
             return PublishOutcome(ok=False, message=payload or "Falha no upload do icone.")
         icone_url = payload

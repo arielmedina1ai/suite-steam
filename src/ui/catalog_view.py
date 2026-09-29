@@ -61,7 +61,9 @@ def bind_catalog_view(
     on_structure_save: Callable[[], None],
     on_structure_reopen: Callable[[], None],
     tab_row: ft.Row,
-    sessions: ft.Column,
+    session_host: ft.Container,
+    publish_layout: ft.Column,
+    estrutura_layout: ft.Row,
     publish_select: ft.Container,
     publish_edit: ft.Container,
     structure_select: ft.Container,
@@ -86,7 +88,14 @@ def bind_catalog_view(
             select_holder=structure_select,
             edit_holder=structure_edit,
         )
-        wanted = [structure_select, structure_edit]
+        structure_select.expand = True
+        structure_edit.expand = True
+        structure_select.height = None
+        structure_edit.height = None
+        cur = list(estrutura_layout.controls or [])
+        if len(cur) != 2 or cur[0] is not structure_select or cur[1] is not structure_edit:
+            estrutura_layout.controls = [structure_select, structure_edit]
+        session_host.content = estrutura_layout
     else:
         bind_publish_form(
             catalog,
@@ -101,7 +110,7 @@ def bind_catalog_view(
             select_holder=publish_select,
             edit_holder=publish_edit,
         )
-        wanted = [publish_select, publish_edit]
-    current = list(sessions.controls or [])
-    if len(current) != 2 or current[0] is not wanted[0] or current[1] is not wanted[1]:
-        sessions.controls = wanted
+        cur = list(publish_layout.controls or [])
+        if len(cur) != 2 or cur[0] is not publish_select or cur[1] is not publish_edit:
+            publish_layout.controls = [publish_select, publish_edit]
+        session_host.content = publish_layout

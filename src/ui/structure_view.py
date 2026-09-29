@@ -9,7 +9,7 @@ import config
 from models import CatalogData
 from services.catalog_publish import StructureFormState
 from ui.progress_util import bar_value, label as progress_label
-from ui.publish_view import _remember_scroll, bind_form_section, field_kwargs, option7_row
+from ui.publish_view import _remember_scroll, bind_form_section, notice_banner, option7_text
 
 _DEL_ICON = getattr(ft.Icons, "DELETE", None) or getattr(ft.Icons, "DELETE_FOREVER", ft.Icons.CLOSE)
 
@@ -233,10 +233,17 @@ def bind_structure_form(
         on_scroll_offset=lambda v: _remember_scroll(form, "select_scroll", v),
     )
     editor = _editor(catalog, form, on_field=on_field, on_toggle_app=on_toggle_app)
+    done_text = form.notice if form.notice else ("" if form.busy else form.message)
     bind_form_section(
         edit_holder,
         "Editar",
         [
+            notice_banner(
+                done_text,
+                success=form.notice_ok,
+                conflict=form.conflict,
+                busy=form.busy,
+            ),
             editor,
             ft.ProgressBar(
                 value=bar_value(form.progress),
@@ -245,9 +252,10 @@ def bind_structure_form(
                 bgcolor="#0A0F0C",
             ),
             ft.Text(
-                progress_label(form.progress, form.message) if form.busy else form.message,
+                progress_label(form.progress, form.message) if form.busy else "",
                 size=13,
-                color=config.COLOR_ACCENT if form.conflict else "#B9CEC3",
+                color="#B9CEC3",
+                visible=form.busy,
             ),
             ft.Row(
                 spacing=12,
@@ -277,22 +285,31 @@ def _editor(
     on_field: Callable[[str, str], None],
     on_toggle_app: Callable[[str, bool], None],
 ) -> ft.Control:
+    def _draft_text(obj, label: str, key: str, *, multiline: bool = False) -> ft.Control:
+        return option7_text(
+            label,
+            getattr(obj, key),
+            changed=obj.is_changed(key),
+            on_commit=lambda v, k=key: on_field(k, v),
+            is_changed=lambda k=key: obj.is_changed(k),
+            multiline=multiline,
+            min_lines=2 if multiline else 1,
+            max_lines=5 if multiline else 1,
+        )
+
     sel = form.sel or ""
     if sel == "geral" or not sel:
-        changed = form.gerencia_geral != form.orig_gerencia_geral
         return ft.Column(
             spacing=10,
             tight=True,
             controls=[
                 ft.Text("Geral", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                option7_row(
+                option7_text(
                     "Rotulo Geral",
-                    ft.TextField(
-                        value=form.gerencia_geral,
-                        on_change=lambda e: on_field("gerencia_geral", e.control.value or ""),
-                        **field_kwargs(changed=changed),
-                    ),
-                    changed=changed,
+                    form.gerencia_geral,
+                    changed=form.gerencia_geral != form.orig_gerencia_geral,
+                    on_commit=lambda v: on_field("gerencia_geral", v),
+                    is_changed=lambda: form.gerencia_geral != form.orig_gerencia_geral,
                 ),
                 ft.Text(
                     "Opcao vazia do filtro de gerencia (gerencia_geral). "
@@ -321,37 +338,9 @@ def _editor(
             tight=True,
             controls=[
                 ft.Text("Gerencia", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                option7_row(
-                    "id",
-                    ft.TextField(
-                        value=g.id,
-                        on_change=lambda e: on_field("id", e.control.value or ""),
-                        **field_kwargs(changed=g.is_changed("id")),
-                    ),
-                    changed=g.is_changed("id"),
-                ),
-                option7_row(
-                    "Nome",
-                    ft.TextField(
-                        value=g.nome,
-                        on_change=lambda e: on_field("nome", e.control.value or ""),
-                        **field_kwargs(changed=g.is_changed("nome")),
-                    ),
-                    changed=g.is_changed("nome"),
-                ),
-                option7_row(
-                    "Descricao",
-                    ft.TextField(
-                        value=g.descricao,
-                        multiline=True,
-                        min_lines=2,
-                        max_lines=5,
-                        on_change=lambda e: on_field("descricao", e.control.value or ""),
-                        **field_kwargs(changed=g.is_changed("descricao")),
-                    ),
-                    align=ft.CrossAxisAlignment.START,
-                    changed=g.is_changed("descricao"),
-                ),
+                _draft_text(g, "id", "id"),
+                _draft_text(g, "Nome", "nome"),
+                _draft_text(g, "Descricao", "descricao", multiline=True),
                 ft.Container(
                     bgcolor="#2A3820" if apps_changed else None,
                     border_radius=8,
@@ -378,37 +367,9 @@ def _editor(
             tight=True,
             controls=[
                 ft.Text(f"Sub-setor de {s.nome or s.id}", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                option7_row(
-                    "id",
-                    ft.TextField(
-                        value=sub.id,
-                        on_change=lambda e: on_field("id", e.control.value or ""),
-                        **field_kwargs(changed=sub.is_changed("id")),
-                    ),
-                    changed=sub.is_changed("id"),
-                ),
-                option7_row(
-                    "Nome",
-                    ft.TextField(
-                        value=sub.nome,
-                        on_change=lambda e: on_field("nome", e.control.value or ""),
-                        **field_kwargs(changed=sub.is_changed("nome")),
-                    ),
-                    changed=sub.is_changed("nome"),
-                ),
-                option7_row(
-                    "Descricao",
-                    ft.TextField(
-                        value=sub.descricao,
-                        multiline=True,
-                        min_lines=2,
-                        max_lines=5,
-                        on_change=lambda e: on_field("descricao", e.control.value or ""),
-                        **field_kwargs(changed=sub.is_changed("descricao")),
-                    ),
-                    align=ft.CrossAxisAlignment.START,
-                    changed=sub.is_changed("descricao"),
-                ),
+                _draft_text(sub, "id", "id"),
+                _draft_text(sub, "Nome", "nome"),
+                _draft_text(sub, "Descricao", "descricao", multiline=True),
             ],
         )
 
@@ -419,37 +380,9 @@ def _editor(
             tight=True,
             controls=[
                 ft.Text("Setor", size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
-                option7_row(
-                    "id",
-                    ft.TextField(
-                        value=s.id,
-                        on_change=lambda e: on_field("id", e.control.value or ""),
-                        **field_kwargs(changed=s.is_changed("id")),
-                    ),
-                    changed=s.is_changed("id"),
-                ),
-                option7_row(
-                    "Nome",
-                    ft.TextField(
-                        value=s.nome,
-                        on_change=lambda e: on_field("nome", e.control.value or ""),
-                        **field_kwargs(changed=s.is_changed("nome")),
-                    ),
-                    changed=s.is_changed("nome"),
-                ),
-                option7_row(
-                    "Descricao",
-                    ft.TextField(
-                        value=s.descricao,
-                        multiline=True,
-                        min_lines=2,
-                        max_lines=5,
-                        on_change=lambda e: on_field("descricao", e.control.value or ""),
-                        **field_kwargs(changed=s.is_changed("descricao")),
-                    ),
-                    align=ft.CrossAxisAlignment.START,
-                    changed=s.is_changed("descricao"),
-                ),
+                _draft_text(s, "id", "id"),
+                _draft_text(s, "Nome", "nome"),
+                _draft_text(s, "Descricao", "descricao", multiline=True),
             ],
         )
 

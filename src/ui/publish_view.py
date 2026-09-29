@@ -26,6 +26,8 @@ _LABEL_WIDTH = 128
 _FIELD_SIZE = 12
 _CHANGED_FILL = "#2A3820"
 _CHANGED_BORDER = config.COLOR_ACCENT
+_INPUT_FILL = "#1A2621"
+PUBLISH_SELECT_HEIGHT = 300
 
 
 def _none_to_empty(value: str | None) -> str:
@@ -53,9 +55,16 @@ def _image_preview(src: str, *, size: int = 72) -> ft.Control:
         alignment=ft.Alignment.CENTER,
         content=ft.Text("sem imagem", size=10, color="#8AA797", text_align=ft.TextAlign.CENTER),
     )
-    url = (src or "").strip()
-    if not url.startswith(("http://", "https://")):
+    raw = (src or "").strip()
+    if not raw:
         return empty
+    if raw.lower().startswith(("http://", "https://")):
+        img_src = raw
+    else:
+        path = Path(raw)
+        if not path.is_file():
+            return empty
+        img_src = str(path)
     return ft.Container(
         width=size,
         height=size,
@@ -63,13 +72,23 @@ def _image_preview(src: str, *, size: int = 72) -> ft.Control:
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         bgcolor=config.COLOR_BG,
         content=ft.Image(
-            src=url,
+            src=img_src,
             width=size,
             height=size,
             fit=ft.BoxFit.COVER,
             error_content=empty,
         ),
     )
+
+
+def _local_preview(*candidates: str) -> str:
+    for raw in candidates:
+        path = (raw or "").strip()
+        if not path or path.lower().startswith(("http://", "https://")):
+            continue
+        if Path(path).is_file():
+            return path
+    return ""
 
 
 def _full_link(url: str, empty: str) -> ft.Control:
@@ -84,7 +103,7 @@ def _full_link(url: str, empty: str) -> ft.Control:
         max_lines=8,
         text_size=12,
         filled=True,
-        fill_color=config.COLOR_SURFACE,
+        fill_color=_INPUT_FILL,
         color=config.COLOR_TEXT if raw else "#8AA797",
         cursor_color=config.COLOR_ACCENT,
         **_borderless(),
@@ -125,6 +144,8 @@ def bind_form_section(
     controls: list[ft.Control],
     *,
     on_scroll_offset: Callable[[float], None] | None = None,
+    expand: bool | int = True,
+    height: int | None = None,
 ) -> None:
     """Reuse the same scroll Column so Flet keeps offset (no scroll_to)."""
 
@@ -133,10 +154,16 @@ def bind_form_section(
             return
         on_scroll_offset(_scroll_pixels(e))
 
+    if height is not None:
+        holder.height = height
+        holder.expand = False
+    else:
+        holder.height = None
+        holder.expand = expand
+
     inner = getattr(holder, "_suite_scroll", None)
     title_ctrl = getattr(holder, "_suite_title", None)
     if inner is None or title_ctrl is None:
-        holder.expand = True
         holder.bgcolor = config.COLOR_BG
         holder.border_radius = 10
         holder.padding = 16
@@ -178,7 +205,7 @@ def option7_row(
     *,
     align: ft.CrossAxisAlignment = ft.CrossAxisAlignment.CENTER,
     changed: bool = False,
-) -> ft.Control:
+) -> ft.Container:
     row = ft.Row(
         spacing=12,
         vertical_alignment=align,
@@ -200,21 +227,85 @@ def option7_row(
             ft.Container(expand=True, content=control),
         ],
     )
-    if not changed:
-        return row
     return ft.Container(
-        bgcolor=_CHANGED_FILL,
+        bgcolor=_CHANGED_FILL if changed else None,
         border_radius=8,
-        padding=ft.Padding.symmetric(horizontal=8, vertical=6),
-        border=ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)),
+        padding=ft.Padding.symmetric(horizontal=8, vertical=6) if changed else 0,
+        border=ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)) if changed else None,
         content=row,
+    )
+
+
+def apply_live_highlight(box: ft.Container, field: ft.Control, changed: bool) -> None:
+    box.bgcolor = _CHANGED_FILL if changed else None
+    box.padding = ft.Padding.symmetric(horizontal=8, vertical=6) if changed else 0
+    box.border = ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)) if changed else None
+    if hasattr(field, "fill_color"):
+        field.fill_color = _CHANGED_FILL if changed else _INPUT_FILL
+    try:
+        box.update()
+        field.update()
+    except Exception:
+        pass
+
+
+def option7_text(
+    label: str,
+    value: str,
+    *,
+    changed: bool,
+    on_commit: Callable[[str], None],
+    is_changed: Callable[[], bool],
+    multiline: bool = False,
+    min_lines: int = 1,
+    max_lines: int = 1,
+    align: ft.CrossAxisAlignment | None = None,
+) -> ft.Container:
+    field = ft.TextField(
+        value=value,
+        multiline=multiline,
+        min_lines=min_lines,
+        max_lines=max_lines,
+        **field_kwargs(changed=changed),
+    )
+    box = option7_row(
+        label,
+        field,
+        changed=changed,
+        align=align or (ft.CrossAxisAlignment.START if multiline else ft.CrossAxisAlignment.CENTER),
+    )
+
+    def _on_change(e) -> None:
+        on_commit(e.control.value or "")
+        apply_live_highlight(box, field, is_changed())
+
+    field.on_change = _on_change
+    return box
+
+
+def notice_banner(text: str, *, success: bool = False, conflict: bool = False, busy: bool = False) -> ft.Control:
+    raw = (text or "").strip()
+    if busy or not raw:
+        return ft.Container(visible=False)
+    if success:
+        bg, color, size, weight = "#1F3A2C", config.COLOR_ACCENT, 16, ft.FontWeight.BOLD
+    elif conflict:
+        bg, color, size, weight = "#3A2A1F", config.COLOR_ACCENT, 15, ft.FontWeight.W_600
+    else:
+        bg, color, size, weight = "#2A241C", config.COLOR_TEXT, 14, ft.FontWeight.W_600
+    return ft.Container(
+        bgcolor=bg,
+        border_radius=10,
+        padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+        border=ft.Border(left=ft.BorderSide(4, config.COLOR_ACCENT)),
+        content=ft.Text(raw, size=size, weight=weight, color=color),
     )
 
 
 def field_kwargs(*, changed: bool = False) -> dict:
     return {
         "filled": True,
-        "fill_color": _CHANGED_FILL if changed else config.COLOR_BG,
+        "fill_color": _CHANGED_FILL if changed else _INPUT_FILL,
         "color": config.COLOR_TEXT,
         "cursor_color": config.COLOR_ACCENT,
         "text_size": _FIELD_SIZE,
@@ -286,19 +377,15 @@ def bind_publish_form(
         app_value = NEW_APP_KEY
 
     def _tf(label: str, key: str, value: str, *, multiline: bool = False) -> ft.Control:
-        changed = form.is_changed(key)
-        return option7_row(
+        return option7_text(
             label,
-            ft.TextField(
-                value=value,
-                multiline=multiline,
-                min_lines=3 if multiline else 1,
-                max_lines=6 if multiline else 1,
-                on_change=lambda e, k=key: on_field(k, e.control.value or ""),
-                **field_kwargs(changed=changed),
-            ),
-            align=ft.CrossAxisAlignment.START if multiline else ft.CrossAxisAlignment.CENTER,
-            changed=changed,
+            value,
+            changed=form.is_changed(key),
+            on_commit=lambda v, k=key: on_field(k, v),
+            is_changed=lambda k=key: form.is_changed(k),
+            multiline=multiline,
+            min_lines=3 if multiline else 1,
+            max_lines=6 if multiline else 1,
         )
 
     def _dd(label: str, key: str, value: str, options: list, *, default: str = "") -> ft.Control:
@@ -309,7 +396,7 @@ def bind_publish_form(
                 value=value,
                 options=options,
                 filled=True,
-                fill_color=_CHANGED_FILL if changed else config.COLOR_BG,
+                fill_color=_CHANGED_FILL if changed else _INPUT_FILL,
                 color=config.COLOR_TEXT,
                 text_size=_FIELD_SIZE,
                 **_borderless(),
@@ -328,6 +415,7 @@ def bind_publish_form(
         empty: str,
         extra: list[ft.Control] | None = None,
         url_key: str = "",
+        preview_src: str = "",
     ) -> ft.Control:
         picked = Path(path).name if (path or "").strip() else ""
         catalog_url = catalog_http_url(current_url)
@@ -342,22 +430,23 @@ def bind_publish_form(
                 max_lines=8,
                 text_size=12,
                 filled=True,
-                fill_color=_CHANGED_FILL if url_changed else config.COLOR_SURFACE,
+                fill_color=_CHANGED_FILL if url_changed else _INPUT_FILL,
                 color=config.COLOR_TEXT if catalog_url else "#8AA797",
                 cursor_color=config.COLOR_ACCENT,
-                on_change=lambda e, k=url_key: on_field(k, e.control.value or "") if k else None,
                 **_borderless(),
             )
+            preview_box = _image_preview(_local_preview(path, preview_src))
             link_row: ft.Control = ft.Row(
                 spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.START,
                 controls=[
                     ft.Container(expand=True, content=url_field),
-                    _image_preview(catalog_url),
+                    preview_box,
                 ],
             )
         else:
-            link_row = _full_link(catalog_url, empty)
+            url_field = None
+            link_row = _full_link(catalog_url or current_url, empty)
         detail: list[ft.Control] = [link_row]
         if extra:
             detail.extend(extra)
@@ -378,18 +467,25 @@ def bind_publish_form(
         if picked:
             detail.append(
                 ft.Text(
-                    f"Arquivo local a enviar: {picked}",
+                    f"Arquivo local a enviar (nome original): {picked}",
                     size=12,
                     color=config.COLOR_ACCENT,
                     weight=ft.FontWeight.W_600,
                 )
             )
-        return option7_row(
+        box = option7_row(
             label,
             ft.Column(spacing=6, tight=True, controls=detail),
             align=ft.CrossAxisAlignment.START,
             changed=changed,
         )
+        if preview and url_key and url_field is not None:
+            def _on_url(e, k=url_key, wrap=box, field=url_field) -> None:
+                on_field(k, e.control.value or "")
+                apply_live_highlight(wrap, field, form.is_changed(k) or form.is_changed(key))
+
+            url_field.on_change = _on_url
+        return box
 
     folder_options = []
     if form.editing_id and form.current_download:
@@ -404,16 +500,22 @@ def bind_publish_form(
         folder_value = ROOT_FOLDER if ROOT_FOLDER in folder_keys else next(iter(folder_keys), ROOT_FOLDER)
 
     folder_extra: list[ft.Control] = [
+        ft.Text(
+            "Pasta de destino de todos os envios desta gravacao: aplicativo, capa e icone. "
+            "Os arquivos mantem o nome original.",
+            size=11,
+            color="#8AA797",
+        ),
         ft.Dropdown(
             value=folder_value,
             options=folder_options,
             filled=True,
-            fill_color=_CHANGED_FILL if form.is_changed("folder_choice") else config.COLOR_BG,
+            fill_color=_CHANGED_FILL if form.is_changed("folder_choice") else _INPUT_FILL,
             color=config.COLOR_TEXT,
             text_size=_FIELD_SIZE,
             **_borderless(),
             on_select=lambda e: on_field("folder_choice", e.control.value or ROOT_FOLDER),
-        )
+        ),
     ]
     if folder_value == NEW_FOLDER:
         folder_extra.append(
@@ -438,6 +540,7 @@ def bind_publish_form(
         )
 
     heading = "Novo aplicativo" if not form.editing_id else f"Editar: {form.nome or form.editing_id}"
+    done_text = form.notice if form.notice else ("" if form.busy else form.message)
     bind_form_section(
         select_holder,
         "Selecionar ou adicionar",
@@ -448,7 +551,7 @@ def bind_publish_form(
                     value=app_value,
                     options=app_options,
                     filled=True,
-                    fill_color=config.COLOR_BG,
+                    fill_color=_INPUT_FILL,
                     color=config.COLOR_TEXT,
                     text_size=_FIELD_SIZE,
                     **_borderless(),
@@ -462,11 +565,19 @@ def bind_publish_form(
             ),
         ],
         on_scroll_offset=lambda v: _remember_scroll(form, "select_scroll", v),
+        expand=False,
+        height=PUBLISH_SELECT_HEIGHT,
     )
     bind_form_section(
         edit_holder,
         "Editar",
         [
+            notice_banner(
+                done_text,
+                success=form.notice_ok,
+                conflict=form.conflict,
+                busy=form.busy,
+            ),
             ft.Text(heading, size=16, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT),
             _tf("Nome", "nome", form.nome),
             _tf("Descricao", "descricao", form.descricao, multiline=True),
@@ -502,6 +613,7 @@ def bind_publish_form(
                 preview=True,
                 empty="vazio no catalog.json (imagem)",
                 url_key="current_capa",
+                preview_src=form.preview_capa,
             ),
             _file_block(
                 "Icone",
@@ -511,6 +623,7 @@ def bind_publish_form(
                 preview=True,
                 empty="vazio no catalog.json (icone)",
                 url_key="current_icone",
+                preview_src=form.preview_icone,
             ),
             _tf("upload_url", "upload_url", form.upload_url),
             ft.ProgressBar(
@@ -520,9 +633,10 @@ def bind_publish_form(
                 bgcolor="#0A0F0C",
             ),
             ft.Text(
-                progress_label(form.progress, form.message) if form.busy else form.message,
+                progress_label(form.progress, form.message) if form.busy else "",
                 size=13,
-                color=config.COLOR_ACCENT if form.conflict else "#B9CEC3",
+                color="#B9CEC3",
+                visible=form.busy,
             ),
             ft.Row(
                 spacing=12,
