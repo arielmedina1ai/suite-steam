@@ -90,6 +90,14 @@ class SuiteApp:
         self._catalog_shell: ft.Column | None = None
         self._catalog_tabs = ft.Row(spacing=8)
         self._session_host = ft.Container(expand=True)
+        self._catalog_session_box = ft.Container(
+            expand=True,
+            bgcolor=config.COLOR_SURFACE,
+            border_radius=10,
+            padding=12,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=self._session_host,
+        )
         self._publish_layout = ft.Column(expand=True, spacing=12)
         self._estrutura_layout = ft.Row(
             expand=True,
@@ -323,7 +331,8 @@ class SuiteApp:
             self.selected_setor = None
             self.show_favorites = False
         self.sync_busy = False
-        self.sync_progress = 1.0 if result.ok else -1.0
+        self.sync_progress = None
+        self.sync_status = ""
         self._render()
 
     def _on_sync_progress(self, pct: float, msg: str) -> None:
@@ -331,16 +340,20 @@ class SuiteApp:
         self.sync_status = msg
         try:
             content = self.content_holder.content
-            if isinstance(content, ft.Column) and len(content.controls) >= 3:
-                bar = content.controls[0]
-                if isinstance(bar, ft.ProgressBar):
-                    bar.value = bar_value(pct)
-                content.controls[2] = ft.Text(
-                    progress_label(pct, msg),
-                    size=13,
-                    color="#8AA797",
-                )
-                self.page.update()
+            if content is self._catalog_shell:
+                return
+            if not isinstance(content, ft.Column) or len(content.controls) < 3:
+                return
+            bar = content.controls[0]
+            if not isinstance(bar, ft.ProgressBar):
+                return
+            bar.value = bar_value(pct)
+            content.controls[2] = ft.Text(
+                progress_label(pct, msg),
+                size=13,
+                color="#8AA797",
+            )
+            self.page.update()
         except Exception:
             pass
 
@@ -1442,27 +1455,25 @@ class SuiteApp:
 
     # ------------------------------------------------------------------
     def _ensure_catalog_shell(self) -> ft.Column:
-        if self._catalog_shell is not None:
-            return self._catalog_shell
         self._publish_layout.controls = [self._sess_pub_sel, self._sess_pub_edit]
         self._estrutura_layout.controls = [self._sess_str_sel, self._sess_str_edit]
-        self._session_host.content = self._publish_layout
-        self._catalog_shell = ft.Column(
-            expand=True,
-            spacing=12,
-            controls=[
-                ft.Text("Catalogo", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
-                self._catalog_tabs,
-                ft.Container(
-                    expand=True,
-                    bgcolor=config.COLOR_SURFACE,
-                    border_radius=10,
-                    padding=12,
-                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                    content=self._session_host,
-                ),
-            ],
-        )
+        self._catalog_session_box.content = self._session_host
+        if self._catalog_shell is None:
+            self._session_host.content = self._publish_layout
+            self._catalog_shell = ft.Column(
+                expand=True,
+                spacing=12,
+                controls=[
+                    ft.Text("Catalogo", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+                    self._catalog_tabs,
+                    self._catalog_session_box,
+                ],
+            )
+        else:
+            title = self._catalog_shell.controls[0] if self._catalog_shell.controls else None
+            if not isinstance(title, ft.Text):
+                title = ft.Text("Catalogo", size=22, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT)
+            self._catalog_shell.controls = [title, self._catalog_tabs, self._catalog_session_box]
         return self._catalog_shell
 
     def _render(self) -> None:
