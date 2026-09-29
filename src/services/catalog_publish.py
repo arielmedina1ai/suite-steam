@@ -13,6 +13,7 @@ from typing import Any, Callable
 from urllib.parse import quote, urlparse
 
 import config
+from catalog.provider import hydrate_catalog_images
 from models import CatalogData, parse_catalog_dict
 from services.sharepoint_manager import (
     PnPWebLoginSession,
@@ -763,6 +764,12 @@ def publish_app(
                 pass
 
         catalog = parse_catalog_dict(data)
+        hydrate_catalog_images(
+            catalog,
+            seed_app_id=app_id,
+            capa_local=capa,
+            icone_local=icone,
+        )
         return PublishOutcome(
             ok=True,
             message="Catalogo publicado.",
@@ -849,6 +856,7 @@ def _upload_catalog_text(
         except OSError:
             pass
     catalog = parse_catalog_dict(data)
+    hydrate_catalog_images(catalog)
     return PublishOutcome(
         ok=True,
         message="Catalogo publicado.",

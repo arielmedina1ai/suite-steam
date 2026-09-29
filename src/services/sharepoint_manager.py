@@ -339,12 +339,17 @@ class PnPWebLoginSession:
         if self.progress:
             self.progress(-1.0, "Abrindo autenticacao SharePoint (WebLogin)...")
         try:
+            popen_kwargs = _hidden_subprocess_kwargs()
+            if sys.platform.startswith("win"):
+                popen_kwargs["creationflags"] = int(popen_kwargs.get("creationflags", 0)) | int(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+                )
             self._proc = subprocess.Popen(
                 _powershell_file_cmd(self._script),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
-                **_hidden_subprocess_kwargs(),
+                **popen_kwargs,
             )
         except Exception as exc:
             return f"Falha ao iniciar PowerShell: {exc}"
@@ -359,20 +364,36 @@ class PnPWebLoginSession:
         return "Tempo esgotado aguardando o WebLogin."
 
     def close(self) -> None:
+        proc = self._proc
         if self._dir is not None:
             try:
                 (self._dir / "quit").write_text("1", encoding="ascii")
             except OSError:
                 pass
-        proc = self._proc
         if proc is not None and proc.poll() is None:
             try:
-                proc.wait(timeout=45)
+                proc.wait(timeout=2)
             except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+                pass
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+        if proc is not None and proc.poll() is None and sys.platform.startswith("win"):
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=5,
+                    **_hidden_subprocess_kwargs(),
+                )
+            except Exception:
+                pass
         self._proc = None
         if self._script:
             try:
