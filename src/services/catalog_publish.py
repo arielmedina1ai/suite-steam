@@ -15,6 +15,7 @@ from urllib.parse import quote, urlparse
 import config
 from models import CatalogData, parse_catalog_dict
 from services.sharepoint_manager import (
+    PnPWebLoginSession,
     baixar_do_sharepoint,
     enviar_para_sharepoint,
     enviar_por_unique_id,
@@ -378,6 +379,7 @@ def _upload_named(
     dest_name: str,
     folder_url: str,
     progress: ProgressCb | None,
+    session: PnPWebLoginSession | None = None,
 ) -> tuple[bool, str]:
     staged = _copy_named(local, dest_name)
     try:
@@ -386,6 +388,7 @@ def _upload_named(
             folder_url,
             nome_arquivo=dest_name,
             progress=progress,
+            session=session,
         )
         return result.ok, result.message
     finally:
@@ -454,7 +457,10 @@ def _ext_for_tipo(tipo: str, local: Path | None) -> str:
     return f".{t}"
 
 
-def fetch_remote_catalog_text(progress: ProgressCb | None = None) -> tuple[str, str]:
+def fetch_remote_catalog_text(
+    progress: ProgressCb | None = None,
+    session: PnPWebLoginSession | None = None,
+) -> tuple[str, str]:
     url = config.REMOTE_CATALOG_URL
     if not url:
         return "", "catalog.remote_url nao configurado."
@@ -465,6 +471,7 @@ def fetch_remote_catalog_text(progress: ProgressCb | None = None) -> tuple[str, 
         pasta_destino=dest,
         nome_arquivo="catalog.json",
         progress=progress,
+        session=session,
     )
     if not (result.ok and result.path and result.path.exists()):
         return "", result.message or "Falha ao ler o catalogo remoto."
@@ -477,7 +484,11 @@ def fetch_remote_catalog_text(progress: ProgressCb | None = None) -> tuple[str, 
     return text, ""
 
 
-def upload_catalog_json(local: Path, progress: ProgressCb | None = None):
+def upload_catalog_json(
+    local: Path,
+    progress: ProgressCb | None = None,
+    session: PnPWebLoginSession | None = None,
+):
     url = config.REMOTE_CATALOG_URL
     if not url:
         from services.sharepoint_manager import SharePointResult
@@ -493,9 +504,12 @@ def upload_catalog_json(local: Path, progress: ProgressCb | None = None):
             site_url=str(info.get("site_url") or ""),
             unique_id=str(info.get("unique_id") or ""),
             progress=progress,
+            session=session,
         )
     nome = info.get("nome_arquivo") or "catalog.json"
-    return enviar_para_sharepoint(local, url, nome_arquivo=str(nome), progress=progress)
+    return enviar_para_sharepoint(
+        local, url, nome_arquivo=str(nome), progress=progress, session=session
+    )
 
 
 def apply_gerencia_change(
@@ -570,174 +584,195 @@ def publish_app(
         if path is not None and not path.is_file():
             return PublishOutcome(ok=False, message=f"Arquivo de {label} nao encontrado.")
 
-    report(-1.0, "Relendo catalogo remoto...")
-    text, err = fetch_remote_catalog_text(progress=report)
-    if err:
-        return PublishOutcome(ok=False, message=err)
-    remote_fp = catalog_fingerprint(text)
-    if expected_fingerprint and remote_fp != expected_fingerprint:
-        return PublishOutcome(
-            ok=False,
-            conflict=True,
-            message=(
-                "O catalogo remoto mudou desde que esta tela abriu. "
-                "Reabra Publicar e tente de novo."
-            ),
-            fingerprint=remote_fp,
-        )
+    session: PnPWebLoginSession | None = None
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
-    if not isinstance(data, dict):
-        return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
-
-    existing_ids = {
-        str(item.get("id") or "").strip()
-        for item in (data.get("apps") or [])
-        if isinstance(item, dict)
-    }
-    app_id = (form.editing_id or "").strip() or unique_app_id(nome, existing_ids)
-    current: dict[str, Any] = {}
-    for item in data.get("apps") or []:
-        if isinstance(item, dict) and str(item.get("id") or "").strip() == app_id:
-            current = dict(item)
-            break
-
-    tipo = (form.tipo or current.get("tipo") or "exe").strip().lower() or "exe"
-    download_url = pasted_download or str(current.get("download_url") or "").strip()
-    imagem = catalog_http_url(form.current_capa) or catalog_http_url(str(current.get("imagem") or ""))
-    icone_url = catalog_http_url(form.current_icone) or catalog_http_url(str(current.get("icone") or ""))
-    imagem_versao = str(current.get("imagem_versao") or "1")
-    icone_versao = str(current.get("icone_versao") or "1")
-
-    dest_folder = ""
-    if app_path is not None or capa is not None or icone is not None:
-        chosen, folder_err = resolve_upload_folder(form, download_url)
-        if folder_err:
-            return PublishOutcome(ok=False, message=folder_err)
-        if not chosen:
-            return PublishOutcome(ok=False, message="Informe a Pasta Destino dos arquivos.")
-        dest_folder = chosen
-
-    def _put_to(local: Path, dest_name: str, dest_folder_url: str, kind: str, msg: str) -> tuple[bool, str]:
-        report(-1.0, msg)
-        ok, message = _upload_named(local, dest_name, dest_folder_url, report)
-        if not ok:
-            return False, message
+        cat_url = config.REMOTE_CATALOG_URL
+        if not cat_url:
+            return PublishOutcome(ok=False, message="catalog.remote_url nao configurado.")
         try:
-            meta = _folder_info(dest_folder_url)
+            site = str(parsear_link_sharepoint(cat_url).get("site_url") or "")
         except ValueError as exc:
-            return False, str(exc)
-        url = sharing_url(
-            meta["site_url"],
-            meta["caminho_sp"],
-            dest_name,
-            kind,
-        )
-        return True, url
+            return PublishOutcome(ok=False, message=str(exc))
+        if not site:
+            return PublishOutcome(ok=False, message="Site do catalog.remote_url nao determinado.")
+        session = PnPWebLoginSession(site, progress=report)
+        start_err = session.start()
+        if start_err:
+            return PublishOutcome(ok=False, message=start_err)
 
-    if app_path is not None:
-        ok, payload = _put_to(
-            app_path,
-            original_upload_name(app_path),
-            dest_folder,
-            _app_kind(tipo),
-            "Enviando arquivo do aplicativo...",
-        )
-        if not ok:
-            return PublishOutcome(ok=False, message=payload or "Falha no upload do aplicativo.")
-        download_url = payload
-    if capa is not None:
-        ok, payload = _put_to(
-            capa,
-            original_upload_name(capa),
-            dest_folder,
-            "image",
-            "Enviando capa...",
-        )
-        if not ok:
-            return PublishOutcome(ok=False, message=payload or "Falha no upload da capa.")
-        imagem = payload
-        imagem_versao = bump_media_version(imagem_versao)
-    if icone is not None:
-        ok, payload = _put_to(
-            icone,
-            original_upload_name(icone),
-            dest_folder,
-            "image",
-            "Enviando icone...",
-        )
-        if not ok:
-            return PublishOutcome(ok=False, message=payload or "Falha no upload do icone.")
-        icone_url = payload
-        icone_versao = bump_media_version(icone_versao)
-
-    if not download_url:
-        return PublishOutcome(ok=False, message="O aplicativo precisa de um arquivo / download_url.")
-
-    entry: dict[str, Any] = {
-        "id": app_id,
-        "nome": nome,
-        "descricao": (form.descricao or "").strip(),
-        "setor": (form.setor_id or "").strip(),
-        "sub_setor": (form.sub_setor_id or "").strip(),
-        "tipo": tipo,
-        "versao": (form.versao or "").strip() or "1.0.0",
-        "download_url": download_url,
-        "imagem": imagem,
-        "imagem_versao": imagem_versao,
-        "icone": icone_url,
-        "icone_versao": icone_versao,
-    }
-    upload_url = (form.upload_url or "").strip()
-    if upload_url:
-        entry["upload_url"] = upload_url
-    elif "upload_url" in current:
-        entry["upload_url"] = ""
-
-    upsert_app_entry(data, entry)
-    apply_gerencia_change(
-        data,
-        app_id,
-        old_gerencia_id=form.original_gerencia_id if not is_new else "",
-        new_gerencia_id=form.gerencia_id,
-    )
-
-    report(-1.0, "Enviando catalog.json...")
-    new_text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".json",
-        prefix="catalog-",
-        delete=False,
-        encoding="utf-8",
-    ) as tmp:
-        tmp.write(new_text)
-        tmp_path = Path(tmp.name)
-    try:
-        result = upload_catalog_json(tmp_path, progress=report)
-        if not result.ok:
+        report(-1.0, "Relendo catalogo remoto...")
+        text, err = fetch_remote_catalog_text(progress=report, session=session)
+        if err:
+            return PublishOutcome(ok=False, message=err)
+        remote_fp = catalog_fingerprint(text)
+        if expected_fingerprint and remote_fp != expected_fingerprint:
             return PublishOutcome(
                 ok=False,
-                message=result.message or "Falha ao enviar catalog.json. O catalogo anterior permanece.",
+                conflict=True,
+                message=(
+                    "O catalogo remoto mudou desde que esta tela abriu. "
+                    "Reabra Publicar e tente de novo."
+                ),
+                fingerprint=remote_fp,
             )
-        config.CATALOG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(tmp_path, config.CATALOG_CACHE_FILE)
-    finally:
         try:
-            tmp_path.unlink()
-        except OSError:
-            pass
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
+        if not isinstance(data, dict):
+            return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
 
-    catalog = parse_catalog_dict(data)
-    return PublishOutcome(
-        ok=True,
-        message="Catalogo publicado.",
-        catalog=catalog,
-        fingerprint=catalog_fingerprint(new_text),
-        app_id=app_id,
-    )
+        existing_ids = {
+            str(item.get("id") or "").strip()
+            for item in (data.get("apps") or [])
+            if isinstance(item, dict)
+        }
+        app_id = (form.editing_id or "").strip() or unique_app_id(nome, existing_ids)
+        current: dict[str, Any] = {}
+        for item in data.get("apps") or []:
+            if isinstance(item, dict) and str(item.get("id") or "").strip() == app_id:
+                current = dict(item)
+                break
+
+        tipo = (form.tipo or current.get("tipo") or "exe").strip().lower() or "exe"
+        download_url = pasted_download or str(current.get("download_url") or "").strip()
+        imagem = catalog_http_url(form.current_capa) or catalog_http_url(str(current.get("imagem") or ""))
+        icone_url = catalog_http_url(form.current_icone) or catalog_http_url(str(current.get("icone") or ""))
+        imagem_versao = str(current.get("imagem_versao") or "1")
+        icone_versao = str(current.get("icone_versao") or "1")
+
+        dest_folder = ""
+        if app_path is not None or capa is not None or icone is not None:
+            chosen, folder_err = resolve_upload_folder(form, download_url)
+            if folder_err:
+                return PublishOutcome(ok=False, message=folder_err)
+            if not chosen:
+                return PublishOutcome(ok=False, message="Informe a Pasta Destino dos arquivos.")
+            dest_folder = chosen
+
+        def _put_to(local: Path, dest_name: str, dest_folder_url: str, kind: str, msg: str) -> tuple[bool, str]:
+            report(-1.0, msg)
+            ok, message = _upload_named(
+                local, dest_name, dest_folder_url, report, session=session
+            )
+            if not ok:
+                return False, message
+            try:
+                meta = _folder_info(dest_folder_url)
+            except ValueError as exc:
+                return False, str(exc)
+            url = sharing_url(
+                meta["site_url"],
+                meta["caminho_sp"],
+                dest_name,
+                kind,
+            )
+            return True, url
+
+        if app_path is not None:
+            ok, payload = _put_to(
+                app_path,
+                original_upload_name(app_path),
+                dest_folder,
+                _app_kind(tipo),
+                "Enviando arquivo do aplicativo...",
+            )
+            if not ok:
+                return PublishOutcome(ok=False, message=payload or "Falha no upload do aplicativo.")
+            download_url = payload
+        if capa is not None:
+            ok, payload = _put_to(
+                capa,
+                original_upload_name(capa),
+                dest_folder,
+                "image",
+                "Enviando capa...",
+            )
+            if not ok:
+                return PublishOutcome(ok=False, message=payload or "Falha no upload da capa.")
+            imagem = payload
+            imagem_versao = bump_media_version(imagem_versao)
+        if icone is not None:
+            ok, payload = _put_to(
+                icone,
+                original_upload_name(icone),
+                dest_folder,
+                "image",
+                "Enviando icone...",
+            )
+            if not ok:
+                return PublishOutcome(ok=False, message=payload or "Falha no upload do icone.")
+            icone_url = payload
+            icone_versao = bump_media_version(icone_versao)
+
+        if not download_url:
+            return PublishOutcome(ok=False, message="O aplicativo precisa de um arquivo / download_url.")
+
+        entry: dict[str, Any] = {
+            "id": app_id,
+            "nome": nome,
+            "descricao": (form.descricao or "").strip(),
+            "setor": (form.setor_id or "").strip(),
+            "sub_setor": (form.sub_setor_id or "").strip(),
+            "tipo": tipo,
+            "versao": (form.versao or "").strip() or "1.0.0",
+            "download_url": download_url,
+            "imagem": imagem,
+            "imagem_versao": imagem_versao,
+            "icone": icone_url,
+            "icone_versao": icone_versao,
+        }
+        upload_url = (form.upload_url or "").strip()
+        if upload_url:
+            entry["upload_url"] = upload_url
+        elif "upload_url" in current:
+            entry["upload_url"] = ""
+
+        upsert_app_entry(data, entry)
+        apply_gerencia_change(
+            data,
+            app_id,
+            old_gerencia_id=form.original_gerencia_id if not is_new else "",
+            new_gerencia_id=form.gerencia_id,
+        )
+
+        report(-1.0, "Enviando catalog.json...")
+        new_text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            prefix="catalog-",
+            delete=False,
+            encoding="utf-8",
+        ) as tmp:
+            tmp.write(new_text)
+            tmp_path = Path(tmp.name)
+        try:
+            result = upload_catalog_json(tmp_path, progress=report, session=session)
+            if not result.ok:
+                return PublishOutcome(
+                    ok=False,
+                    message=result.message or "Falha ao enviar catalog.json. O catalogo anterior permanece.",
+                )
+            config.CATALOG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(tmp_path, config.CATALOG_CACHE_FILE)
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+        catalog = parse_catalog_dict(data)
+        return PublishOutcome(
+            ok=True,
+            message="Catalogo publicado.",
+            catalog=catalog,
+            fingerprint=catalog_fingerprint(new_text),
+            app_id=app_id,
+        )
+    finally:
+        if session is not None:
+            session.close()
 
 
 def structure_from_catalog(catalog: CatalogData, fingerprint: str = "") -> StructureFormState:
@@ -784,7 +819,11 @@ def structure_from_catalog(catalog: CatalogData, fingerprint: str = "") -> Struc
     )
 
 
-def _upload_catalog_text(data: dict[str, Any], progress: ProgressCb | None) -> PublishOutcome:
+def _upload_catalog_text(
+    data: dict[str, Any],
+    progress: ProgressCb | None,
+    session: PnPWebLoginSession | None = None,
+) -> PublishOutcome:
     new_text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -796,7 +835,7 @@ def _upload_catalog_text(data: dict[str, Any], progress: ProgressCb | None) -> P
         tmp.write(new_text)
         tmp_path = Path(tmp.name)
     try:
-        result = upload_catalog_json(tmp_path, progress=progress)
+        result = upload_catalog_json(tmp_path, progress=progress, session=session)
         if not result.ok:
             return PublishOutcome(
                 ok=False,
@@ -894,58 +933,76 @@ def save_catalog_structure(
         )
 
     report(-1.0, "Relendo catalogo remoto...")
-    text, err = fetch_remote_catalog_text(progress=report)
-    if err:
-        return PublishOutcome(ok=False, message=err)
-    remote_fp = catalog_fingerprint(text)
-    if expected_fingerprint and remote_fp != expected_fingerprint:
-        return PublishOutcome(
-            ok=False,
-            conflict=True,
-            message=(
-                "O catalogo remoto mudou desde que esta tela abriu. "
-                "Reabra o catalogo e tente de novo."
-            ),
-            fingerprint=remote_fp,
-        )
+    session: PnPWebLoginSession | None = None
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
-    if not isinstance(data, dict):
-        return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
+        cat_url = config.REMOTE_CATALOG_URL
+        if not cat_url:
+            return PublishOutcome(ok=False, message="catalog.remote_url nao configurado.")
+        try:
+            site = str(parsear_link_sharepoint(cat_url).get("site_url") or "")
+        except ValueError as exc:
+            return PublishOutcome(ok=False, message=str(exc))
+        if not site:
+            return PublishOutcome(ok=False, message="Site do catalog.remote_url nao determinado.")
+        session = PnPWebLoginSession(site, progress=report)
+        start_err = session.start()
+        if start_err:
+            return PublishOutcome(ok=False, message=start_err)
+        text, err = fetch_remote_catalog_text(progress=report, session=session)
+        if err:
+            return PublishOutcome(ok=False, message=err)
+        remote_fp = catalog_fingerprint(text)
+        if expected_fingerprint and remote_fp != expected_fingerprint:
+            return PublishOutcome(
+                ok=False,
+                conflict=True,
+                message=(
+                    "O catalogo remoto mudou desde que esta tela abriu. "
+                    "Reabra o catalogo e tente de novo."
+                ),
+                fingerprint=remote_fp,
+            )
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
+        if not isinstance(data, dict):
+            return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
 
-    live_setor_ids = {s.id for s in form.setores}
-    kept_setor_orig = {s.orig_id for s in form.setores if s.orig_id}
-    kept_sub_orig = {
-        (s.orig_id, sub.orig_id)
-        for s in form.setores
-        for sub in s.sub_setores
-        if s.orig_id and sub.orig_id
-    }
-    apps = data.get("apps")
-    if isinstance(apps, list):
-        for item in apps:
-            if not isinstance(item, dict):
-                continue
-            old_setor = str(item.get("setor") or "").strip()
-            old_sub = str(item.get("sub_setor") or "").strip()
-            if old_setor in setor_map:
-                item["setor"] = setor_map[old_setor]
-            elif old_setor and old_setor not in kept_setor_orig and old_setor not in live_setor_ids:
-                item["setor"] = ""
-                item["sub_setor"] = ""
-                old_sub = ""
-            mapped_sub = sub_map.get((old_setor, old_sub))
-            if mapped_sub:
-                item["sub_setor"] = mapped_sub
-            elif old_sub and (old_setor, old_sub) not in kept_sub_orig:
-                item["sub_setor"] = ""
+        live_setor_ids = {s.id for s in form.setores}
+        kept_setor_orig = {s.orig_id for s in form.setores if s.orig_id}
+        kept_sub_orig = {
+            (s.orig_id, sub.orig_id)
+            for s in form.setores
+            for sub in s.sub_setores
+            if s.orig_id and sub.orig_id
+        }
+        apps = data.get("apps")
+        if isinstance(apps, list):
+            for item in apps:
+                if not isinstance(item, dict):
+                    continue
+                old_setor = str(item.get("setor") or "").strip()
+                old_sub = str(item.get("sub_setor") or "").strip()
+                if old_setor in setor_map:
+                    item["setor"] = setor_map[old_setor]
+                elif old_setor and old_setor not in kept_setor_orig and old_setor not in live_setor_ids:
+                    item["setor"] = ""
+                    item["sub_setor"] = ""
+                    old_sub = ""
+                mapped_sub = sub_map.get((old_setor, old_sub))
+                if mapped_sub:
+                    item["sub_setor"] = mapped_sub
+                elif old_sub and (old_setor, old_sub) not in kept_sub_orig:
+                    item["sub_setor"] = ""
 
-    geral = (form.gerencia_geral or "").strip() or "Geral"
-    data["gerencia_geral"] = geral
-    data["gerencias"] = gerencias_out
-    data["setores"] = setores_out
+        geral = (form.gerencia_geral or "").strip() or "Geral"
+        data["gerencia_geral"] = geral
+        data["gerencias"] = gerencias_out
+        data["setores"] = setores_out
 
-    report(-1.0, "Enviando catalog.json...")
-    return _upload_catalog_text(data, report)
+        report(-1.0, "Enviando catalog.json...")
+        return _upload_catalog_text(data, report, session=session)
+    finally:
+        if session is not None:
+            session.close()

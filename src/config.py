@@ -199,6 +199,7 @@ SHAREPOINT_DOWNLOAD_SCRIPT = "template_sp_download.ps1"
 SHAREPOINT_DOWNLOAD_BATCH_SCRIPT = "template_sp_download_batch.ps1"
 SHAREPOINT_UPLOAD_SCRIPT = "template_sp_upload.ps1"
 SHAREPOINT_LIST_FOLDERS_SCRIPT = "template_sp_list_folders.ps1"
+SHAREPOINT_SESSION_SCRIPT = "template_sp_session.ps1"
 
 
 def _png_to_ico(png_path: Path, ico_path: Path) -> None:

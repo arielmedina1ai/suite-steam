@@ -808,19 +808,19 @@ class SuiteApp:
             self._render()
             self.publish_form.hold_scroll = False
             return
-        provider = SharePointCatalogProvider()
-        synced = provider.sync(progress=self._on_publish_progress)
-        if synced.ok:
-            self.catalog = synced.catalog
-        elif result.catalog is not None:
+        if result.catalog is not None:
             self.catalog = result.catalog
+        else:
+            provider = SharePointCatalogProvider()
+            synced = provider.sync(progress=self._on_publish_progress)
+            if synced.ok:
+                self.catalog = synced.catalog
         self._apply_gerencia_filter()
         fp = result.fingerprint or fingerprint_cache_file()
         was_edit = bool(form.editing_id)
         app_id = (result.app_id or form.editing_id or "").strip()
         notice = "Item atualizado." if was_edit else "Catalogo salvo."
         self.publish_form.fingerprint = fp
-        self.publish_form.hold_scroll = True
         app = next((a for a in self.catalog.apps if a.id == app_id), None)
         if app is not None:
             self._apply_saved_app_to_form(app, notice=notice)
@@ -835,8 +835,8 @@ class SuiteApp:
             self.publish_form.progress = None
             self.publish_form.capture_baseline()
         self.structure = structure_from_catalog(self.catalog, fp)
-        self._render()
         self.publish_form.hold_scroll = False
+        self._render()
 
     def _structure_select(self, sel: str) -> None:
         if not self.can_publish:
@@ -1066,12 +1066,13 @@ class SuiteApp:
             self._render()
             self.structure.hold_scroll = False
             return
-        provider = SharePointCatalogProvider()
-        synced = provider.sync(progress=self._on_publish_progress)
-        if synced.ok:
-            self.catalog = synced.catalog
-        elif result.catalog is not None:
+        if result.catalog is not None:
             self.catalog = result.catalog
+        else:
+            provider = SharePointCatalogProvider()
+            synced = provider.sync(progress=self._on_publish_progress)
+            if synced.ok:
+                self.catalog = synced.catalog
         self._apply_gerencia_filter()
         fp = result.fingerprint or fingerprint_cache_file()
         self.publish_form.fingerprint = fp
@@ -1080,10 +1081,9 @@ class SuiteApp:
         self.structure.sel = sel
         self.structure.notice = "Catalogo salvo."
         self.structure.notice_ok = True
-        self.structure.hold_scroll = True
+        self.structure.hold_scroll = False
         self.catalog_tab = "estrutura"
         self._render()
-        self.structure.hold_scroll = False
 
     def _run_catalog_app(self, app: AppInfo) -> None:
         self._refresh_running(force=True)
