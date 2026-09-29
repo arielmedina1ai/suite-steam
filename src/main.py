@@ -110,6 +110,8 @@ class SuiteApp:
         self._sess_str_edit = session_holder()
         self._confirm_open = False
         self.sync_message = ""
+        self.sync_notice = ""
+        self._sync_notice_gen = 0
         self.sync_busy = True
         self.sync_progress: float | None = -1.0
         self.sync_status = "Sincronizando catalogo com SharePoint..."
@@ -333,6 +335,14 @@ class SuiteApp:
         self.sync_busy = False
         self.sync_progress = None
         self.sync_status = ""
+        if not initial and result.ok:
+            self._sync_notice_gen += 1
+            token = self._sync_notice_gen
+            self.sync_notice = progress_label(1.0, "Catalogo sincronizado.")
+            self._render()
+            self.page.run_thread(lambda: self._clear_sync_notice(token))
+            return
+        self.sync_notice = ""
         self._render()
 
     def _on_sync_progress(self, pct: float, msg: str) -> None:
@@ -357,11 +367,23 @@ class SuiteApp:
         except Exception:
             pass
 
+    def _clear_sync_notice(self, token: int) -> None:
+        time.sleep(2.5)
+        if token != self._sync_notice_gen or self.sync_busy or self._exiting:
+            return
+        self.sync_notice = ""
+        try:
+            self._render()
+        except Exception:
+            pass
+
     def _check_updates(self) -> None:
         if self.sync_busy:
             return
         self.sync_busy = True
         self.sync_message = ""
+        self.sync_notice = ""
+        self._sync_notice_gen += 1
         self._render()
         self.page.run_thread(lambda: self._sync_catalog_worker(False))
 
@@ -1521,6 +1543,7 @@ class SuiteApp:
             on_download_update=self._download_suite_update,
             on_check_updates=self._check_updates,
             check_updates_busy=self.sync_busy,
+            check_updates_notice=self.sync_notice,
             start_with_windows=self.preferences.get_start_with_windows(),
             on_toggle_startup=self._toggle_startup,
             show_startup_toggle=sys.platform.startswith("win"),
