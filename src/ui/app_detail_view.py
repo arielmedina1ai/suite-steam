@@ -26,6 +26,7 @@ class AppDetailView:
         on_toggle_favorite=None,
         on_run=None,
         on_update_app=None,
+        on_uninstall=None,
         on_status=None,
         this_app_running: bool = False,
         work_busy: bool = False,
@@ -41,6 +42,7 @@ class AppDetailView:
         self.on_toggle_favorite = on_toggle_favorite
         self.on_run = on_run
         self.on_update_app = on_update_app
+        self.on_uninstall = on_uninstall
         self.on_status = on_status
         self.this_app_running = this_app_running
         self.work_busy = work_busy
@@ -247,15 +249,31 @@ class AppDetailView:
         self._start_download()
 
     def _on_uninstall(self, e: ft.ControlEvent) -> None:
+        if self.work_busy or self.this_app_running:
+            return
+        if self.on_uninstall:
+            self.on_uninstall(self.app)
+            return
+        self._uninstall_local()
+
+    def _uninstall_local(self) -> None:
+        self._set_busy(True)
+        self._apply_progress(-1.0, "Desinstalando...")
         try:
             self.storage.uninstall(self.app.id)
-            self.status_text.value = f"{self.app.nome} desinstalado."
+            msg = "Desinstalação concluída."
         except Exception as exc:
-            self.status_text.value = f"Erro ao desinstalar: {exc}"
+            msg = f"Erro ao desinstalar: {exc}"
+        self.progress.visible = False
+        self.status_text.value = msg
+        self.work_message = msg
+        self._set_busy(False)
         self._refresh_action_buttons()
-        self._safe_update()
+        if self.on_status:
+            self.on_status(self.app.id, msg)
         if self.on_uninstalled:
             self.on_uninstalled(self.app.id)
+        self._safe_update()
 
     def _execute(self) -> None:
         if self.on_run:

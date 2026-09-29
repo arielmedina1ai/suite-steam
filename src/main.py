@@ -1338,6 +1338,48 @@ class SuiteApp:
         self._render()
         self.page.run_thread(lambda: self._update_catalog_app_worker(app))
 
+    def _request_uninstall(self, app: AppInfo) -> None:
+        if self.app_job_busy or self.update_busy or self._confirm_open:
+            return
+        self._refresh_running(force=True)
+        if self._this_app_running(app.id):
+            self.run_error = "Feche o aplicativo antes de desinstalar."
+            self._set_detail_notice(app.id, self.run_error)
+            self._render()
+            return
+        nome = app.nome or app.id
+        self._confirm_dialog(
+            "Desinstalar?",
+            f'Desinstalar "{nome}"? Sim remove os arquivos locais. Nao cancela.',
+            lambda: self._uninstall_confirmed(app),
+        )
+
+    def _uninstall_confirmed(self, app: AppInfo) -> None:
+        if self.app_job_busy or self.update_busy:
+            return
+        self.app_job_busy = True
+        self.app_job_app_id = app.id
+        self.app_job_progress = -1.0
+        self.app_job_message = "Desinstalando..."
+        self.run_error = ""
+        self.detail_notice = ""
+        self.detail_notice_app_id = None
+        self._render()
+        self.page.run_thread(lambda: self._uninstall_worker(app))
+
+    def _uninstall_worker(self, app: AppInfo) -> None:
+        try:
+            self.storage.uninstall(app.id)
+            msg = "Desinstalação concluída."
+        except Exception as exc:
+            msg = f"Erro ao desinstalar: {exc}"
+        self.app_job_busy = False
+        self.app_job_app_id = None
+        self.app_job_progress = None
+        self.app_job_message = msg
+        self._set_detail_notice(app.id, msg)
+        self._render()
+
     def _update_catalog_app_worker(self, app: AppInfo) -> None:
         reopen = False
         state = self.storage.get_state(app.id)
@@ -1637,6 +1679,7 @@ class SuiteApp:
                     on_toggle_favorite=self._toggle_favorite,
                     on_run=self._run_catalog_app,
                     on_update_app=self._request_app_update,
+                    on_uninstall=self._request_uninstall,
                     on_status=self._set_detail_notice,
                     this_app_running=self._this_app_running(app.id),
                     work_busy=self.app_job_busy and self.app_job_app_id == app.id,
