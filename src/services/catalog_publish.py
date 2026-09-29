@@ -43,7 +43,6 @@ class PublishFormState:
     setor_id: str = ""
     sub_setor_id: str = ""
     upload_url: str = ""
-    dest_folder_url: str = ""
     app_path: str = ""
     capa_path: str = ""
     icone_path: str = ""
@@ -81,7 +80,6 @@ class PublishFormState:
             "setor_id": self.setor_id,
             "sub_setor_id": self.sub_setor_id,
             "upload_url": self.upload_url,
-            "dest_folder_url": self.dest_folder_url,
             "folder_choice": self.folder_choice,
             "new_folder_name": self.new_folder_name,
             "app_path": "",
@@ -330,11 +328,11 @@ def folder_url_of_file(file_url: str) -> str:
 
 
 def folder_choice_destination(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
-    """Pasta escolhida no dropdown (publish.folder_url). Nao usa upload_url."""
+    """Pasta escolhida no dropdown (publish.folder_url). Pasta Destino e upload_url."""
     choice = (form.folder_choice or "").strip() or KEEP_FOLDER
     root = (config.PUBLISH_FOLDER_URL or "").strip()
     if choice == KEEP_FOLDER:
-        pasted = catalog_http_url(form.dest_folder_url) or (form.dest_folder_url or "").strip()
+        pasted = catalog_http_url(form.upload_url) or (form.upload_url or "").strip()
         if pasted.lower().startswith(("http://", "https://")):
             return pasted, ""
         for url in (existing_url, form.current_download, form.current_capa, form.current_icone):
@@ -382,8 +380,8 @@ def infer_pasta_destino(*urls: str) -> str:
 
 
 def resolve_pasta_destino(form: PublishFormState, existing_url: str) -> tuple[str | None, str]:
-    """Pasta Destino: texto do campo, ou pasta escolhida em publish.folder_url."""
-    pasted = catalog_http_url(form.dest_folder_url) or (form.dest_folder_url or "").strip()
+    """Pasta Destino = upload_url, ou pasta escolhida em publish.folder_url."""
+    pasted = catalog_http_url(form.upload_url) or (form.upload_url or "").strip()
     if pasted.lower().startswith(("http://", "https://")):
         return pasted, ""
     return folder_choice_destination(form, existing_url)
@@ -749,7 +747,7 @@ def publish_app(
             "icone": icone_url,
             "icone_versao": icone_versao,
         }
-        upload_url = (form.upload_url or "").strip()
+        upload_url = (form.upload_url or "").strip() or dest_folder
         if upload_url:
             entry["upload_url"] = upload_url
         elif "upload_url" in current:
@@ -803,6 +801,107 @@ def publish_app(
             fingerprint=catalog_fingerprint(new_text),
             app_id=app_id,
         )
+    finally:
+        if session is not None:
+            session.close()
+
+
+def remove_app_entry(data: dict[str, Any], app_id: str) -> None:
+    alvo = (app_id or "").strip()
+    apps = data.get("apps")
+    if isinstance(apps, list):
+        data["apps"] = [
+            item
+            for item in apps
+            if not (isinstance(item, dict) and str(item.get("id") or "").strip() == alvo)
+        ]
+    for item in data.get("gerencias") or []:
+        if not isinstance(item, dict):
+            continue
+        item["apps"] = [a for a in (item.get("apps") or []) if str(a).strip() != alvo]
+
+
+def delete_catalog_app(
+    app_id: str,
+    *,
+    expected_fingerprint: str,
+    delete_sharepoint_files: bool,
+    progress: ProgressCb | None = None,
+) -> PublishOutcome:
+    def report(pct: float, msg: str) -> None:
+        if progress:
+            progress(pct, msg)
+
+    alvo = (app_id or "").strip()
+    if not alvo:
+        return PublishOutcome(ok=False, message="Nenhum aplicativo selecionado.")
+
+    session: PnPWebLoginSession | None = None
+    try:
+        cat_url = config.REMOTE_CATALOG_URL
+        if not cat_url:
+            return PublishOutcome(ok=False, message="catalog.remote_url nao configurado.")
+        try:
+            site = str(parsear_link_sharepoint(cat_url).get("site_url") or "")
+        except ValueError as exc:
+            return PublishOutcome(ok=False, message=str(exc))
+        if not site:
+            return PublishOutcome(ok=False, message="Site do catalog.remote_url nao determinado.")
+        session = PnPWebLoginSession(site, progress=report)
+        start_err = session.start()
+        if start_err:
+            return PublishOutcome(ok=False, message=start_err)
+
+        report(-1.0, "Relendo catalogo remoto...")
+        text, err = fetch_remote_catalog_text(progress=report, session=session)
+        if err:
+            return PublishOutcome(ok=False, message=err)
+        remote_fp = catalog_fingerprint(text)
+        if expected_fingerprint and remote_fp != expected_fingerprint:
+            return PublishOutcome(
+                ok=False,
+                conflict=True,
+                message=(
+                    "O catalogo remoto mudou desde que esta tela abriu. "
+                    "Reabra Publicar e tente de novo."
+                ),
+                fingerprint=remote_fp,
+            )
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
+        if not isinstance(data, dict):
+            return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
+
+        current: dict[str, Any] | None = None
+        for item in data.get("apps") or []:
+            if isinstance(item, dict) and str(item.get("id") or "").strip() == alvo:
+                current = dict(item)
+                break
+        if current is None:
+            return PublishOutcome(ok=False, message="Aplicativo nao encontrado no catalogo remoto.")
+
+        if delete_sharepoint_files:
+            urls: list[str] = []
+            seen: set[str] = set()
+            for key in ("download_url", "imagem", "icone"):
+                raw = catalog_http_url(str(current.get(key) or ""))
+                if raw and raw not in seen:
+                    seen.add(raw)
+                    urls.append(raw)
+            for url in urls:
+                report(-1.0, "Excluindo arquivo no SharePoint...")
+                result = session.delete_remote(url)
+                if not result.ok:
+                    return PublishOutcome(
+                        ok=False,
+                        message=result.message or "Falha ao excluir arquivo no SharePoint.",
+                    )
+
+        remove_app_entry(data, alvo)
+        report(-1.0, "Enviando catalog.json...")
+        return _upload_catalog_text(data, report, session=session)
     finally:
         if session is not None:
             session.close()

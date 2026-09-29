@@ -31,6 +31,7 @@ from services.catalog_publish import (
     StructureFormState,
     catalog_json_media_urls,
     catalog_http_url,
+    delete_catalog_app,
     fingerprint_cache_file,
     folder_choice_destination,
     infer_pasta_destino,
@@ -509,12 +510,8 @@ class SuiteApp:
             form.folder_choice = KEEP_FOLDER
         else:
             form.folder_choice = ROOT_FOLDER
-        if not (form.dest_folder_url or "").strip():
-            form.dest_folder_url = infer_pasta_destino(
-                form.current_download,
-                form.current_capa,
-                form.current_icone,
-            )
+        if not form.editing_id and not (form.upload_url or "").strip():
+            form.upload_url = infer_pasta_destino()
         form.capture_baseline()
         return form
 
@@ -574,11 +571,6 @@ class SuiteApp:
             setor_id=app.setor,
             sub_setor_id=app.sub_setor,
             upload_url=app.upload_url,
-            dest_folder_url=infer_pasta_destino(
-                app.download_url,
-                file_capa or catalog_http_url(app.catalog_imagem),
-                file_icone or catalog_http_url(app.catalog_icone),
-            ),
             current_download=app.download_url,
             current_capa=file_capa or catalog_http_url(app.catalog_imagem),
             current_icone=file_icone or catalog_http_url(app.catalog_icone),
@@ -605,7 +597,7 @@ class SuiteApp:
                 self.publish_form, self.publish_form.current_download
             )
             if dest:
-                self.publish_form.dest_folder_url = dest
+                self.publish_form.upload_url = dest
             self._render()
             return
         if key == "new_folder_name":
@@ -615,7 +607,7 @@ class SuiteApp:
                     self.publish_form, self.publish_form.current_download
                 )
                 if dest:
-                    self.publish_form.dest_folder_url = dest
+                    self.publish_form.upload_url = dest
             return
         if hasattr(self.publish_form, key):
             setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
@@ -624,7 +616,6 @@ class SuiteApp:
                 "descricao",
                 "versao",
                 "upload_url",
-                "dest_folder_url",
                 "current_download",
                 "current_capa",
                 "current_icone",
@@ -772,11 +763,6 @@ class SuiteApp:
         form.setor_id = app.setor
         form.sub_setor_id = app.sub_setor
         form.upload_url = app.upload_url
-        form.dest_folder_url = infer_pasta_destino(
-            app.download_url,
-            file_capa or catalog_http_url(app.catalog_imagem),
-            file_icone or catalog_http_url(app.catalog_icone),
-        )
         form.current_download = app.download_url
         form.current_capa = file_capa or catalog_http_url(app.catalog_imagem)
         form.current_icone = file_icone or catalog_http_url(app.catalog_icone)
@@ -852,6 +838,124 @@ class SuiteApp:
             self.publish_form.message = ""
             self.publish_form.progress = None
             self.publish_form.capture_baseline()
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self.publish_form.hold_scroll = False
+        self._render()
+
+    def _publish_delete(self) -> None:
+        if not self.can_publish or self.publish_form.busy or self.structure.busy or self._confirm_open:
+            return
+        app_id = (self.publish_form.editing_id or "").strip()
+        if not app_id:
+            return
+        nome = self.publish_form.nome or app_id
+        self._confirm_open = True
+        dlg_holder: dict = {"done": False}
+
+        def _close(_e=None) -> None:
+            self._confirm_open = False
+            dlg = dlg_holder.get("dlg")
+            pop = getattr(self.page, "pop_dialog", None)
+            if callable(pop):
+                try:
+                    pop()
+                    return
+                except Exception:
+                    pass
+            if dlg is not None:
+                try:
+                    dlg.open = False
+                    self.page.update()
+                except Exception:
+                    pass
+
+        def _pick(delete_files: bool):
+            def _run(_e=None, files=delete_files) -> None:
+                if dlg_holder["done"]:
+                    return
+                dlg_holder["done"] = True
+                _close()
+                self._publish_delete_confirmed(app_id, files)
+
+            return _run
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Excluir?"),
+            content=ft.Text(
+                f'Excluir "{nome}"? '
+                "So do catalogo remove o app do catalog.json. "
+                "Tambem os arquivos apaga o aplicativo, a capa e o icone no SharePoint."
+            ),
+            actions=[
+                ft.TextButton(content="Cancelar", on_click=_close),
+                ft.OutlinedButton(content="Excluir so do catalogo", on_click=_pick(False)),
+                ft.FilledButton(
+                    content="Excluir tambem os arquivos no SharePoint",
+                    on_click=_pick(True),
+                ),
+            ],
+        )
+        dlg_holder["dlg"] = dlg
+        show = getattr(self.page, "show_dialog", None)
+        if callable(show):
+            show(dlg)
+            return
+        open_fn = getattr(self.page, "open", None)
+        if callable(open_fn):
+            open_fn(dlg)
+            return
+        try:
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.page.update()
+        except Exception:
+            self._confirm_open = False
+
+    def _publish_delete_confirmed(self, app_id: str, delete_files: bool) -> None:
+        if not self.can_publish or self.publish_form.busy or self.structure.busy:
+            return
+        self.publish_form.busy = True
+        self.publish_form.conflict = False
+        self.publish_form.hold_scroll = True
+        self.publish_form.notice = ""
+        self.publish_form.notice_ok = False
+        self.publish_form.message = "Excluindo..."
+        self.publish_form.progress = -1.0
+        self._render()
+        self.page.run_thread(lambda: self._publish_delete_worker(app_id, delete_files))
+
+    def _publish_delete_worker(self, app_id: str, delete_files: bool) -> None:
+        result = delete_catalog_app(
+            app_id,
+            expected_fingerprint=self.publish_form.fingerprint,
+            delete_sharepoint_files=delete_files,
+            progress=self._on_publish_progress,
+        )
+        if result.conflict:
+            self.publish_form.busy = False
+            self.publish_form.conflict = True
+            self.publish_form.hold_scroll = True
+            self.publish_form.message = result.message
+            self._render()
+            self.publish_form.hold_scroll = False
+            return
+        if not result.ok:
+            self.publish_form.busy = False
+            self.publish_form.hold_scroll = True
+            self.publish_form.message = result.message
+            self._render()
+            self.publish_form.hold_scroll = False
+            return
+        if result.catalog is not None:
+            self.catalog = result.catalog
+        self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
+        self.publish_form = self._fresh_publish_form(
+            fingerprint=fp,
+            notice="Item excluido.",
+            notice_ok=True,
+        )
         self.structure = structure_from_catalog(self.catalog, fp)
         self.publish_form.hold_scroll = False
         self._render()
@@ -942,10 +1046,16 @@ class SuiteApp:
         self._render()
 
     def _structure_delete(self, sel: str) -> None:
-        if not self.can_publish or self.structure.busy or self._confirm_open:
+        if not self.can_publish or self.structure.busy or self.publish_form.busy or self._confirm_open:
             return
         label = "este item"
-        if sel.startswith("s:"):
+        if sel.startswith("g:"):
+            try:
+                g = self.structure.gerencias[int(sel.split(":")[1])]
+                label = f"a gerencia \"{g.nome or g.id or 'Gerencia'}\""
+            except (IndexError, ValueError):
+                return
+        elif sel.startswith("s:"):
             try:
                 s = self.structure.setores[int(sel.split(":")[1])]
                 label = f"o setor \"{s.nome or s.id or 'Setor'}\""
@@ -967,11 +1077,17 @@ class SuiteApp:
         )
 
     def _structure_delete_confirmed(self, sel: str) -> None:
-        if not self.can_publish or self.structure.busy:
+        if not self.can_publish or self.structure.busy or self.publish_form.busy:
             return
         remote = False
         try:
-            if sel.startswith("s:"):
+            if sel.startswith("g:"):
+                i = int(sel.split(":")[1])
+                g = self.structure.gerencias[i]
+                remote = bool(g.orig_id)
+                del self.structure.gerencias[i]
+                self.structure.sel = ""
+            elif sel.startswith("s:"):
                 i = int(sel.split(":")[1])
                 setor = self.structure.setores[i]
                 remote = bool(setor.orig_id)
@@ -995,7 +1111,7 @@ class SuiteApp:
             self._render()
 
     def _confirm_dialog(self, title: str, body: str, on_yes) -> None:
-        if self._confirm_open or self.structure.busy:
+        if self._confirm_open or self.structure.busy or self.publish_form.busy:
             return
         self._confirm_open = True
         dlg_holder: dict = {"done": False}
@@ -1407,6 +1523,7 @@ class SuiteApp:
                 on_field=self._publish_field,
                 on_reopen=self._publish_reopen,
                 on_refresh_folders=lambda: self._refresh_publish_folders(True),
+                on_delete_app=self._publish_delete,
                 on_structure_select=self._structure_select,
                 on_structure_field=self._structure_field,
                 on_structure_toggle_app=self._structure_toggle_app,

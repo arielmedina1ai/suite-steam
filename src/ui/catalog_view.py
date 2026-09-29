@@ -52,6 +52,7 @@ def bind_catalog_view(
     on_field: Callable[[str, str], None],
     on_reopen: Callable[[], None],
     on_refresh_folders: Callable[[], None] | None = None,
+    on_delete_app: Callable[[], None] | None = None,
     on_structure_select: Callable[[str], None],
     on_structure_field: Callable[[str, str], None],
     on_structure_toggle_app: Callable[[str, bool], None],
@@ -107,6 +108,7 @@ def bind_catalog_view(
             on_field=on_field,
             on_reopen=on_reopen,
             on_refresh_folders=on_refresh_folders,
+            on_delete_app=on_delete_app,
             select_holder=publish_select,
             edit_holder=publish_edit,
         )

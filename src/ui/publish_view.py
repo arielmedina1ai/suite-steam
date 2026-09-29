@@ -338,6 +338,7 @@ def bind_publish_form(
     on_field: Callable[[str, str], None],
     on_reopen: Callable[[], None],
     on_refresh_folders: Callable[[], None] | None = None,
+    on_delete_app: Callable[[], None] | None = None,
     select_holder: ft.Container,
     edit_holder: ft.Container,
 ) -> None:
@@ -483,10 +484,10 @@ def bind_publish_form(
     if folder_value not in folder_keys:
         folder_value = ROOT_FOLDER if ROOT_FOLDER in folder_keys else next(iter(folder_keys), ROOT_FOLDER)
 
-    pasta_url_changed = form.is_changed("dest_folder_url")
+    pasta_url_changed = form.is_changed("upload_url")
     pasta_changed = pasta_url_changed or form.is_changed("folder_choice") or form.is_changed("new_folder_name")
     pasta_field = ft.TextField(
-        value=form.dest_folder_url,
+        value=form.upload_url,
         hint_text="Cole o caminho SharePoint ou escolha uma pasta abaixo",
         multiline=True,
         min_lines=2,
@@ -494,7 +495,7 @@ def bind_publish_form(
         text_size=12,
         filled=True,
         fill_color=_CHANGED_FILL if pasta_url_changed else _INPUT_FILL,
-        color=config.COLOR_TEXT if (form.dest_folder_url or "").strip() else "#8AA797",
+        color=config.COLOR_TEXT if (form.upload_url or "").strip() else "#8AA797",
         cursor_color=config.COLOR_ACCENT,
         **_borderless(),
     )
@@ -540,32 +541,51 @@ def bind_publish_form(
     )
 
     def _on_pasta(e, wrap=pasta_box, field=pasta_field) -> None:
-        on_field("dest_folder_url", e.control.value or "")
+        on_field("upload_url", e.control.value or "")
         apply_live_highlight(
             wrap,
             field,
-            form.is_changed("dest_folder_url") or form.is_changed("folder_choice"),
+            form.is_changed("upload_url") or form.is_changed("folder_choice"),
         )
 
     pasta_field.on_change = _on_pasta
 
     heading = "Novo aplicativo" if not form.editing_id else f"Editar: {form.nome or form.editing_id}"
     done_text = form.notice if form.notice else ("" if form.busy else form.message)
+    app_controls: list[ft.Control] = [
+        ft.Container(
+            expand=True,
+            content=ft.Dropdown(
+                value=app_value,
+                options=app_options,
+                filled=True,
+                fill_color=_INPUT_FILL,
+                color=config.COLOR_TEXT,
+                text_size=_FIELD_SIZE,
+                **_borderless(),
+                on_select=lambda e: on_select_app(e.control.value or NEW_APP_KEY),
+            ),
+        )
+    ]
+    if form.editing_id and app_value != NEW_APP_KEY and on_delete_app is not None:
+        app_controls.append(
+            ft.OutlinedButton(
+                content="Excluir",
+                icon=ft.Icons.DELETE,
+                disabled=form.busy,
+                on_click=lambda e: on_delete_app(),
+            )
+        )
     bind_form_section(
         select_holder,
         "Selecionar ou adicionar",
         [
             option7_row(
                 "Aplicativo",
-                ft.Dropdown(
-                    value=app_value,
-                    options=app_options,
-                    filled=True,
-                    fill_color=_INPUT_FILL,
-                    color=config.COLOR_TEXT,
-                    text_size=_FIELD_SIZE,
-                    **_borderless(),
-                    on_select=lambda e: on_select_app(e.control.value or NEW_APP_KEY),
+                ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=app_controls,
                 ),
             ),
             ft.Text(
@@ -629,7 +649,6 @@ def bind_publish_form(
                 url_key="current_icone",
                 preview_src=form.preview_icone,
             ),
-            _tf("upload_url", "upload_url", form.upload_url),
         ],
         on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
         preserve_inner=form.hold_scroll,

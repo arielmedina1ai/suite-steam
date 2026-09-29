@@ -177,6 +177,9 @@ def bind_structure_form(
                 ),
                 catalog,
                 g.apps,
+                actions=[
+                    _icon_btn(_DEL_ICON, "Excluir gerencia", lambda k=key: on_delete(k)),
+                ],
             )
         )
 

@@ -525,6 +525,40 @@ class PnPWebLoginSession:
             return SharePointResult(ok=True, path=arquivo, message="Upload concluido.")
         return SharePointResult(ok=False, message=str(ack.get("error") or "Falha no upload."))
 
+    def delete_remote(self, file_url: str) -> SharePointResult:
+        raw = (file_url or "").strip()
+        if not raw.lower().startswith(("http://", "https://")):
+            return SharePointResult(ok=False, message="Link remoto ausente.")
+        try:
+            info = parsear_link_sharepoint(raw)
+        except ValueError as exc:
+            return SharePointResult(ok=False, message=str(exc))
+        site = str(info.get("site_url") or self.site_url)
+        if info.get("tipo") == "unique_id":
+            ack = self._send(
+                {
+                    "op": "delete_id",
+                    "site_url": site,
+                    "unique_id": info.get("unique_id") or "",
+                }
+            )
+        else:
+            caminho = info.get("caminho_sp") or ""
+            nome = str(info.get("nome_arquivo") or "").strip()
+            if not caminho:
+                return SharePointResult(ok=False, message="Caminho SharePoint nao determinado.")
+            ack = self._send(
+                {
+                    "op": "delete_path",
+                    "site_url": site,
+                    "caminho_sp": caminho,
+                    "nome_arquivo": nome,
+                }
+            )
+        if ack.get("ok"):
+            return SharePointResult(ok=True, message="Arquivo removido no SharePoint.")
+        return SharePointResult(ok=False, message=str(ack.get("error") or "Falha ao excluir no SharePoint."))
+
 
 def baixar_varios_do_sharepoint(
     itens: list[SharePointBatchItem],

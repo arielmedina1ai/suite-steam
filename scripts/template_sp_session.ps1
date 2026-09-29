@@ -235,6 +235,26 @@ function Invoke-UploadId($cmd) {
     return "$pasta/$nomeRemoto"
 }
 
+function Invoke-DeletePath($cmd) {
+    $caminhoSP = [string]$cmd.caminho_sp
+    $nomeArquivo = [string]$cmd.nome_arquivo
+    $caminhoFinal = if ($nomeArquivo) { Resolve-CaminhoSp $caminhoSP $nomeArquivo } else { $caminhoSP }
+    Remove-PnPFile -SiteRelativeUrl $caminhoFinal -Force -ErrorAction Stop
+    return $caminhoFinal
+}
+
+function Invoke-DeleteId($cmd) {
+    $uniqueGuid = ConvertTo-GuidSafe ([string]$cmd.unique_id)
+    $meta = Get-FileByUniqueId $uniqueGuid
+    if (-not $meta.Url) { throw "UniqueId sem ServerRelativeUrl" }
+    try {
+        Remove-PnPFile -ServerRelativeUrl $meta.Url -Force -ErrorAction Stop
+    } catch {
+        Remove-PnPFile -SiteRelativeUrl $meta.Url -Force -ErrorAction Stop
+    }
+    return $meta.Url
+}
+
 Write-Host "Conectando ao SharePoint (WebLogin)..." -ForegroundColor Cyan
 Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue
 $script:currentSite = $siteUrl
@@ -276,6 +296,14 @@ while ($true) {
             }
             "upload_id" {
                 $p = Invoke-UploadId $cmd
+                Write-Ack @{ ok = $true; path = $p }
+            }
+            "delete_path" {
+                $p = Invoke-DeletePath $cmd
+                Write-Ack @{ ok = $true; path = $p }
+            }
+            "delete_id" {
+                $p = Invoke-DeleteId $cmd
                 Write-Ack @{ ok = $true; path = $p }
             }
             "quit" {
