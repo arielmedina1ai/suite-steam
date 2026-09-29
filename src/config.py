@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,11 @@ APP_NAME = (
     else "SuiteApps"
 )
 APP_VERSION = str(_app.get("version", "0.1.0")).strip() or "0.1.0"
+
+
+def app_version_display() -> str:
+    """Versao do app com a data local de hoje (vX.Y.Z - dd/mm/yyyy)."""
+    return f"v{APP_VERSION} - {datetime.now().strftime('%d/%m/%Y')}"
 _company_raw = _app.get("company")
 APP_COMPANY = (
     _company_raw.strip()

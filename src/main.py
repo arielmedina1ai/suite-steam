@@ -127,6 +127,8 @@ class SuiteApp:
         self.app_job_app_id: str | None = None
         self.app_job_progress: float | None = None
         self.app_job_message = ""
+        self.detail_notice = ""
+        self.detail_notice_app_id: str | None = None
         self._exiting = False
         self._tray: TrayController | None = None
         self.run_error = ""
@@ -455,7 +457,32 @@ class SuiteApp:
         return ", ".join(names)
 
     # ------------------------------------------------------------------
+    def _leave_app_screen(self) -> None:
+        self.run_error = ""
+        self.detail_notice = ""
+        self.detail_notice_app_id = None
+        if not self.app_job_busy:
+            self.app_job_message = ""
+            self.app_job_progress = None
+            self.app_job_app_id = None
+
+    def _set_detail_notice(self, app_id: str, message: str) -> None:
+        if self.selected_id != app_id:
+            return
+        self.detail_notice_app_id = app_id
+        self.detail_notice = (message or "").strip()
+
+    def _detail_work_message(self, app_id: str) -> str:
+        if self.app_job_app_id == app_id and (self.app_job_busy or (self.app_job_message or "").strip()):
+            return self.app_job_message
+        if self.detail_notice_app_id == app_id:
+            return self.detail_notice
+        if self.selected_id == app_id:
+            return self.run_error
+        return ""
+
     def _go_home(self) -> None:
+        self._leave_app_screen()
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
@@ -463,6 +490,7 @@ class SuiteApp:
         self._render()
 
     def _go_favorites(self) -> None:
+        self._leave_app_screen()
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = True
@@ -472,6 +500,7 @@ class SuiteApp:
     def _go_publish(self) -> None:
         if not self.can_publish:
             return
+        self._leave_app_screen()
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
@@ -491,6 +520,7 @@ class SuiteApp:
         self._render()
 
     def _select_setor(self, setor_id: str) -> None:
+        self._leave_app_screen()
         self.selected_setor = setor_id
         self.selected_id = None
         self.show_favorites = False
@@ -498,6 +528,8 @@ class SuiteApp:
         self._render()
 
     def _select_app(self, app_id: str) -> None:
+        if self.selected_id != app_id:
+            self._leave_app_screen()
         self.selected_id = app_id
         app = self.apps_by_id.get(app_id)
         if app is not None and app.setor:
@@ -508,6 +540,7 @@ class SuiteApp:
 
     def _select_gerencia(self, gerencia_id: str) -> None:
         gid = (gerencia_id or "").strip()
+        self._leave_app_screen()
         self.selected_gerencia_id = gid
         self.preferences.set_gerencia_id(gid)
         self._apply_gerencia_filter()
@@ -1357,6 +1390,7 @@ class SuiteApp:
                     self.run_error = str(exc)
         self.app_job_busy = False
         self.app_job_app_id = None
+        self._set_detail_notice(app.id, self.app_job_message)
         self._refresh_running(force=True)
         self._render()
 
@@ -1603,10 +1637,11 @@ class SuiteApp:
                     on_toggle_favorite=self._toggle_favorite,
                     on_run=self._run_catalog_app,
                     on_update_app=self._request_app_update,
+                    on_status=self._set_detail_notice,
                     this_app_running=self._this_app_running(app.id),
                     work_busy=self.app_job_busy and self.app_job_app_id == app.id,
-                    work_progress=self.app_job_progress,
-                    work_message=self.app_job_message or self.run_error,
+                    work_progress=self.app_job_progress if self.app_job_app_id == app.id else None,
+                    work_message=self._detail_work_message(app.id),
                 ).build()
         elif self.show_favorites:
             self.content_holder.content = build_favoritos_view(

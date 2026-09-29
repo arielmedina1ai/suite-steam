@@ -265,7 +265,7 @@ def build_sidebar(
                                 width=_SIDEBAR_INNER - 64,
                             ),
                             ft.Text(
-                                f"v{config.APP_VERSION}",
+                                config.app_version_display(),
                                 size=11,
                                 color="#8AA797",
                                 width=_SIDEBAR_INNER - 64,

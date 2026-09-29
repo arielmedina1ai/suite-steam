@@ -26,6 +26,7 @@ class AppDetailView:
         on_toggle_favorite=None,
         on_run=None,
         on_update_app=None,
+        on_status=None,
         this_app_running: bool = False,
         work_busy: bool = False,
         work_progress: float | None = None,
@@ -40,6 +41,7 @@ class AppDetailView:
         self.on_toggle_favorite = on_toggle_favorite
         self.on_run = on_run
         self.on_update_app = on_update_app
+        self.on_status = on_status
         self.this_app_running = this_app_running
         self.work_busy = work_busy
         self.work_progress = work_progress
@@ -289,14 +291,16 @@ class AppDetailView:
 
         result = self.manager.download(self.app, progress=on_progress)
         if result.outcome == DownloadOutcome.SUCCESS:
-            self._apply_progress(1.0, result.message)
-            self.progress.visible = False
-            self.status_text.value = result.message
+            msg = result.message or "Download concluido."
         else:
-            self.progress.visible = False
-            self.status_text.value = result.message or "Erro no download."
+            msg = result.message or "Erro no download."
+        self.progress.visible = False
+        self.status_text.value = msg
+        self.work_message = msg
         self._set_busy(False)
         self._refresh_action_buttons()
+        if self.on_status:
+            self.on_status(self.app.id, msg)
         self._safe_update()
 
 
