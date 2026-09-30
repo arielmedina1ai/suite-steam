@@ -978,7 +978,11 @@ class SuiteApp:
                     return
                 dlg_holder["done"] = True
                 _close()
-                self._publish_delete_confirmed(app_id, files)
+                if files:
+                    # Next dialog in this same click — no SharePoint work in between.
+                    self._open_pasta_destino_dialog(app_id)
+                else:
+                    self._publish_delete_confirmed(app_id)
 
             return _run
 
@@ -1003,7 +1007,7 @@ class SuiteApp:
         if not self._present_dialog(dlg):
             self._confirm_open = False
 
-    def _publish_delete_confirmed(self, app_id: str, delete_files: bool) -> None:
+    def _publish_delete_confirmed(self, app_id: str) -> None:
         if not self.can_publish or self.publish_form.busy or self.structure.busy:
             return
         self.publish_form.busy = True
@@ -1014,53 +1018,88 @@ class SuiteApp:
         self.publish_form.message = "Excluindo..."
         self.publish_form.progress = -1.0
         self._render()
-        self.page.run_thread(lambda: self._publish_delete_worker(app_id, delete_files))
+        self.page.run_thread(lambda: self._publish_delete_worker(app_id))
 
-    def _ask_pasta_destino_delete(self, names: list[str]) -> bool | None:
-        choice: dict = {"v": None}
-        done = threading.Event()
-        dlg_holder: dict = {"dlg": None}
-
-        def _finish(val: bool | None):
-            def _run(_e=None, picked=val) -> None:
-                if done.is_set():
-                    return
-                choice["v"] = picked
-                self._confirm_open = False
-                self._dismiss_dialog(dlg_holder.get("dlg"))
-                done.set()
-
-            return _run
-
+    def _paint_pasta_file_list(self, host: ft.Column, names: list[str]) -> None:
         shown = names[:80]
         extra = len(names) - len(shown)
         if names:
-            file_block: ft.Control = ft.Column(
-                spacing=2,
-                tight=True,
-                height=min(220, 20 * max(len(shown), 1) + 8),
-                scroll=ft.ScrollMode.AUTO,
-                controls=[
-                    ft.Text(item, size=12, color=config.COLOR_TEXT)
-                    for item in shown
-                ],
-            )
-            listing: list[ft.Control] = [
+            controls: list[ft.Control] = [
                 ft.Text(
                     "Outros arquivos na Pasta Destino (serao apagados se Sim):",
                     size=13,
                     color=config.COLOR_TEXT,
                 ),
-                file_block,
+                ft.Column(
+                    spacing=2,
+                    tight=True,
+                    height=min(220, 20 * max(len(shown), 1) + 8),
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        ft.Text(item, size=12, color=config.COLOR_TEXT) for item in shown
+                    ],
+                ),
             ]
             if extra > 0:
-                listing.append(
+                controls.append(
                     ft.Text(f"... e mais {extra} arquivo(s).", size=12, color="#8AA797")
                 )
         else:
-            listing = [
+            controls = [
                 ft.Text("A pasta esta vazia.", size=13, color=config.COLOR_TEXT),
             ]
+        host.controls = controls
+        self._refresh_pasta_list_host(host)
+
+    def _paint_pasta_status(self, host: ft.Column, text: str) -> None:
+        host.controls = [
+            ft.Text(text, size=13, color="#8AA797"),
+        ]
+        self._refresh_pasta_list_host(host)
+
+    def _refresh_pasta_list_host(self, host: ft.Column) -> None:
+        try:
+            host.update()
+            self.page.update()
+        except Exception:
+            pass
+
+    def _open_pasta_destino_dialog(self, app_id: str) -> None:
+        state: dict = {
+            "answered": False,
+            "choice": None,
+            "prep": None,
+            "prep_err": None,
+            "list_done": threading.Event(),
+        }
+        list_host = ft.Column(
+            spacing=4,
+            tight=True,
+            controls=[
+                ft.Text(
+                    "Listando arquivos na Pasta Destino...",
+                    size=13,
+                    color="#8AA797",
+                )
+            ],
+        )
+        dlg_holder: dict = {"dlg": None}
+
+        def _finish(val: bool | None):
+            def _run(_e=None, picked=val) -> None:
+                if state["answered"]:
+                    return
+                state["answered"] = True
+                state["choice"] = picked
+                self._confirm_open = False
+                self._dismiss_dialog(dlg_holder.get("dlg"))
+                if picked is None:
+                    self.page.run_thread(lambda: self._abort_pasta_destino_delete(state))
+                    return
+                self._start_sharepoint_delete(app_id, bool(picked), state)
+
+            return _run
+
         dlg = ft.AlertDialog(
             modal=True,
             title=ft.Text("Excluir Pasta Destino?"),
@@ -1069,7 +1108,7 @@ class SuiteApp:
                 tight=True,
                 width=420,
                 controls=[
-                    *listing,
+                    list_host,
                     ft.Text(
                         "Excluir tambem a Pasta Destino? "
                         "Sim apaga os arquivos listados e a pasta. "
@@ -1089,9 +1128,77 @@ class SuiteApp:
         self._confirm_open = True
         if not self._present_dialog(dlg):
             self._confirm_open = False
-            return None
-        done.wait()
-        return choice["v"]
+            return
+        # WebLogin/list only after the question is already on screen.
+        self.page.run_thread(lambda: self._load_pasta_destino_list(app_id, list_host, state))
+
+    def _load_pasta_destino_list(self, app_id: str, list_host: ft.Column, state: dict) -> None:
+        def _silent(_pct: float, _msg: str) -> None:
+            return
+
+        pending, early = prepare_sharepoint_app_delete(
+            app_id,
+            expected_fingerprint=self.publish_form.fingerprint,
+            progress=_silent,
+        )
+        state["prep"] = pending
+        state["prep_err"] = early
+        state["list_done"].set()
+        if state["answered"]:
+            if state["choice"] is None:
+                abort_prepared_app_delete(pending)
+            return
+        if early is not None:
+            self._paint_pasta_status(
+                list_host, early.message or "Falha ao listar a Pasta Destino."
+            )
+            return
+        if pending is None:
+            self._paint_pasta_status(list_host, "Falha ao preparar exclusao.")
+            return
+        self._paint_pasta_file_list(list_host, pending.folder_files)
+
+    def _abort_pasta_destino_delete(self, state: dict) -> None:
+        state["list_done"].wait()
+        abort_prepared_app_delete(state.get("prep"))
+
+    def _start_sharepoint_delete(self, app_id: str, delete_folder: bool, state: dict) -> None:
+        if not self.can_publish or self.publish_form.busy or self.structure.busy:
+            self.page.run_thread(lambda: self._abort_pasta_destino_delete(state))
+            return
+        self.publish_form.busy = True
+        self.publish_form.conflict = False
+        self.publish_form.hold_scroll = True
+        self.publish_form.notice = ""
+        self.publish_form.notice_ok = False
+        self.publish_form.message = "Excluindo..."
+        self.publish_form.progress = -1.0
+        self._render()
+        self.page.run_thread(
+            lambda: self._sharepoint_delete_after_answers(app_id, delete_folder, state)
+        )
+
+    def _sharepoint_delete_after_answers(
+        self, app_id: str, delete_folder: bool, state: dict
+    ) -> None:
+        state["list_done"].wait()
+        early = state.get("prep_err")
+        pending = state.get("prep")
+        if early is not None:
+            abort_prepared_app_delete(pending)
+            self._apply_publish_delete_result(early)
+            return
+        if pending is None:
+            self._apply_publish_delete_result(
+                PublishOutcome(ok=False, message="Falha ao preparar exclusao.")
+            )
+            return
+        result = complete_prepared_app_delete(
+            pending,
+            delete_folder=delete_folder,
+            progress=self._on_publish_progress,
+        )
+        self._apply_publish_delete_result(result)
 
     def _apply_publish_delete_result(self, result) -> None:
         if result.conflict:
@@ -1122,49 +1229,11 @@ class SuiteApp:
         self.publish_form.hold_scroll = False
         self._render()
 
-    def _publish_delete_worker(self, app_id: str, delete_files: bool) -> None:
-        if not delete_files:
-            result = delete_catalog_app(
-                app_id,
-                expected_fingerprint=self.publish_form.fingerprint,
-                delete_sharepoint_files=False,
-                progress=self._on_publish_progress,
-            )
-            self._apply_publish_delete_result(result)
-            return
-        pending, early = prepare_sharepoint_app_delete(
+    def _publish_delete_worker(self, app_id: str) -> None:
+        result = delete_catalog_app(
             app_id,
             expected_fingerprint=self.publish_form.fingerprint,
-            progress=self._on_publish_progress,
-        )
-        if early is not None:
-            self._apply_publish_delete_result(early)
-            return
-        if pending is None:
-            self._apply_publish_delete_result(
-                PublishOutcome(ok=False, message="Falha ao preparar exclusao.")
-            )
-            return
-        if not pending.upload_url:
-            result = complete_prepared_app_delete(
-                pending,
-                delete_folder=False,
-                progress=self._on_publish_progress,
-            )
-            self._apply_publish_delete_result(result)
-            return
-        fold = self._ask_pasta_destino_delete(pending.folder_files)
-        if fold is None:
-            abort_prepared_app_delete(pending)
-            self.publish_form.busy = False
-            self.publish_form.message = ""
-            self.publish_form.progress = None
-            self.publish_form.hold_scroll = False
-            self._render()
-            return
-        result = complete_prepared_app_delete(
-            pending,
-            delete_folder=bool(fold),
+            delete_sharepoint_files=False,
             progress=self._on_publish_progress,
         )
         self._apply_publish_delete_result(result)
