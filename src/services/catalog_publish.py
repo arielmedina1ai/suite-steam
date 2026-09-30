@@ -978,6 +978,35 @@ def _same_folder_url(left: str, right: str) -> bool:
     return bool(site_a and site_a == site_b and path_a == path_b)
 
 
+def _folder_files_excluding_catalog_assets(
+    names: list[str],
+    current: dict[str, Any],
+    folder_url: str,
+) -> list[str]:
+    """Lista a pasta sem o arquivo do app, a capa e o icone se estiverem nela."""
+    listed = [(n or "").strip() for n in names if (n or "").strip()]
+    listed_lower = {n.lower() for n in listed}
+    omit: set[str] = set()
+    for key in ("download_url", "imagem", "icone"):
+        raw = catalog_http_url(str(current.get(key) or ""))
+        if not raw:
+            continue
+        leaf = existing_remote_filename(raw, "")
+        leaf_key = leaf.lower() if leaf else ""
+        lives_in = False
+        try:
+            info = parsear_link_sharepoint(raw)
+        except ValueError:
+            info = {}
+        if info.get("tipo") == "unique_id":
+            lives_in = bool(leaf_key and leaf_key in listed_lower)
+        elif folder_url:
+            lives_in = same_sharepoint_folder(raw, folder_url)
+        if lives_in and leaf_key:
+            omit.add(leaf_key)
+    return [n for n in listed if n.lower() not in omit]
+
+
 def _delete_entry_sharepoint_files(
     session: PnPWebLoginSession,
     current: dict[str, Any],
@@ -1117,7 +1146,11 @@ def prepare_sharepoint_app_delete(
                         ok=False,
                         message=listed.message or "Falha ao listar a Pasta Destino.",
                     )
-                names = list(listed.files)
+                names = _folder_files_excluding_catalog_assets(
+                    list(listed.files),
+                    current,
+                    upload_url,
+                )
         pending = PendingSharePointDelete(
             session=session,
             data=data,

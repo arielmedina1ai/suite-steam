@@ -1047,7 +1047,7 @@ class SuiteApp:
             )
             listing: list[ft.Control] = [
                 ft.Text(
-                    "Arquivos na Pasta Destino (serao apagados se Sim):",
+                    "Outros arquivos na Pasta Destino (serao apagados se Sim):",
                     size=13,
                     color=config.COLOR_TEXT,
                 ),
@@ -1073,7 +1073,7 @@ class SuiteApp:
                     ft.Text(
                         "Excluir tambem a Pasta Destino? "
                         "Sim apaga os arquivos listados e a pasta. "
-                        "Nao apaga so o aplicativo, a capa e o icone.",
+                        "Nao deixa a pasta e qualquer outro arquivo.",
                         size=13,
                         color=config.COLOR_TEXT,
                     ),
