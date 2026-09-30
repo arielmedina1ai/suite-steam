@@ -929,21 +929,32 @@ class SuiteApp:
         self._render()
 
     def _present_dialog(self, dlg: ft.AlertDialog) -> bool:
+        shown = False
         show = getattr(self.page, "show_dialog", None)
         if callable(show):
             show(dlg)
-            return True
-        open_fn = getattr(self.page, "open", None)
-        if callable(open_fn):
-            open_fn(dlg)
-            return True
+            shown = True
+        else:
+            open_fn = getattr(self.page, "open", None)
+            if callable(open_fn):
+                open_fn(dlg)
+                shown = True
+            else:
+                try:
+                    self.page.overlay.append(dlg)
+                    shown = True
+                except Exception:
+                    return False
         try:
-            self.page.overlay.append(dlg)
             dlg.open = True
-            self.page.update()
-            return True
         except Exception:
-            return False
+            pass
+        try:
+            self.page.update()
+        except Exception:
+            if not shown:
+                return False
+        return shown
 
     def _dismiss_dialog(self, dlg: ft.AlertDialog | None) -> None:
         pop = getattr(self.page, "pop_dialog", None)
@@ -979,10 +990,11 @@ class SuiteApp:
                 if dlg_holder["done"]:
                     return
                 dlg_holder["done"] = True
-                _close()
                 if files:
-                    self._publish_delete_sharepoint(app_id)
+                    self._dismiss_dialog(dlg_holder.get("dlg"))
+                    self._open_pasta_destino_dialog(app_id)
                 else:
+                    _close()
                     self._publish_delete_confirmed(app_id)
 
             return _run
@@ -1021,19 +1033,6 @@ class SuiteApp:
         self._render()
         self.page.run_thread(lambda: self._publish_delete_worker(app_id))
 
-    def _publish_delete_sharepoint(self, app_id: str) -> None:
-        if not self.can_publish or self.publish_form.busy or self.structure.busy:
-            return
-        self.publish_form.busy = True
-        self.publish_form.conflict = False
-        self.publish_form.hold_scroll = True
-        self.publish_form.notice = ""
-        self.publish_form.notice_ok = False
-        self.publish_form.message = "Listando Pasta Destino..."
-        self.publish_form.progress = -1.0
-        self._render()
-        self.page.run_thread(lambda: self._publish_delete_sharepoint_worker(app_id))
-
     def _pasta_destino_list_controls(self, names: list[str]) -> list[ft.Control]:
         shown = names[:80]
         extra = len(names) - len(shown)
@@ -1060,25 +1059,68 @@ class SuiteApp:
                 )
             return controls
         return [
-            ft.Text("A pasta esta vazia.", size=13, color=config.COLOR_TEXT),
+            ft.Text("A pasta está vazia.", size=13, color=config.COLOR_TEXT),
         ]
 
-    def _ask_pasta_destino_delete(self, names: list[str]) -> bool | None:
-        choice: dict = {"v": None}
-        done = threading.Event()
+    def _refresh_pasta_dialog(self, *controls: ft.Control) -> None:
+        try:
+            for item in controls:
+                if item is not None:
+                    item.update()
+        except Exception:
+            pass
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def _open_pasta_destino_dialog(self, app_id: str) -> None:
+        state: dict = {
+            "answered": False,
+            "choice": None,
+            "prep": None,
+            "prep_err": None,
+            "list_ready": False,
+            "list_done": threading.Event(),
+        }
+        list_host = ft.Column(
+            spacing=4,
+            tight=True,
+            controls=[
+                ft.Text(
+                    "Consultando o conteúdo da pasta...",
+                    size=13,
+                    color="#8AA797",
+                )
+            ],
+        )
         dlg_holder: dict = {"dlg": None}
+        sim_btn = ft.FilledButton(content="Sim", disabled=True)
+        nao_btn = ft.OutlinedButton(content="Não", disabled=True)
 
         def _finish(val: bool | None):
             def _run(_e=None, picked=val) -> None:
-                if done.is_set():
+                if state["answered"]:
                     return
-                choice["v"] = picked
+                if picked is not None and not state["list_ready"]:
+                    return
+                state["answered"] = True
+                state["choice"] = picked
                 self._confirm_open = False
                 self._dismiss_dialog(dlg_holder.get("dlg"))
-                done.set()
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+                if picked is None:
+                    self.page.run_thread(lambda: self._abort_pasta_destino_delete(state))
+                    return
+                self._start_sharepoint_delete(app_id, bool(picked), state)
 
             return _run
 
+        sim_btn.on_click = _finish(True)
+        nao_btn.on_click = _finish(False)
         dlg = ft.AlertDialog(
             modal=True,
             title=ft.Text("Excluir Pasta Destino?"),
@@ -1087,7 +1129,7 @@ class SuiteApp:
                 tight=True,
                 width=420,
                 controls=[
-                    *self._pasta_destino_list_controls(names),
+                    list_host,
                     ft.Text(
                         "Excluir tambem a Pasta Destino? "
                         "Sim apaga os arquivos listados e a pasta. "
@@ -1099,25 +1141,92 @@ class SuiteApp:
             ),
             actions=[
                 ft.TextButton(content="Cancelar", on_click=_finish(None)),
-                ft.OutlinedButton(content="Nao", on_click=_finish(False)),
-                ft.FilledButton(content="Sim", on_click=_finish(True)),
+                nao_btn,
+                sim_btn,
             ],
         )
         dlg_holder["dlg"] = dlg
         self._confirm_open = True
         if not self._present_dialog(dlg):
             self._confirm_open = False
-            return None
-        done.wait()
-        return choice["v"]
+            return
+        self.page.run_thread(
+            lambda: self._load_pasta_destino_list(app_id, list_host, sim_btn, nao_btn, state)
+        )
 
-    def _publish_delete_sharepoint_worker(self, app_id: str) -> None:
+    def _load_pasta_destino_list(
+        self,
+        app_id: str,
+        list_host: ft.Column,
+        sim_btn: ft.Control,
+        nao_btn: ft.Control,
+        state: dict,
+    ) -> None:
+        def _silent(_pct: float, _msg: str) -> None:
+            return
+
         pending, early = prepare_sharepoint_app_delete(
             app_id,
             expected_fingerprint=self.publish_form.fingerprint,
-            progress=self._on_publish_progress,
+            progress=_silent,
         )
+        state["prep"] = pending
+        state["prep_err"] = early
+        state["list_done"].set()
+        if state["answered"]:
+            if state["choice"] is None:
+                abort_prepared_app_delete(pending)
+            return
         if early is not None:
+            list_host.controls = [
+                ft.Text(
+                    early.message or "Falha ao listar a Pasta Destino.",
+                    size=13,
+                    color="#8AA797",
+                )
+            ]
+            self._refresh_pasta_dialog(list_host)
+            return
+        if pending is None:
+            list_host.controls = [
+                ft.Text("Falha ao preparar exclusao.", size=13, color="#8AA797")
+            ]
+            self._refresh_pasta_dialog(list_host)
+            return
+        state["list_ready"] = True
+        list_host.controls = self._pasta_destino_list_controls(pending.folder_files)
+        sim_btn.disabled = False
+        nao_btn.disabled = False
+        self._refresh_pasta_dialog(list_host, sim_btn, nao_btn)
+
+    def _abort_pasta_destino_delete(self, state: dict) -> None:
+        state["list_done"].wait()
+        abort_prepared_app_delete(state.get("prep"))
+
+    def _start_sharepoint_delete(self, app_id: str, delete_folder: bool, state: dict) -> None:
+        if not self.can_publish or self.publish_form.busy or self.structure.busy:
+            self.page.run_thread(lambda: self._abort_pasta_destino_delete(state))
+            return
+        self.publish_form.busy = True
+        self.publish_form.conflict = False
+        self.publish_form.hold_scroll = True
+        self.publish_form.notice = ""
+        self.publish_form.notice_ok = False
+        self.publish_form.message = "Excluindo..."
+        self.publish_form.progress = -1.0
+        self._render()
+        self.page.run_thread(
+            lambda: self._sharepoint_delete_after_answers(app_id, delete_folder, state)
+        )
+
+    def _sharepoint_delete_after_answers(
+        self, app_id: str, delete_folder: bool, state: dict
+    ) -> None:
+        state["list_done"].wait()
+        early = state.get("prep_err")
+        pending = state.get("prep")
+        if early is not None:
+            abort_prepared_app_delete(pending)
             self._apply_publish_delete_result(early)
             return
         if pending is None:
@@ -1125,18 +1234,9 @@ class SuiteApp:
                 PublishOutcome(ok=False, message="Falha ao preparar exclusao.")
             )
             return
-        fold = self._ask_pasta_destino_delete(pending.folder_files)
-        if fold is None:
-            abort_prepared_app_delete(pending)
-            self.publish_form.busy = False
-            self.publish_form.message = ""
-            self.publish_form.progress = None
-            self.publish_form.hold_scroll = False
-            self._render()
-            return
         result = complete_prepared_app_delete(
             pending,
-            delete_folder=bool(fold),
+            delete_folder=delete_folder,
             progress=self._on_publish_progress,
         )
         self._apply_publish_delete_result(result)
