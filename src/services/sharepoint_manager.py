@@ -105,6 +105,7 @@ class SharePointResult:
     stdout: str = ""
     skipped: bool = False
     remote_name: str = ""
+    files: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -615,6 +616,61 @@ class PnPWebLoginSession:
         return SharePointResult(
             ok=False,
             message=str(ack.get("error") or "Falha ao mover arquivo no SharePoint."),
+        )
+
+    def list_folder_files(self, folder_url: str) -> SharePointResult:
+        raw = (folder_url or "").strip()
+        if not raw.lower().startswith(("http://", "https://")):
+            return SharePointResult(ok=False, message="Link da pasta ausente.")
+        try:
+            info = parsear_link_pasta_sharepoint(raw)
+        except ValueError as exc:
+            return SharePointResult(ok=False, message=str(exc))
+        ack = self._send(
+            {
+                "op": "list_folder_files",
+                "site_url": str(info.get("site_url") or self.site_url),
+                "caminho_sp": info.get("caminho_sp") or "",
+            }
+        )
+        if not ack.get("ok"):
+            return SharePointResult(
+                ok=False,
+                message=str(ack.get("error") or "Falha ao listar a pasta no SharePoint."),
+            )
+        raw_files = ack.get("files")
+        names: list[str] = []
+        if isinstance(raw_files, str) and raw_files.strip():
+            names = [raw_files.strip()]
+        elif isinstance(raw_files, list):
+            seen: set[str] = set()
+            for item in raw_files:
+                name = str(item or "").strip()
+                if name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        return SharePointResult(ok=True, message="Pasta listada.", files=names)
+
+    def delete_folder(self, folder_url: str) -> SharePointResult:
+        raw = (folder_url or "").strip()
+        if not raw.lower().startswith(("http://", "https://")):
+            return SharePointResult(ok=False, message="Link da pasta ausente.")
+        try:
+            info = parsear_link_pasta_sharepoint(raw)
+        except ValueError as exc:
+            return SharePointResult(ok=False, message=str(exc))
+        ack = self._send(
+            {
+                "op": "delete_folder",
+                "site_url": str(info.get("site_url") or self.site_url),
+                "caminho_sp": info.get("caminho_sp") or "",
+            }
+        )
+        if ack.get("ok"):
+            return SharePointResult(ok=True, message="Pasta removida no SharePoint.")
+        return SharePointResult(
+            ok=False,
+            message=str(ack.get("error") or "Falha ao excluir a pasta no SharePoint."),
         )
 
 

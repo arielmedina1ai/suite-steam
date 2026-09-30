@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -109,9 +108,24 @@ APP_NAME = (
 APP_VERSION = str(_app.get("version", "0.1.0")).strip() or "0.1.0"
 
 
+def _load_build_date() -> str:
+    """Data dd/mm/yyyy gravada no pack do .exe. Vazio em modo fonte."""
+    if not _is_frozen():
+        return ""
+    path = BUNDLE_DIR / "build_date.txt"
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return raw
+
+
 def app_version_display() -> str:
-    """Versao do app com a data local de hoje (vX.Y.Z - dd/mm/yyyy)."""
-    return f"v{APP_VERSION} - {datetime.now().strftime('%d/%m/%Y')}"
+    """v{version} no fonte; v{version} - dd/mm/yyyy com a data do pack no .exe."""
+    built = _load_build_date()
+    if built:
+        return f"v{APP_VERSION} - {built}"
+    return f"v{APP_VERSION}"
 _company_raw = _app.get("company")
 APP_COMPANY = (
     _company_raw.strip()
