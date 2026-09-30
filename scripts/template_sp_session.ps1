@@ -361,6 +361,55 @@ function Invoke-MoveFile($cmd) {
     return @{ skipped = $false; name = $nome; path = $alvo }
 }
 
+function Invoke-ListFolderFiles($cmd) {
+    $caminho = Resolve-PastaSp ([string]$cmd.caminho_sp)
+    try {
+        Get-PnPFolder -Url $caminho -ErrorAction Stop | Out-Null
+    } catch {
+        return @()
+    }
+    $items = @(Get-PnPFolderItem -FolderSiteRelativeUrl $caminho -ItemType File -ErrorAction SilentlyContinue)
+    $names = @()
+    foreach ($it in $items) {
+        if ($it.Name) { $names += [string]$it.Name }
+    }
+    return $names
+}
+
+function Invoke-DeleteFolder($cmd) {
+    $caminho = Resolve-PastaSp ([string]$cmd.caminho_sp)
+    function Clear-PastaSp([string]$pasta) {
+        $subs = @(Get-PnPFolderItem -FolderSiteRelativeUrl $pasta -ItemType Folder -ErrorAction SilentlyContinue)
+        foreach ($s in $subs) {
+            $n = [string]$s.Name
+            if ($n -and $n -ne "." -and $n -ne "..") {
+                Clear-PastaSp "$pasta/$n"
+            }
+        }
+        $files = @(Get-PnPFolderItem -FolderSiteRelativeUrl $pasta -ItemType File -ErrorAction SilentlyContinue)
+        foreach ($f in $files) {
+            $rel = "$pasta/$($f.Name)"
+            try {
+                Remove-PnPFile -SiteRelativeUrl $rel -Force -ErrorAction Stop
+            } catch {
+                Remove-PnPFile -ServerRelativeUrl (SiteRel-ToServer $rel) -Force -ErrorAction Stop
+            }
+        }
+        $idx = $pasta.LastIndexOf("/")
+        if ($idx -lt 0) { throw "Nao e possivel excluir a pasta raiz do site." }
+        $pai = $pasta.Substring(0, $idx)
+        $nome = $pasta.Substring($idx + 1)
+        Remove-PnPFolder -Name $nome -Folder $pai -Force -ErrorAction Stop
+    }
+    try {
+        Get-PnPFolder -Url $caminho -ErrorAction Stop | Out-Null
+    } catch {
+        return $caminho
+    }
+    Clear-PastaSp $caminho
+    return $caminho
+}
+
 Write-Host "Conectando ao SharePoint (WebLogin)..." -ForegroundColor Cyan
 Connect-PnPOnline -Url $siteUrl -UseWebLogin -WarningAction SilentlyContinue
 $script:currentSite = $siteUrl
@@ -419,6 +468,14 @@ while ($true) {
             "move_file" {
                 $p = Invoke-MoveFile $cmd
                 Write-Ack @{ ok = $true; skipped = [bool]$p.skipped; name = [string]$p.name; path = [string]$p.path }
+            }
+            "list_folder_files" {
+                $p = Invoke-ListFolderFiles $cmd
+                Write-Ack @{ ok = $true; files = @($p) }
+            }
+            "delete_folder" {
+                $p = Invoke-DeleteFolder $cmd
+                Write-Ack @{ ok = $true; path = $p }
             }
             "quit" {
                 Write-Ack @{ ok = $true }

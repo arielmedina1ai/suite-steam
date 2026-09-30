@@ -68,6 +68,11 @@ $FileVersion = ($parts[0..3] -join ".")
 
 $FileDescription = "$ProductName - hub de aplicativos"
 
+$stampDate = Get-Date -Format "dd/MM/yyyy"
+$stampFile = Join-Path $Root "build_date.txt"
+Set-Content -Path $stampFile -Value $stampDate -Encoding ascii -NoNewline
+Write-Host "  build_date   -> $stampDate (build_date.txt no bundle)"
+
 $PackArgs = @(
     "pack",
     "src\main.py",
@@ -81,6 +86,7 @@ $PackArgs = @(
     "--add-data", "settings.json;.",
     "--add-data", "settings.example.json;.",
     "--add-data", "catalog.example.json;.",
+    "--add-data", "build_date.txt;.",
     "--hidden-import", "pystray",
     "--hidden-import", "pystray._win32",
     "--hidden-import", "pystray._base",
