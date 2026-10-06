@@ -220,7 +220,11 @@ def hydrate_catalog_images(
     capa_local: Path | None = None,
     icone_local: Path | None = None,
 ) -> None:
-    """Aponta imagem/icone da UI para o cache local; catalog.json permanece URL."""
+    """Aponta imagem/icone da UI para o cache local; catalog.json permanece URL.
+
+    So reescreve capa e icone no objeto em memoria. O bloco ``tutorial``
+    (markdown_url e videos) fica intacto, assim como as URLs no JSON.
+    """
     config.CATALOG_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     manifest = _load_images_manifest()
     alvo = (seed_app_id or "").strip()

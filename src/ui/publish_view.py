@@ -568,6 +568,98 @@ def bind_publish_form(
 
     pasta_field.on_change = _on_pasta
 
+    def _video_editor() -> ft.Control:
+        rows: list[ft.Control] = []
+        for index, (titulo, url) in enumerate(form.tutorial_videos):
+            title_changed = form.video_part_changed(index, "titulo")
+            url_changed = form.video_part_changed(index, "url")
+            title_field = ft.TextField(
+                value=titulo,
+                hint_text="Titulo",
+                expand=2,
+                **field_kwargs(changed=title_changed),
+            )
+            url_field = ft.TextField(
+                value=url,
+                hint_text="Link .mp4",
+                expand=3,
+                **field_kwargs(changed=url_changed),
+            )
+            row_box = ft.Container(
+                bgcolor=_CHANGED_FILL if (title_changed or url_changed) else None,
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6) if (title_changed or url_changed) else 0,
+                border=ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)) if (title_changed or url_changed) else None,
+                content=ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        title_field,
+                        url_field,
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE_OUTLINE,
+                            icon_color="#8AA797",
+                            tooltip="Remover video",
+                            disabled=form.busy,
+                            on_click=lambda e, idx=index: on_field(f"tutorial_video_remove:{idx}", "1"),
+                        ),
+                    ],
+                ),
+            )
+
+            def _paint(idx: int, box: ft.Container, title_ctl: ft.TextField, url_ctl: ft.TextField) -> None:
+                t_changed = form.video_part_changed(idx, "titulo")
+                u_changed = form.video_part_changed(idx, "url")
+                changed = t_changed or u_changed
+                box.bgcolor = _CHANGED_FILL if changed else None
+                box.padding = ft.Padding.symmetric(horizontal=8, vertical=6) if changed else 0
+                box.border = ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)) if changed else None
+                title_ctl.fill_color = _CHANGED_FILL if t_changed else _INPUT_FILL
+                url_ctl.fill_color = _CHANGED_FILL if u_changed else _INPUT_FILL
+                try:
+                    box.update()
+                    title_ctl.update()
+                    url_ctl.update()
+                except Exception:
+                    pass
+
+            def _on_title(e, idx=index, box=row_box, title_ctl=title_field, url_ctl=url_field) -> None:
+                on_field(f"tutorial_video_title:{idx}", e.control.value or "")
+                _paint(idx, box, title_ctl, url_ctl)
+
+            def _on_url(e, idx=index, box=row_box, title_ctl=title_field, url_ctl=url_field) -> None:
+                on_field(f"tutorial_video_url:{idx}", e.control.value or "")
+                _paint(idx, box, title_ctl, url_ctl)
+
+            title_field.on_change = _on_title
+            url_field.on_change = _on_url
+            rows.append(row_box)
+        rows.append(
+            ft.OutlinedButton(
+                content="Adicionar video",
+                icon=ft.Icons.ADD,
+                disabled=form.busy,
+                on_click=lambda e: on_field("tutorial_video_add", "1"),
+            )
+        )
+        return option7_row(
+            "Videos",
+            ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[
+                    ft.Text(
+                        "Titulo e link .mp4. Link vazio e ignorado. O arquivo nao e enviado.",
+                        size=12,
+                        color="#8AA797",
+                    ),
+                    *rows,
+                ],
+            ),
+            align=ft.CrossAxisAlignment.START,
+            changed=form.is_changed("tutorial_videos"),
+        )
+
     heading = "Novo aplicativo" if not form.editing_id else f"Editar: {form.nome or form.editing_id}"
     done_text = form.notice if form.notice else ("" if form.busy else form.message)
     app_controls: list[ft.Control] = [
@@ -667,6 +759,13 @@ def bind_publish_form(
                 url_key="current_icone",
                 preview_src=form.preview_icone,
             ),
+            _tf("Markdown", "tutorial_markdown_url", form.tutorial_markdown_url),
+            ft.Text(
+                "Link do .md no SharePoint. O arquivo nao e enviado por aqui.",
+                size=12,
+                color="#8AA797",
+            ),
+            _video_editor(),
         ],
         on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
         preserve_inner=form.hold_scroll,

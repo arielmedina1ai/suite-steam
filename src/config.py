@@ -203,6 +203,7 @@ CATALOG_CACHE_DIR = USER_DATA_DIR / "catalog"
 CATALOG_CACHE_FILE = CATALOG_CACHE_DIR / "catalog.json"
 CATALOG_IMAGES_DIR = CATALOG_CACHE_DIR / "images"
 CATALOG_IMAGES_MANIFEST = CATALOG_CACHE_DIR / "images_manifest.json"
+TUTORIAL_CACHE_DIR = CATALOG_CACHE_DIR / "tutorials"
 
 
 def user_downloads_dir() -> Path:

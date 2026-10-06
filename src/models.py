@@ -156,11 +156,21 @@ class AppInfo:
     download_url: str = ""
     upload_url: str = ""  # link da pasta SharePoint para envio (opcional)
     versao: str = "1.0.0"
+    tutorial_markdown_url: str = ""
+    tutorial_videos: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def has_tutorial(self) -> bool:
+        """Selo e botao so existem com markdown ou ao menos um video com url."""
+        if (self.tutorial_markdown_url or "").strip():
+            return True
+        return any((url or "").strip() for _titulo, url in self.tutorial_videos)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AppInfo":
         imagem = str(data.get("imagem", "")).strip()
         icone = str(data.get("icone", "")).strip()
+        markdown_url, videos = _tutorial_from_dict(data.get("tutorial"))
         return cls(
             id=str(data["id"]).strip(),
             nome=str(data.get("nome", data["id"])).strip(),
@@ -177,6 +187,8 @@ class AppInfo:
             download_url=str(data.get("download_url", "")).strip(),
             upload_url=str(data.get("upload_url", "")).strip(),
             versao=str(data.get("versao", "1.0.0")),
+            tutorial_markdown_url=markdown_url,
+            tutorial_videos=videos,
         )
 
 
@@ -243,6 +255,28 @@ class CatalogData:
             setores=self.setores,
             gerencia_geral=self.gerencia_geral,
         )
+
+
+def _tutorial_from_dict(raw: Any) -> tuple[str, list[tuple[str, str]]]:
+    """Le tutorial.markdown_url e tutorial.videos[{titulo, url}].
+
+    Catalogo sem o bloco continua vazio. Url vazia nao vira video.
+    """
+    if not isinstance(raw, dict):
+        return "", []
+    markdown_url = str(raw.get("markdown_url") or "").strip()
+    videos: list[tuple[str, str]] = []
+    items = raw.get("videos")
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            titulo = str(item.get("titulo") or "").strip()
+            url = str(item.get("url") or "").strip()
+            if not url:
+                continue
+            videos.append((titulo, url))
+    return markdown_url, videos
 
 
 def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:

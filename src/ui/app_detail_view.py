@@ -27,6 +27,7 @@ class AppDetailView:
         on_run=None,
         on_update_app=None,
         on_uninstall=None,
+        on_tutorial=None,
         on_status=None,
         this_app_running: bool = False,
         work_busy: bool = False,
@@ -43,6 +44,7 @@ class AppDetailView:
         self.on_run = on_run
         self.on_update_app = on_update_app
         self.on_uninstall = on_uninstall
+        self.on_tutorial = on_tutorial
         self.on_status = on_status
         self.this_app_running = this_app_running
         self.work_busy = work_busy
@@ -63,6 +65,11 @@ class AppDetailView:
         self.local_info = ft.Text("", size=12, color="#8AA797")
 
         self.action_button = ft.FilledButton(on_click=self._on_action)
+        self.tutorial_button = ft.OutlinedButton(
+            "Tutorial",
+            icon=ft.Icons.MENU_BOOK,
+            on_click=self._on_tutorial,
+        )
         self.update_button = ft.OutlinedButton(
             "Atualizar versao",
             icon=ft.Icons.SYSTEM_UPDATE,
@@ -137,14 +144,14 @@ class AppDetailView:
                 self.favorite_button,
             ],
         )
+        action_controls: list[ft.Control] = [self.action_button]
+        if self.app.has_tutorial:
+            action_controls.append(self.tutorial_button)
+        action_controls.extend([self.update_button, self.uninstall_button])
         actions = ft.Row(
             spacing=12,
             wrap=True,
-            controls=[
-                self.action_button,
-                self.update_button,
-                self.uninstall_button,
-            ],
+            controls=action_controls,
         )
         return ft.Column(
             expand=True,
@@ -170,6 +177,10 @@ class AppDetailView:
                 self.status_text,
             ],
         )
+
+    def _on_tutorial(self, _e) -> None:
+        if self.on_tutorial and self.app.has_tutorial:
+            self.on_tutorial(self.app)
 
     def _on_toggle_favorite(self, _e) -> None:
         if self.on_toggle_favorite:

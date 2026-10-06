@@ -24,6 +24,7 @@ aparecem; sem selecao, o SuiteApps mostra todos.
 - Bandeja no Windows (fechar/minimizar nao encerra) e **iniciar com o Windows** ligado por padrao.
 - Branding local em `assets/branding/` (logo, hero, icone da janela e da bandeja).
 - Capas/icones em cache por `*_versao`.
+- Tutorial por app (opcional no catalogo): selo no card, botao na tela do app, markdown com topicos `##` e player de `.mp4` local.
 
 ## Estrutura
 
@@ -83,6 +84,7 @@ Pasta sob `%LOCALAPPDATA%` definida por `app.data_dir` (padrao `SuiteApps`):
     catalog.json           # cache do catalogo
     images/                # capas e icones
     images_manifest.json
+    tutorials/             # cache do markdown e dos mp4 do tutorial
   installed.json           # manifesto de instalacao
   favorites.json           # favoritos do usuario
   preferences.json         # gerencia selecionada + iniciar com o Windows
@@ -127,6 +129,8 @@ flet pack src\main.py `
   --hidden-import pystray `
   --hidden-import pystray._win32 `
   --hidden-import PIL `
+  --hidden-import flet_video `
   --pyinstaller-build-args=--collect-all=pystray `
+  --pyinstaller-build-args=--collect-all=flet_video `
   --yes
 ```

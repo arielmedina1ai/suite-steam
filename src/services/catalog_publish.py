@@ -15,6 +15,7 @@ from urllib.parse import quote, urlparse
 import config
 from catalog.provider import hydrate_catalog_images
 from models import CatalogData, parse_catalog_dict
+from services.tutorial import tutorial_catalog_block
 from services.sharepoint_manager import (
     PnPWebLoginSession,
     baixar_do_sharepoint,
@@ -51,6 +52,8 @@ class PublishFormState:
     current_icone: str = ""
     preview_capa: str = ""
     preview_icone: str = ""
+    tutorial_markdown_url: str = ""
+    tutorial_videos: list[tuple[str, str]] = field(default_factory=list)
     select_scroll: float = 0.0
     edit_scroll: float = 0.0
     hold_scroll: bool = False
@@ -90,11 +93,17 @@ class PublishFormState:
             "current_download": self.current_download,
             "current_capa": self.current_capa,
             "current_icone": self.current_icone,
+            "tutorial_markdown_url": self.tutorial_markdown_url,
+            "tutorial_videos": _videos_token(self.tutorial_videos),
         }
 
     def is_changed(self, key: str) -> bool:
         if key in {"app_path", "capa_path", "icone_path"}:
             return bool((getattr(self, key, "") or "").strip())
+        if key == "tutorial_videos":
+            return _videos_token(self.tutorial_videos) != (
+                self.baseline.get("tutorial_videos") or "[]"
+            )
         if key == "move_files":
             current = "1" if self.move_files else "0"
             original = self.baseline.get(key, "0") or "0"
@@ -102,6 +111,40 @@ class PublishFormState:
         current = getattr(self, key, "") or ""
         original = self.baseline.get(key, "") or ""
         return current != original
+
+    def video_part_changed(self, index: int, part: str) -> bool:
+        if index < 0 or index >= len(self.tutorial_videos):
+            return False
+        title, url = self.tutorial_videos[index]
+        original = _baseline_videos(self.baseline.get("tutorial_videos") or "[]")
+        if index >= len(original):
+            return True
+        orig_title, orig_url = original[index]
+        if part == "titulo":
+            return title != orig_title
+        return url != orig_url
+
+
+def _videos_token(videos: list[tuple[str, str]]) -> str:
+    return json.dumps(
+        [[titulo, url] for titulo, url in videos],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _baseline_videos(raw: str) -> list[tuple[str, str]]:
+    try:
+        data = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    rows: list[tuple[str, str]] = []
+    for item in data:
+        if isinstance(item, list) and len(item) >= 2:
+            rows.append((str(item[0]), str(item[1])))
+    return rows
 
 
 @dataclass
@@ -886,6 +929,10 @@ def publish_app(
             entry["upload_url"] = upload_url
         elif "upload_url" in current:
             entry["upload_url"] = ""
+        entry["tutorial"] = tutorial_catalog_block(
+            form.tutorial_markdown_url,
+            form.tutorial_videos,
+        )
 
         upsert_app_entry(data, entry)
         apply_gerencia_change(

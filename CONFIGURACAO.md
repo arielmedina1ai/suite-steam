@@ -118,7 +118,11 @@ Estrutura completa (veja `catalog.example.json`):
       "icone_versao": "1",
       "tipo": "xlsm",
       "download_url": "https://...",
-      "versao": "1.2.0"
+      "versao": "1.2.0",
+      "tutorial": {
+        "markdown_url": "https://.../tutorial.md",
+        "videos": [{ "titulo": "Como instalar", "url": "https://.../instalar.mp4" }]
+      }
     }
   ]
 }
@@ -183,6 +187,25 @@ Com gerencia selecionada, o **Inicio** mostra nome + descricao da gerencia
 - `versao`: bump ao publicar arquivo novo do app.
 - `upload_url` (opcional): habilita envio ao SharePoint.
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
+- `tutorial` (opcional): some se o bloco nao existir.
+  - `markdown_url`: link do passo a passo `.md` no SharePoint.
+  - `videos[]`: `{ "titulo", "url" }` de um `.mp4` (H.264 + AAC). Url vazia nao conta.
+  - Sem `markdown_url` e sem video com url, o card nao ganha selo e a tela do app nao tem botao.
+
+O selo **Tutorial** aparece no card da home e do setor quando ha conteudo.
+Na tela do app, o botao contornado **Tutorial** fica depois de **Baixar / Instalar**
+ou **Executar** e antes de **Atualizar versao** e **Desinstalar**.
+
+A pagina abre com um player 16:9 de largura fixa e a lista de titulos ao lado.
+So baixa o video clicado (PnP, cache em `catalog/tutorials/`) e toca o arquivo
+local. Outra extensao mostra um aviso curto e nao entra no player. Embaixo, o
+markdown: o texto antes do primeiro `##` fica visivel; cada `##` abre e fecha.
+Imagem `https://` publica aparece. Imagem no SharePoint nao. Video escrito no
+markdown continua link.
+
+Na aba **Publicar**, em **Editar**, ha o link do markdown e linhas de titulo +
+link de video (adicionar/remover). O save grava so os links, no mesmo login
+WebLogin. Nao envia o `.md` nem o `.mp4`.
 
 ### Imagens e cache
 
@@ -231,6 +254,7 @@ notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
 - **Baixar / Instalar** ou **Executar** (nao abre segunda instancia **do mesmo** app
   se ele ja estiver em execucao, inclusive iniciado antes do hub / pelo Startup;
   outros apps do catalogo podem ficar abertos ao mesmo tempo)
+- **Tutorial** (contornado, so se houver markdown ou video; abre a pagina do app)
 - **Atualizar versao** (quando `versao` do catalogo difere da instalada; se **esse**
   processo estiver aberto, o hub encerra, instala e reabre)
 - **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps) e Estrutura (gerencias, setores, sub-setores); envio para `publish.folder_url`

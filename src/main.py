@@ -64,6 +64,7 @@ from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
+from ui.tutorial_view import TutorialView
 from ui.catalog_view import bind_catalog_view, session_holder
 from ui.home_view import build_favoritos_view, build_home, build_setor_view
 from ui.progress_util import bar_value, label as progress_label
@@ -83,6 +84,7 @@ class SuiteApp:
         self.apps_by_id: dict[str, AppInfo] = {}
         self.selected_gerencia_id = self.preferences.get_gerencia_id()
         self.selected_id: str | None = None
+        self.show_tutorial = False
         self.selected_setor: str | None = None
         self.show_favorites = False
         self.show_publish = False
@@ -463,6 +465,7 @@ class SuiteApp:
 
     # ------------------------------------------------------------------
     def _leave_app_screen(self) -> None:
+        self.show_tutorial = False
         self.run_error = ""
         self.detail_notice = ""
         self.detail_notice_app_id = None
@@ -532,9 +535,18 @@ class SuiteApp:
         self.show_publish = False
         self._render()
 
+    def _open_tutorial(self, _app: AppInfo | None = None) -> None:
+        self.show_tutorial = True
+        self._render()
+
+    def _close_tutorial(self) -> None:
+        self.show_tutorial = False
+        self._render()
+
     def _select_app(self, app_id: str) -> None:
         if self.selected_id != app_id:
             self._leave_app_screen()
+        self.show_tutorial = False
         self.selected_id = app_id
         app = self.apps_by_id.get(app_id)
         if app is not None and app.setor:
@@ -648,6 +660,8 @@ class SuiteApp:
             current_download=app.download_url,
             current_capa=file_capa or catalog_http_url(app.catalog_imagem),
             current_icone=file_icone or catalog_http_url(app.catalog_icone),
+            tutorial_markdown_url=app.tutorial_markdown_url,
+            tutorial_videos=list(app.tutorial_videos),
             preview_capa=str(app.imagem or "") if app.imagem and not str(app.imagem).lower().startswith(("http://", "https://")) else "",
             preview_icone=str(app.icone or "") if app.icone and not str(app.icone).lower().startswith(("http://", "https://")) else "",
             original_gerencia_id=gid,
@@ -692,6 +706,34 @@ class SuiteApp:
                 "yes",
             }
             return
+        if key == "tutorial_video_add":
+            self.publish_form.tutorial_videos.append(("", ""))
+            self._render()
+            return
+        if key.startswith("tutorial_video_remove:"):
+            try:
+                idx = int(key.split(":", 1)[1])
+            except ValueError:
+                return
+            videos = self.publish_form.tutorial_videos
+            if 0 <= idx < len(videos):
+                del videos[idx]
+            self._render()
+            return
+        if key.startswith("tutorial_video_title:") or key.startswith("tutorial_video_url:"):
+            try:
+                idx = int(key.split(":", 1)[1])
+            except ValueError:
+                return
+            videos = self.publish_form.tutorial_videos
+            if idx < 0 or idx >= len(videos):
+                return
+            title, url = videos[idx]
+            if key.startswith("tutorial_video_title:"):
+                videos[idx] = (value, url)
+            else:
+                videos[idx] = (title, value)
+            return
         if hasattr(self.publish_form, key):
             setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
             if key in {
@@ -702,6 +744,7 @@ class SuiteApp:
                 "current_download",
                 "current_capa",
                 "current_icone",
+                "tutorial_markdown_url",
             }:
                 return
             self._render()
@@ -851,6 +894,8 @@ class SuiteApp:
         form.current_download = app.download_url
         form.current_capa = file_capa or catalog_http_url(app.catalog_imagem)
         form.current_icone = file_icone or catalog_http_url(app.catalog_icone)
+        form.tutorial_markdown_url = app.tutorial_markdown_url
+        form.tutorial_videos = list(app.tutorial_videos)
         form.preview_capa = (
             str(app.imagem or "")
             if app.imagem and not str(app.imagem).lower().startswith(("http://", "https://"))
@@ -1909,7 +1954,15 @@ class SuiteApp:
                 self.content_holder.content = ft.Text(
                     "Aplicativo nao encontrado.", color=config.COLOR_TEXT
                 )
+            elif self.show_tutorial and app.has_tutorial:
+                self.content_holder.content = TutorialView(
+                    self.page,
+                    app,
+                    self._close_tutorial,
+                ).build()
             else:
+                if self.show_tutorial and not app.has_tutorial:
+                    self.show_tutorial = False
                 self.content_holder.content = AppDetailView(
                     self.page,
                     app,
@@ -1920,6 +1973,7 @@ class SuiteApp:
                     on_run=self._run_catalog_app,
                     on_update_app=self._request_app_update,
                     on_uninstall=self._request_uninstall,
+                    on_tutorial=self._open_tutorial,
                     on_status=self._set_detail_notice,
                     this_app_running=self._this_app_running(app.id),
                     work_busy=self.app_job_busy and self.app_job_app_id == app.id,

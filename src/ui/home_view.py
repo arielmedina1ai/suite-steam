@@ -27,8 +27,41 @@ def _star_button(app_id: str, is_fav: bool, on_toggle: Callable[[str], None]) ->
     return ft.IconButton(icon=ft.Icons.STAR if is_fav else ft.Icons.STAR_BORDER, icon_color=config.COLOR_ACCENT if is_fav else "#8AA797", icon_size=22, tooltip="Remover dos favoritos" if is_fav else "Adicionar aos favoritos", on_click=lambda e, aid=app_id: on_toggle(aid))
 
 
+def _tutorial_badge() -> ft.Control:
+    return ft.Container(
+        bgcolor=config.COLOR_PRIMARY,
+        border_radius=6,
+        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+        content=ft.Text("Tutorial", size=11, color="white"),
+    )
+
+
 def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bool, on_toggle_favorite: Callable[[str], None]) -> ft.Control:
-    body = ft.Container(ink=True, expand=True, on_click=lambda e, aid=app.id: on_select(aid), content=ft.Column(spacing=8, expand=True, controls=[ft.Text(app.nome, size=16, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS), ft.Text(app.descricao, size=13, color="#B9CEC3", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS, expand=True), ft.Row(controls=[ft.Container(bgcolor=config.COLOR_PRIMARY_DARK, border_radius=6, padding=ft.Padding.symmetric(horizontal=8, vertical=3), content=ft.Text(app.tipo.value.upper(), size=11, color=config.COLOR_ACCENT)), ft.Text(f"v{app.versao}", size=12, color="#8AA797")], spacing=8)]))
+    meta: list[ft.Control] = [
+        ft.Container(
+            bgcolor=config.COLOR_PRIMARY_DARK,
+            border_radius=6,
+            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+            content=ft.Text(app.tipo.value.upper(), size=11, color=config.COLOR_ACCENT),
+        ),
+        ft.Text(f"v{app.versao}", size=12, color="#8AA797"),
+    ]
+    if app.has_tutorial:
+        meta.append(_tutorial_badge())
+    body = ft.Container(
+        ink=True,
+        expand=True,
+        on_click=lambda e, aid=app.id: on_select(aid),
+        content=ft.Column(
+            spacing=8,
+            expand=True,
+            controls=[
+                ft.Text(app.nome, size=16, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                ft.Text(app.descricao, size=13, color="#B9CEC3", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                ft.Row(controls=meta, spacing=8),
+            ],
+        ),
+    )
     return ft.Container(width=_CARD_WIDTH, height=_CARD_HEIGHT, border_radius=12, bgcolor=config.COLOR_SURFACE, padding=12, clip_behavior=ft.ClipBehavior.HARD_EDGE, content=ft.Column(spacing=4, controls=[ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START, controls=[app_icon(app, size=36, color=config.COLOR_ACCENT), _star_button(app.id, is_favorite, on_toggle_favorite)]), body]))
 
 
