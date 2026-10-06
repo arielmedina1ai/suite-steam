@@ -955,16 +955,244 @@ def remove_app_entry(data: dict[str, Any], app_id: str) -> None:
         item["apps"] = [a for a in (item.get("apps") or []) if str(a).strip() != alvo]
 
 
-def delete_catalog_app(
-    app_id: str,
+@dataclass
+class PendingSharePointDelete:
+    session: PnPWebLoginSession
+    data: dict[str, Any]
+    current: dict[str, Any]
+    app_id: str
+    folder_files: list[str]
+    upload_url: str
+
+
+def _same_folder_url(left: str, right: str) -> bool:
+    try:
+        a = parsear_link_pasta_sharepoint(left)
+        b = parsear_link_pasta_sharepoint(right)
+    except ValueError:
+        return False
+    site_a = str(a.get("site_url") or "").rstrip("/").lower()
+    site_b = str(b.get("site_url") or "").rstrip("/").lower()
+    path_a = str(a.get("caminho_sp") or "").strip("/").replace("\\", "/").lower()
+    path_b = str(b.get("caminho_sp") or "").strip("/").replace("\\", "/").lower()
+    return bool(site_a and site_a == site_b and path_a == path_b)
+
+
+def _folder_files_excluding_catalog_assets(
+    names: list[str],
+    current: dict[str, Any],
+    folder_url: str,
+) -> list[str]:
+    """Lista a pasta sem o arquivo do app, a capa e o icone se estiverem nela."""
+    listed = [(n or "").strip() for n in names if (n or "").strip()]
+    listed_lower = {n.lower() for n in listed}
+    omit: set[str] = set()
+    for key in ("download_url", "imagem", "icone"):
+        raw = catalog_http_url(str(current.get(key) or ""))
+        if not raw:
+            continue
+        leaf = existing_remote_filename(raw, "")
+        leaf_key = leaf.lower() if leaf else ""
+        lives_in = False
+        try:
+            info = parsear_link_sharepoint(raw)
+        except ValueError:
+            info = {}
+        if info.get("tipo") == "unique_id":
+            lives_in = bool(leaf_key and leaf_key in listed_lower)
+        elif folder_url:
+            lives_in = same_sharepoint_folder(raw, folder_url)
+        if lives_in and leaf_key:
+            omit.add(leaf_key)
+    return [n for n in listed if n.lower() not in omit]
+
+
+def _delete_entry_sharepoint_files(
+    session: PnPWebLoginSession,
+    current: dict[str, Any],
+    report: ProgressCb,
+) -> str:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for key in ("download_url", "imagem", "icone"):
+        raw = catalog_http_url(str(current.get(key) or ""))
+        if raw and raw not in seen:
+            seen.add(raw)
+            urls.append(raw)
+    for url in urls:
+        report(-1.0, "Excluindo arquivo no SharePoint...")
+        result = session.delete_remote(url)
+        if not result.ok:
+            return result.message or "Falha ao excluir arquivo no SharePoint."
+    return ""
+
+
+def abort_prepared_app_delete(pending: PendingSharePointDelete | None) -> None:
+    if pending is None:
+        return
+    try:
+        pending.session.close()
+    except Exception:
+        pass
+
+
+def complete_prepared_app_delete(
+    pending: PendingSharePointDelete,
     *,
-    expected_fingerprint: str,
-    delete_sharepoint_files: bool,
+    delete_folder: bool,
     progress: ProgressCb | None = None,
 ) -> PublishOutcome:
     def report(pct: float, msg: str) -> None:
         if progress:
             progress(pct, msg)
+
+    session = pending.session
+    try:
+        err = _delete_entry_sharepoint_files(session, pending.current, report)
+        if err:
+            return PublishOutcome(ok=False, message=err)
+        if delete_folder and pending.upload_url:
+            root = (config.PUBLISH_FOLDER_URL or "").strip()
+            if root and _same_folder_url(pending.upload_url, root):
+                return PublishOutcome(
+                    ok=False,
+                    message="A Pasta Destino e a pasta raiz de publicacao e nao pode ser excluida.",
+                )
+            report(-1.0, "Excluindo Pasta Destino no SharePoint...")
+            result = session.delete_folder(pending.upload_url)
+            if not result.ok:
+                return PublishOutcome(
+                    ok=False,
+                    message=result.message or "Falha ao excluir a Pasta Destino no SharePoint.",
+                )
+        remove_app_entry(pending.data, pending.app_id)
+        report(-1.0, "Enviando catalog.json...")
+        return _upload_catalog_text(pending.data, report, session=session)
+    finally:
+        session.close()
+
+
+def prepare_sharepoint_app_delete(
+    app_id: str,
+    *,
+    expected_fingerprint: str,
+    progress: ProgressCb | None = None,
+) -> tuple[PendingSharePointDelete | None, PublishOutcome | None]:
+    def report(pct: float, msg: str) -> None:
+        if progress:
+            progress(pct, msg)
+
+    alvo = (app_id or "").strip()
+    if not alvo:
+        return None, PublishOutcome(ok=False, message="Nenhum aplicativo selecionado.")
+
+    session: PnPWebLoginSession | None = None
+    try:
+        cat_url = config.REMOTE_CATALOG_URL
+        if not cat_url:
+            return None, PublishOutcome(ok=False, message="catalog.remote_url nao configurado.")
+        try:
+            site = str(parsear_link_sharepoint(cat_url).get("site_url") or "")
+        except ValueError as exc:
+            return None, PublishOutcome(ok=False, message=str(exc))
+        if not site:
+            return None, PublishOutcome(ok=False, message="Site do catalog.remote_url nao determinado.")
+        session = PnPWebLoginSession(site, progress=report)
+        start_err = session.start()
+        if start_err:
+            return None, PublishOutcome(ok=False, message=start_err)
+
+        report(-1.0, "Relendo catalogo remoto...")
+        text, err = fetch_remote_catalog_text(progress=report, session=session)
+        if err:
+            return None, PublishOutcome(ok=False, message=err)
+        remote_fp = catalog_fingerprint(text)
+        if expected_fingerprint and remote_fp != expected_fingerprint:
+            return None, PublishOutcome(
+                ok=False,
+                conflict=True,
+                message=(
+                    "O catalogo remoto mudou desde que esta tela abriu. "
+                    "Reabra Publicar e tente de novo."
+                ),
+                fingerprint=remote_fp,
+            )
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            return None, PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
+        if not isinstance(data, dict):
+            return None, PublishOutcome(ok=False, message="Catalogo remoto invalido.")
+
+        current: dict[str, Any] | None = None
+        for item in data.get("apps") or []:
+            if isinstance(item, dict) and str(item.get("id") or "").strip() == alvo:
+                current = dict(item)
+                break
+        if current is None:
+            return None, PublishOutcome(ok=False, message="Aplicativo nao encontrado no catalogo remoto.")
+
+        upload_url = catalog_http_url(str(current.get("upload_url") or ""))
+        names: list[str] = []
+        if upload_url:
+            root = (config.PUBLISH_FOLDER_URL or "").strip()
+            if root and _same_folder_url(upload_url, root):
+                upload_url = ""
+            else:
+                report(-1.0, "Listando Pasta Destino...")
+                listed = session.list_folder_files(upload_url)
+                if not listed.ok:
+                    return None, PublishOutcome(
+                        ok=False,
+                        message=listed.message or "Falha ao listar a Pasta Destino.",
+                    )
+                names = _folder_files_excluding_catalog_assets(
+                    list(listed.files),
+                    current,
+                    upload_url,
+                )
+        pending = PendingSharePointDelete(
+            session=session,
+            data=data,
+            current=current,
+            app_id=alvo,
+            folder_files=names,
+            upload_url=upload_url,
+        )
+        session = None
+        return pending, None
+    finally:
+        if session is not None:
+            session.close()
+
+
+def delete_catalog_app(
+    app_id: str,
+    *,
+    expected_fingerprint: str,
+    delete_sharepoint_files: bool,
+    delete_folder: bool = False,
+    progress: ProgressCb | None = None,
+) -> PublishOutcome:
+    def report(pct: float, msg: str) -> None:
+        if progress:
+            progress(pct, msg)
+
+    if delete_sharepoint_files:
+        pending, early = prepare_sharepoint_app_delete(
+            app_id,
+            expected_fingerprint=expected_fingerprint,
+            progress=progress,
+        )
+        if early is not None:
+            return early
+        if pending is None:
+            return PublishOutcome(ok=False, message="Falha ao preparar exclusao.")
+        return complete_prepared_app_delete(
+            pending,
+            delete_folder=delete_folder,
+            progress=progress,
+        )
 
     alvo = (app_id or "").strip()
     if not alvo:
@@ -1015,23 +1243,6 @@ def delete_catalog_app(
                 break
         if current is None:
             return PublishOutcome(ok=False, message="Aplicativo nao encontrado no catalogo remoto.")
-
-        if delete_sharepoint_files:
-            urls: list[str] = []
-            seen: set[str] = set()
-            for key in ("download_url", "imagem", "icone"):
-                raw = catalog_http_url(str(current.get(key) or ""))
-                if raw and raw not in seen:
-                    seen.add(raw)
-                    urls.append(raw)
-            for url in urls:
-                report(-1.0, "Excluindo arquivo no SharePoint...")
-                result = session.delete_remote(url)
-                if not result.ok:
-                    return PublishOutcome(
-                        ok=False,
-                        message=result.message or "Falha ao excluir arquivo no SharePoint.",
-                    )
 
         remove_app_entry(data, alvo)
         report(-1.0, "Enviando catalog.json...")

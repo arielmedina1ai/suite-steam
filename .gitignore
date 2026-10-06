@@ -38,4 +38,5 @@ storage/
 # Artefatos locais do flet pack
 *.spec
 generated-*.ico
+build_date.txt
 
