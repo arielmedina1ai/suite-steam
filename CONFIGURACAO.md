@@ -118,7 +118,12 @@ Estrutura completa (veja `catalog.example.json`):
       "icone_versao": "1",
       "tipo": "xlsm",
       "download_url": "https://...",
-      "versao": "1.2.0"
+      "versao": "1.2.0",
+      "tutorial": {
+        "markdown_url": "https://.../tutorial.md",
+        "markdown_versao": "1",
+        "videos": [{ "titulo": "Como instalar", "url": "https://.../instalar.mp4", "versao": "1" }]
+      }
     }
   ]
 }
@@ -183,6 +188,34 @@ Com gerencia selecionada, o **Inicio** mostra nome + descricao da gerencia
 - `versao`: bump ao publicar arquivo novo do app.
 - `upload_url` (opcional): habilita envio ao SharePoint.
 - `tipo`: `exe`, `xlsx` ou `xlsm`.
+- `tutorial` (opcional): some se o bloco nao existir.
+  - `markdown_url` / `markdown_versao`: link do passo a passo `.md`. A versao fica no `catalog.json` e nao aparece no formulario. Sobe um numero quando um arquivo `.md` novo e enviado. Colar o link, sem arquivo novo, nao muda a versao.
+  - `videos[]`: `{ "titulo", "url", "versao" }` de um `.mp4` (H.264 + AAC). Url vazia nao conta. `versao` sobe so quando aquele video recebe um arquivo novo.
+  - Sem `markdown_url` e sem video com url, o card nao ganha selo e a tela do app nao tem botao.
+
+O selo **Tutorial** no card e o botao **Tutorial** na tela do app aparecem so depois que o app esta instalado (o mesmo estado de **Executar** e **Desinstalar**). Sem conteudo de tutorial, nao ha selo nem botao.
+
+**Baixar / Instalar** baixa o arquivo do app e, na mesma acao, o markdown e cada `.mp4` do tutorial (o mesmo PnP). O SharePoint usa o nome do link do catalogo (por exemplo `Meu Tutorial.md`). O hash fica so no arquivo local em `catalog/tutorials/`. Se um arquivo do tutorial falhar, a mensagem diz que ele nao foi salvo. Abrir **Tutorial** usa esse cache e nao baixa de novo enquanto o arquivo da versao atual (`markdown_versao` / `versao`) existir. So baixa outra vez se a versao no `catalog.json` mudou ou se o arquivo local sumiu.
+
+A pagina empilha um bloco por video, cada um numa caixa propria (superficie,
+borda, cantos arredondados e espaco entre elas). O titulo fica em texto,
+centralizado, acima do quadro 16:9. Play, pause e os demais controles sao os
+do proprio player, dentro do quadro. Outra extensao mostra um aviso curto e
+nao entra no player. O markdown fica numa caixa separada, embaixo dos videos:
+o texto antes do primeiro `##` fica visivel;
+cada `##` abre e fecha. Imagem `https://` publica aparece. Imagem no SharePoint nao.
+Video escrito no markdown continua link.
+
+Na aba **Publicar**, em **Editar**, o markdown e cada video seguem Arquivo, capa
+e icone. **Pasta Destino** e a pasta do envio: se nao existir, e criada com o
+nome exatamente como digitado. **Escolher arquivo** envia o arquivo local com o
+nome original (markdown `.md`; video `.mp4`, senao o aviso curto "Somente .mp4.").
+Um link colado, sem arquivo novo, entra no `catalog.json` e nao e enviado. Se
+houver arquivo novo e link antigo, o arquivo escolhido vale e vai para a Pasta
+Destino. O campo mostra a URL do catalogo por inteiro; o arquivo recem escolhido
+aparece a parte, como arquivo local a enviar. O que mudou fica destacado ate o
+save. Markdown, videos e o restante da publicacao usam o mesmo WebLogin oculto.
+`markdown_versao` e `versao` de cada video nao sao campos do formulario.
 
 ### Imagens e cache
 
@@ -218,8 +251,8 @@ copy assets\branding\window_icon.example.png assets\branding\window_icon.png
 | `window_icon.png` | `window_icon.example.png` | Icone da janela (gera `.ico`) | **256 x 256** px |
 
 **Nota Windows:** o SuiteApps converte `window_icon.png` → `window_icon.ico` ao abrir.
-O mesmo icone e usado na bandeja. Fechar ou minimizar envia o app para a area de
-notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
+O mesmo icone e usado na bandeja. Fechar (X) envia o app para a area de
+notificacao (Abrir / Sair). Minimizar deixa a janela na barra de tarefas. **Iniciar com o Windows** vem ligado por padrao
 (atalho na pasta Startup); da para desligar no interruptor da sidebar
 (`preferences.json` > `start_with_windows`).
 
@@ -231,6 +264,7 @@ notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
 - **Baixar / Instalar** ou **Executar** (nao abre segunda instancia **do mesmo** app
   se ele ja estiver em execucao, inclusive iniciado antes do hub / pelo Startup;
   outros apps do catalogo podem ficar abertos ao mesmo tempo)
+- **Tutorial** (contornado, so com o app instalado e se houver markdown ou video)
 - **Atualizar versao** (quando `versao` do catalogo difere da instalada; se **esse**
   processo estiver aberto, o hub encerra, instala e reabre)
 - **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps) e Estrutura (gerencias, setores, sub-setores); envio para `publish.folder_url`

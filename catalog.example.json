@@ -63,7 +63,18 @@
       "tipo": "xlsm",
       "download_url": "https://empresa.sharepoint.com/:x:/r/sites/seu-site/Documentos%20Compartilhados/relatorio-producao.xlsm",
       "upload_url": "https://empresa.sharepoint.com/sites/seu-site/Documentos%20Compartilhados/Forms/AllItems.aspx?id=%2Fsites%2Fseu-site%2FDocumentos%20Compartilhados%2Fpasta-envio",
-      "versao": "1.2.0"
+      "versao": "1.2.0",
+      "tutorial": {
+        "markdown_url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/tutoriais/relatorio-producao.md",
+        "markdown_versao": "1",
+        "videos": [
+          {
+            "titulo": "Como instalar",
+            "url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/tutoriais/instalar.mp4",
+            "versao": "1"
+          }
+        ]
+      }
     },
     {
       "id": "monitor-ativos",

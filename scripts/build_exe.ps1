@@ -73,6 +73,9 @@ $stampFile = Join-Path $Root "build_date.txt"
 Set-Content -Path $stampFile -Value $stampDate -Encoding ascii -NoNewline
 Write-Host "  build_date   -> $stampDate (build_date.txt no bundle)"
 
+# flet_video e o player. O plugin Flutter no pacote puxa media_kit,
+# media_kit_video e media_kit_libs_video. collect-all evita o player
+# sumir no .exe (o mesmo cuidado do pystray).
 $PackArgs = @(
     "pack",
     "src\main.py",
@@ -94,7 +97,9 @@ $PackArgs = @(
     "--hidden-import", "pystray._util.win32",
     "--hidden-import", "PIL",
     "--hidden-import", "PIL.Image",
+    "--hidden-import", "flet_video",
     "--pyinstaller-build-args=--collect-all=pystray",
+    "--pyinstaller-build-args=--collect-all=flet_video",
     "--yes"
 )
 

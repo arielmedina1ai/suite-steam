@@ -15,6 +15,7 @@ from services.catalog_publish import (
     ROOT_FOLDER,
     catalog_http_url,
 )
+from services.tutorial import video_row
 from ui.progress_util import bar_value, label as progress_label
 
 NEW_APP_KEY = "__new__"
@@ -402,17 +403,23 @@ def bind_publish_form(
         extra: list[ft.Control] | None = None,
         url_key: str = "",
         preview_src: str = "",
+        before: list[ft.Control] | None = None,
+        button_extra: list[ft.Control] | None = None,
+        display_name: str = "",
+        url_dirty: Callable[[], bool] | None = None,
+        row_dirty: Callable[[], bool] | None = None,
     ) -> ft.Control:
-        picked = Path(path).name if (path or "").strip() else ""
+        picked = (display_name or "").strip() or (Path(path).name if (path or "").strip() else "")
         catalog_url = catalog_http_url(current_url)
-        url_changed = bool(url_key) and form.is_changed(url_key)
-        changed = form.is_changed(key) or url_changed
+        url_changed = url_dirty() if url_dirty is not None else bool(url_key) and form.is_changed(url_key)
+        changed = row_dirty() if row_dirty is not None else form.is_changed(key) or url_changed
         url_field = ft.TextField(
             value=catalog_url,
             hint_text=empty,
             multiline=True,
             min_lines=2,
             max_lines=8,
+            read_only=False,
             text_size=12,
             filled=True,
             fill_color=_CHANGED_FILL if url_changed else _INPUT_FILL,
@@ -432,21 +439,26 @@ def bind_publish_form(
             )
         else:
             link_row = url_field
-        detail: list[ft.Control] = [link_row]
+        detail: list[ft.Control] = []
+        if before:
+            detail.extend(before)
+        detail.append(link_row)
         if extra:
             detail.extend(extra)
+        pick_button = ft.OutlinedButton(
+            content="Escolher arquivo",
+            icon=ft.Icons.FOLDER_OPEN,
+            disabled=form.busy,
+            on_click=lambda e, k=key: on_pick(k),
+        )
+        button_controls: list[ft.Control] = [pick_button]
+        if button_extra:
+            button_controls.extend(button_extra)
         detail.append(
             ft.Row(
                 spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.OutlinedButton(
-                        content="Escolher arquivo",
-                        icon=ft.Icons.FOLDER_OPEN,
-                        disabled=form.busy,
-                        on_click=lambda e, k=key: on_pick(k),
-                    )
-                ],
+                controls=button_controls,
             )
         )
         if picked:
@@ -465,11 +477,37 @@ def bind_publish_form(
             changed=changed,
         )
         if url_key:
-            def _on_url(e, k=url_key, wrap=box, field=url_field) -> None:
-                on_field(k, e.control.value or "")
-                apply_live_highlight(wrap, field, form.is_changed(k) or form.is_changed(key))
+            def _typed(e) -> str:
+                data = getattr(e, "data", None)
+                if isinstance(data, str):
+                    return data
+                return str(getattr(getattr(e, "control", None), "value", "") or "")
+
+            def _on_url(
+                e,
+                k=url_key,
+                wrap=box,
+                field=url_field,
+                path_key=key,
+                url_fn=url_dirty,
+                row_fn=row_dirty,
+            ) -> None:
+                typed = _typed(e)
+                field.value = typed
+                on_field(k, typed)
+                try:
+                    if row_fn is not None:
+                        dirty = row_fn()
+                    elif url_fn is not None:
+                        dirty = url_fn() or form.is_changed(path_key)
+                    else:
+                        dirty = form.is_changed(k) or form.is_changed(path_key)
+                    apply_live_highlight(wrap, field, dirty)
+                except Exception:
+                    pass
 
             url_field.on_change = _on_url
+            url_field.on_blur = _on_url
         return box
 
     folder_options = []
@@ -567,6 +605,67 @@ def bind_publish_form(
         )
 
     pasta_field.on_change = _on_pasta
+
+    def _video_editor() -> ft.Control:
+        rows: list[ft.Control] = []
+        for index, item in enumerate(form.tutorial_videos):
+            titulo, url, local, nome, _versao = video_row(item)
+
+            def _row_dirty(idx=index) -> bool:
+                return (
+                    form.video_part_changed(idx, "titulo")
+                    or form.video_part_changed(idx, "url")
+                    or form.video_part_changed(idx, "local")
+                )
+
+            title_field = ft.TextField(
+                value=titulo,
+                hint_text="Titulo",
+                **field_kwargs(changed=form.video_part_changed(index, "titulo")),
+            )
+            block = _file_block(
+                "Video",
+                f"tutorial_video:{index}",
+                local,
+                url,
+                preview=False,
+                empty="vazio no catalog.json (url do video)",
+                url_key=f"tutorial_video_url:{index}",
+                before=[title_field],
+                display_name=nome,
+                url_dirty=lambda idx=index: form.video_part_changed(idx, "url"),
+                row_dirty=_row_dirty,
+                button_extra=[
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE,
+                        icon_color="#8AA797",
+                        tooltip="Remover video",
+                        disabled=form.busy,
+                        on_click=lambda e, idx=index: on_field(f"tutorial_video_remove:{idx}", "1"),
+                    )
+                ],
+            )
+
+            def _on_title(e, idx=index, box=block, field=title_field) -> None:
+                on_field(f"tutorial_video_title:{idx}", e.control.value or "")
+                apply_live_highlight(box, field, _row_dirty(idx))
+
+            title_field.on_change = _on_title
+            rows.append(block)
+        rows.append(
+            ft.OutlinedButton(
+                content="Adicionar video",
+                icon=ft.Icons.ADD,
+                disabled=form.busy,
+                on_click=lambda e: on_field("tutorial_video_add", "1"),
+            )
+        )
+        return option7_row(
+            "Videos",
+            ft.Column(spacing=8, tight=True, controls=rows),
+            align=ft.CrossAxisAlignment.START,
+            changed=form.is_changed("tutorial_videos"),
+        )
 
     heading = "Novo aplicativo" if not form.editing_id else f"Editar: {form.nome or form.editing_id}"
     done_text = form.notice if form.notice else ("" if form.busy else form.message)
@@ -667,6 +766,17 @@ def bind_publish_form(
                 url_key="current_icone",
                 preview_src=form.preview_icone,
             ),
+            _file_block(
+                "Markdown",
+                "tutorial_markdown_path",
+                form.tutorial_markdown_path,
+                form.tutorial_markdown_url,
+                preview=False,
+                empty="vazio no catalog.json (tutorial.markdown_url)",
+                url_key="tutorial_markdown_url",
+                display_name=form.tutorial_markdown_upload_name,
+            ),
+            _video_editor(),
         ],
         on_scroll_offset=lambda v: _remember_scroll(form, "edit_scroll", v),
         preserve_inner=form.hold_scroll,

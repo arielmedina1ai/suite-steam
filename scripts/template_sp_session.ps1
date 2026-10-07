@@ -196,7 +196,11 @@ function Invoke-UploadFolder($cmd) {
         $pastaPai = $caminhoAtual.Substring(0, $idx)
         Add-PnPFolder -Name $nomePastaNova -Folder $pastaPai | Out-Null
     }
-    Add-PnPFile -Path $arquivoLocal -Folder $caminhoAtual | Out-Null
+    if ($nomeArquivo) {
+        Add-PnPFile -Path $arquivoLocal -Folder $caminhoAtual -NewFileName $nomeArquivo | Out-Null
+    } else {
+        Add-PnPFile -Path $arquivoLocal -Folder $caminhoAtual | Out-Null
+    }
     $arquivoSP = Get-PnPFile -Url "$caminhoAtual/$nomeArquivo" -ErrorAction SilentlyContinue
     if (-not $arquivoSP) { throw "Arquivo nao encontrado apos upload" }
     return "$caminhoAtual/$nomeArquivo"

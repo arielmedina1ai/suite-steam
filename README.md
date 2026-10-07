@@ -21,9 +21,10 @@ aparecem; sem selecao, o SuiteApps mostra todos.
 - Barra com percentual (ou indeterminado + texto no WebLogin) em download/update/sync.
 - Executar nao abre segunda instancia **do mesmo** app ja em execucao (mesmo fora desta sessao). Outros apps do catalogo podem rodar ao mesmo tempo. Com atualizacao pendente, **Atualizar versao** encerra so aquele processo, instala e reabre.
 - **Catalogo** (sidebar): so aparece se o login Windows estiver em `settings.json` > `publish.users`. Abas **Publicar** (apps) e **Estrutura** (gerencias/setores). Envio ao SharePoint via PnP WebLogin.
-- Bandeja no Windows (fechar/minimizar nao encerra) e **iniciar com o Windows** ligado por padrao.
+- Bandeja no Windows (fechar nao encerra; minimizar fica na barra de tarefas) e **iniciar com o Windows** ligado por padrao.
 - Branding local em `assets/branding/` (logo, hero, icone da janela e da bandeja).
 - Capas/icones em cache por `*_versao`.
+- Tutorial por app (opcional no catalogo): selo no card e botao na tela do app so depois de instalar, markdown com topicos `##` e player de `.mp4` local. Em Publicar, o `.md` e cada `.mp4` escolhidos sobem para a Pasta Destino como o arquivo do app. **Baixar / Instalar** tambem grava esses arquivos no cache.
 
 ## Estrutura
 
@@ -83,6 +84,7 @@ Pasta sob `%LOCALAPPDATA%` definida por `app.data_dir` (padrao `SuiteApps`):
     catalog.json           # cache do catalogo
     images/                # capas e icones
     images_manifest.json
+    tutorials/             # cache do markdown e dos mp4 do tutorial
   installed.json           # manifesto de instalacao
   favorites.json           # favoritos do usuario
   preferences.json         # gerencia selecionada + iniciar com o Windows
@@ -127,6 +129,8 @@ flet pack src\main.py `
   --hidden-import pystray `
   --hidden-import pystray._win32 `
   --hidden-import PIL `
+  --hidden-import flet_video `
   --pyinstaller-build-args=--collect-all=pystray `
+  --pyinstaller-build-args=--collect-all=flet_video `
   --yes
 ```
