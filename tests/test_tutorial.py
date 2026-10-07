@@ -51,9 +51,10 @@ def _walk(control):
     content = getattr(control, "content", None)
     if content is not None and not isinstance(content, str):
         yield from _walk(content)
-    controls = getattr(control, "controls", None) or []
-    for child in controls:
-        yield from _walk(child)
+    controls = getattr(control, "controls", None)
+    if isinstance(controls, (list, tuple)):
+        for child in controls:
+            yield from _walk(child)
 
 
 def _texts(control) -> list[str]:
@@ -328,7 +329,7 @@ class TutorialUiTests(unittest.TestCase):
         self.assertNotIn("Tutorial", _action_labels(installed_plain))
         self.assertEqual(_action_labels(detail), ["Executar", "Tutorial", "Desinstalar"])
 
-    def test_player_switches_one_local_mp4(self) -> None:
+    def test_videos_stack_title_above_player(self) -> None:
         app = AppInfo(
             id="com",
             nome="Com",
@@ -339,20 +340,44 @@ class TutorialUiTests(unittest.TestCase):
         )
         page = _Page()
         view = TutorialView(page, app, lambda: None)
-        view.build()
-        self.assertIsNotNone(view.player)
-        self.assertEqual(view.player.aspect_ratio, 16 / 9)
-        self.assertEqual(view.player.width, 480)
-        self.assertEqual(view.player.height, 270)
-        self.assertEqual(list(view.player.playlist), [])
-        view._on_pick(0)
-        self.assertEqual(view.status.value, "Somente .mp4.")
-        self.assertEqual(list(view.player.playlist), [])
-        self.assertEqual(page.threads, [])
-        view._show_local(Path("/tmp/um.mp4"))
-        view._show_local(Path("/tmp/dois.mp4"))
-        self.assertEqual(len(view.player.playlist), 1)
-        self.assertTrue(str(view.player.playlist[0].resource).endswith("dois.mp4"))
+        page_col = view.build()
+        self.assertIs(page_col.controls[-1], view.markdown_host)
+        self.assertIs(page_col.controls[-2], view.videos_host)
+        self.assertIsInstance(view.videos_host, ft.Column)
+        self.assertEqual(len(view.players), 2)
+        self.assertEqual(len(view.videos_host.controls), 2)
+        titles = []
+        for index, block in enumerate(view.videos_host.controls):
+            player = view.players[index]
+            self.assertEqual(player.aspect_ratio, 16 / 9)
+            self.assertEqual(player.width, 480)
+            self.assertEqual(player.height, 270)
+            self.assertIsNotNone(player.controls)
+            self.assertIsNot(player.show_controls, False)
+            self.assertIsInstance(block, ft.Column)
+            title = block.controls[0]
+            frame = block.controls[1]
+            self.assertIsInstance(title, ft.Text)
+            self.assertEqual(title.text_align, ft.TextAlign.CENTER)
+            self.assertIs(frame.content, player)
+            titles.append(title.value)
+            for node in _walk(block):
+                if node is player:
+                    continue
+                self.assertIsNone(getattr(node, "on_click", None))
+                self.assertNotIn(
+                    type(node).__name__,
+                    ("IconButton", "ElevatedButton", "FilledButton", "OutlinedButton", "TextButton"),
+                )
+        self.assertEqual(titles, ["Errado", "Certo"])
+        self.assertEqual(view.slots[0].status.value, "Somente .mp4.")
+        self.assertEqual(list(view.players[0].playlist), [])
+        self.assertEqual(len(page.threads), 1)
+        view._show_local(view.slots[1], Path("/tmp/um.mp4"))
+        view._show_local(view.slots[1], Path("/tmp/dois.mp4"))
+        self.assertEqual(len(view.players[1].playlist), 1)
+        self.assertTrue(str(view.players[1].playlist[0].resource).endswith("dois.mp4"))
+        self.assertEqual(list(view.players[0].playlist), [])
 
 
 class TutorialUploadTests(unittest.TestCase):
@@ -914,10 +939,13 @@ class TutorialVersionTests(unittest.TestCase):
                 view.build()
                 self.assertEqual(page.threads, [])
                 self.assertIn("Passo", _texts(view.markdown_host))
-                view._on_pick(0)
                 self.assertEqual(page.threads, [])
-                self.assertEqual(len(view.player.playlist), 1)
-                self.assertTrue(str(view.player.playlist[0].resource).endswith(".mp4"))
+                self.assertEqual(len(view.players), 1)
+                self.assertEqual(len(view.players[0].playlist), 1)
+                self.assertTrue(str(view.players[0].playlist[0].resource).endswith(".mp4"))
+                page_col = view.build()
+                self.assertIs(page_col.controls[-1], view.markdown_host)
+                self.assertIs(page_col.controls[-2], view.videos_host)
             finally:
                 tutorial_mod.baixar_do_sharepoint = original
                 config.TUTORIAL_CACHE_DIR = previous
