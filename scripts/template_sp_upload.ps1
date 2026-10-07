@@ -75,7 +75,8 @@ try {
 Write-Host "Enviando $nomeArquivo ..." -ForegroundColor Cyan
 Add-PnPFile `
     -Path $arquivoLocal `
-    -Folder $caminhoAtual
+    -Folder $caminhoAtual `
+    -NewFileName $nomeArquivo
 
 # --- VERIFICA RESULTADO ---
 $arquivoSP = Get-PnPFile -Url "$caminhoAtual/$nomeArquivo" -ErrorAction SilentlyContinue

@@ -18,6 +18,7 @@ from models import AppInfo, CatalogData, SetorInfo, parse_catalog_dict
 from services.catalog_publish import (
     PublishFormState,
     original_upload_name,
+    tutorial_remote_name,
     upsert_app_entry,
 )
 from services.storage import Storage
@@ -300,6 +301,24 @@ class TutorialUiTests(unittest.TestCase):
 
 
 class TutorialUploadTests(unittest.TestCase):
+    def test_markdown_remote_name_is_the_picked_file(self) -> None:
+        cache = Path(r"C:\Users\me\AppData\Local\SuiteApps\catalog\tutorials") / (
+            "ab12cd34ef567890abcd.md"
+        )
+        picked = Path(r"C:\Users\me\Desktop\Meu Tutorial.md")
+        self.assertEqual(tutorial_remote_name(picked, ""), "Meu Tutorial.md")
+        self.assertEqual(tutorial_remote_name(cache, "Meu Tutorial.md"), "Meu Tutorial.md")
+        self.assertEqual(original_upload_name(picked), "Meu Tutorial.md")
+        self.assertNotEqual(tutorial_remote_name(cache, "Meu Tutorial.md"), cache.name)
+
+        form = PublishFormState(
+            tutorial_markdown_path=str(cache),
+            tutorial_markdown_upload_name="Meu Tutorial.md",
+        )
+        from services.catalog_publish import _tutorial_dest_name
+
+        self.assertEqual(_tutorial_dest_name(form, cache), "Meu Tutorial.md")
+
     def test_pasted_link_is_saved_and_not_uploaded(self) -> None:
         def upload(_path, _msg):
             raise AssertionError("link colado nao envia arquivo")
@@ -409,9 +428,12 @@ class TutorialUploadTests(unittest.TestCase):
 
     def test_title_edit_keeps_the_local_file(self) -> None:
         row = with_video_part(("Como instalar", "https://x/a.mp4", "/tmp/instalar.mp4"), "titulo", "Passo 1")
-        self.assertEqual(row, ("Passo 1", "https://x/a.mp4", "/tmp/instalar.mp4"))
+        self.assertEqual(row, ("Passo 1", "https://x/a.mp4", "/tmp/instalar.mp4", ""))
         row = with_video_part(row, "url", "https://x/b.mp4")
         self.assertEqual(row[2], "/tmp/instalar.mp4")
+        row = with_video_part(row, "nome", "instalar.mp4")
+        self.assertEqual(row[2], "/tmp/instalar.mp4")
+        self.assertEqual(row[3], "instalar.mp4")
         saved = tutorial_catalog_block("", [row])
         self.assertEqual(saved["videos"], [{"titulo": "Passo 1", "url": "https://x/b.mp4"}])
 
@@ -467,6 +489,15 @@ class TutorialPublishUiTests(unittest.TestCase):
         self.assertIn("Arquivo local a enviar (nome original): instalar.mp4", shown)
         self.assertNotIn("/home/me/docs/Guia do Usuario.md", shown)
         self.assertNotIn("/home/me/clips/instalar.mp4", shown)
+        video_fields = [
+            node
+            for node in _walk(edit_holder)
+            if type(node).__name__ == "TextField" and getattr(node, "value", "") == video_url
+        ]
+        self.assertEqual(len(video_fields), 1)
+        self.assertFalse(getattr(video_fields[0], "read_only", False))
+        self.assertIsNotNone(video_fields[0].on_change)
+        self.assertTrue(any(node.__class__.__name__ == "OutlinedButton" and getattr(node, "content", "") == "Escolher arquivo" for node in _walk(edit_holder)))
         self.assertTrue(_row_highlighted(edit_holder, "Markdown"))
         self.assertTrue(_row_highlighted(edit_holder, "Videos"))
 

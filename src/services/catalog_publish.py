@@ -59,6 +59,7 @@ class PublishFormState:
     preview_icone: str = ""
     tutorial_markdown_url: str = ""
     tutorial_markdown_path: str = ""
+    tutorial_markdown_upload_name: str = ""
     tutorial_videos: list[tuple] = field(default_factory=list)
     select_scroll: float = 0.0
     edit_scroll: float = 0.0
@@ -122,11 +123,11 @@ class PublishFormState:
     def video_part_changed(self, index: int, part: str) -> bool:
         if index < 0 or index >= len(self.tutorial_videos):
             return False
-        title, url, local = video_row(self.tutorial_videos[index])
+        title, url, local, _nome = video_row(self.tutorial_videos[index])
         original = _baseline_videos(self.baseline.get("tutorial_videos") or "[]")
         if index >= len(original):
             return True
-        orig_title, orig_url, orig_local = original[index]
+        orig_title, orig_url, orig_local, _orig_nome = original[index]
         if part == "titulo":
             return title != orig_title
         if part == "local":
@@ -136,13 +137,16 @@ class PublishFormState:
 
 def _videos_token(videos: list) -> str:
     return json.dumps(
-        [[titulo, url, local] for titulo, url, local in (video_row(item) for item in videos)],
+        [
+            [titulo, url, local, nome]
+            for titulo, url, local, nome in (video_row(item) for item in videos)
+        ],
         ensure_ascii=False,
         separators=(",", ":"),
     )
 
 
-def _baseline_videos(raw: str) -> list[tuple[str, str, str]]:
+def _baseline_videos(raw: str) -> list[tuple[str, str, str, str]]:
     try:
         data = json.loads(raw or "[]")
     except json.JSONDecodeError:
@@ -400,6 +404,41 @@ def original_upload_name(local: Path) -> str:
     if not name or name in {".", ".."}:
         return "arquivo"
     return name
+
+
+def tutorial_remote_name(local: Path, picked_name: str = "") -> str:
+    """Nome do objeto no SharePoint: o arquivo escolhido, nao o hash do cache local."""
+    chosen = (picked_name or "").replace("\\", "/").strip()
+    leaf = chosen.rstrip("/").split("/")[-1].strip() if chosen else ""
+    if leaf and leaf not in {".", ".."}:
+        return original_upload_name(Path(leaf))
+    return original_upload_name(local)
+
+
+def _same_picked_file(stored: str, local: Path) -> bool:
+    raw = (stored or "").strip()
+    if not raw:
+        return False
+    if raw == str(local):
+        return True
+    other = Path(raw)
+    if other == local:
+        return True
+    try:
+        return other.resolve() == local.resolve()
+    except OSError:
+        return False
+
+
+def _tutorial_dest_name(form: PublishFormState, local: Path) -> str:
+    """Mesmo criterio de capa/icone: original_upload_name do arquivo escolhido."""
+    if _same_picked_file(form.tutorial_markdown_path, local):
+        return tutorial_remote_name(local, form.tutorial_markdown_upload_name)
+    for item in form.tutorial_videos:
+        _titulo, _url, path, nome = video_row(item)
+        if _same_picked_file(path, local):
+            return tutorial_remote_name(local, nome)
+    return tutorial_remote_name(local, "")
 
 
 def folder_url_of_file(file_url: str) -> str:
@@ -948,7 +987,7 @@ def publish_app(
         def _upload_tutorial(local: Path, msg: str) -> tuple[bool, str]:
             return _put_to(
                 local,
-                original_upload_name(local),
+                _tutorial_dest_name(form, local),
                 dest_folder,
                 "file",
                 msg,

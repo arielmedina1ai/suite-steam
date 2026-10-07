@@ -852,6 +852,7 @@ class SuiteApp:
             )
             self._render()
             return
+        picked_name = str(getattr(selected, "name", "") or "").strip() or Path(path).name
         if kind == "app":
             self.publish_form.app_path = path
         elif kind == "capa":
@@ -859,14 +860,15 @@ class SuiteApp:
         elif kind == "icone":
             self.publish_form.icone_path = path
         elif kind == "tutorial_markdown_path":
-            if Path(path).suffix.lower() != ".md":
+            if Path(picked_name).suffix.lower() != ".md":
                 self.publish_form.message = "Somente .md."
                 self._render()
                 return
             self.publish_form.tutorial_markdown_path = path
+            self.publish_form.tutorial_markdown_upload_name = picked_name
             self.publish_form.message = ""
         elif (kind or "").startswith("tutorial_video:"):
-            if Path(path).suffix.lower() != ".mp4":
+            if Path(picked_name).suffix.lower() != ".mp4":
                 self.publish_form.message = "Somente .mp4."
                 self._render()
                 return
@@ -878,6 +880,7 @@ class SuiteApp:
             if idx < 0 or idx >= len(videos):
                 return
             videos[idx] = with_video_part(videos[idx], "local", path)
+            videos[idx] = with_video_part(videos[idx], "nome", picked_name)
             self.publish_form.message = ""
         self._render()
 
@@ -934,6 +937,7 @@ class SuiteApp:
         form.capa_path = ""
         form.icone_path = ""
         form.tutorial_markdown_path = ""
+        form.tutorial_markdown_upload_name = ""
         form.folder_choice = KEEP_FOLDER
         form.new_folder_name = ""
         form.move_files = False
@@ -989,9 +993,10 @@ class SuiteApp:
             self.publish_form.capa_path = ""
             self.publish_form.icone_path = ""
             self.publish_form.tutorial_markdown_path = ""
+            self.publish_form.tutorial_markdown_upload_name = ""
             self.publish_form.tutorial_videos = [
                 (titulo, url)
-                for titulo, url, _local in (
+                for titulo, url, _local, _nome in (
                     video_row(item) for item in self.publish_form.tutorial_videos
                 )
             ]

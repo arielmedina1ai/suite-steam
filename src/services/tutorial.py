@@ -16,24 +16,27 @@ _H2 = re.compile(r"^##(?!#)\s*(.*?)\s*$")
 _IMG = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
 
-def video_row(item) -> tuple[str, str, str]:
-    """titulo, url do catalogo, caminho local ainda nao enviado."""
+def video_row(item) -> tuple[str, str, str, str]:
+    """titulo, url do catalogo, caminho local, nome original do arquivo escolhido."""
     if isinstance(item, (list, tuple)):
         titulo = str(item[0]) if len(item) > 0 else ""
         url = str(item[1]) if len(item) > 1 else ""
         local = str(item[2]) if len(item) > 2 else ""
-        return titulo, url, local
-    return "", "", ""
+        nome = str(item[3]) if len(item) > 3 else ""
+        return titulo, url, local, nome
+    return "", "", "", ""
 
 
-def with_video_part(item, part: str, value: str) -> tuple[str, str, str]:
-    """Troca titulo, url ou arquivo local sem perder os outros dois."""
-    titulo, url, local = video_row(item)
+def with_video_part(item, part: str, value: str) -> tuple[str, str, str, str]:
+    """Troca um campo da linha sem perder titulo, url, arquivo local ou nome original."""
+    titulo, url, local, nome = video_row(item)
     if part == "titulo":
-        return value, url, local
+        return value, url, local, nome
     if part == "url":
-        return titulo, value, local
-    return titulo, url, value
+        return titulo, value, local, nome
+    if part == "nome":
+        return titulo, url, local, value
+    return titulo, url, value, nome
 
 
 def tutorial_catalog_block(
@@ -46,7 +49,7 @@ def tutorial_catalog_block(
     """
     items = []
     for item in videos:
-        titulo, url, _local = video_row(item)
+        titulo, url, _local, _nome = video_row(item)
         clean = (url or "").strip()
         if not clean:
             continue
@@ -106,7 +109,7 @@ def apply_tutorial_uploads(
         invalidate_tutorial_cache(md_url, ".md")
     out: list[tuple[str, str]] = []
     for item in videos:
-        titulo, url, local_raw = video_row(item)
+        titulo, url, local_raw, _nome = video_row(item)
         final = _http_url(url)
         local = _as_local(local_raw)
         if local is not None:
