@@ -66,10 +66,12 @@
       "versao": "1.2.0",
       "tutorial": {
         "markdown_url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/tutoriais/relatorio-producao.md",
+        "markdown_versao": "1",
         "videos": [
           {
             "titulo": "Como instalar",
-            "url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/tutoriais/instalar.mp4"
+            "url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/tutoriais/instalar.mp4",
+            "versao": "1"
           }
         ]
       }

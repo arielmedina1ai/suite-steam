@@ -7,7 +7,7 @@ import flet as ft
 import flet_video as fv
 
 import config
-from models import AppInfo
+from models import AppInfo, tutorial_video_fields
 from services.tutorial import (
     download_to_cache,
     is_mp4_url,
@@ -107,7 +107,8 @@ class TutorialView:
     def _player_row(self) -> ft.Control:
         titles: list[ft.Control] = []
         self._title_boxes = []
-        for index, (titulo, _url) in enumerate(self.app.tutorial_videos):
+        for index, item in enumerate(self.app.tutorial_videos):
+            titulo, _url, _versao = tutorial_video_fields(item)
             selected = index == self.selected_index
             label = (titulo or "").strip() or f"Video {index + 1}"
             box = ft.Container(
@@ -164,7 +165,7 @@ class TutorialView:
         videos = self.app.tutorial_videos
         if index < 0 or index >= len(videos):
             return
-        _titulo, url = videos[index]
+        _titulo, url, versao = tutorial_video_fields(videos[index])
         self.selected_index = index
         self._paint_titles()
         self._pick_gen += 1
@@ -177,7 +178,7 @@ class TutorialView:
             return
         self.status.color = "#B9CEC3"
         self._set_progress(-1.0, "Baixando video...")
-        self.page.run_thread(lambda: self._load_video(index, url, gen))
+        self.page.run_thread(lambda: self._load_video(index, url, versao, gen))
 
     def _paint_titles(self) -> None:
         for index, box in enumerate(self._title_boxes):
@@ -185,11 +186,12 @@ class TutorialView:
                 config.COLOR_PRIMARY_DARK if index == self.selected_index else config.COLOR_SURFACE
             )
 
-    def _load_video(self, index: int, url: str, gen: int) -> None:
+    def _load_video(self, index: int, url: str, versao: str, gen: int) -> None:
         path, err = download_to_cache(
             url,
             ".mp4",
             progress=lambda pct, msg: self._on_video_progress(gen, pct, msg),
+            version=versao,
         )
         if gen != self._pick_gen:
             return
@@ -224,7 +226,12 @@ class TutorialView:
         url = (self.app.tutorial_markdown_url or "").strip()
         if not url:
             return
-        path, err = download_to_cache(url, ".md", progress=self._on_markdown_progress)
+        path, err = download_to_cache(
+            url,
+            ".md",
+            progress=self._on_markdown_progress,
+            version=self.app.tutorial_markdown_versao,
+        )
         if err or path is None:
             self.markdown_host.controls = [
                 ft.Text(err or "Falha ao baixar o passo a passo.", size=14, color=config.COLOR_ACCENT)

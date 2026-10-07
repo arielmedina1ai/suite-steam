@@ -21,15 +21,22 @@ from services.catalog_publish import (
     tutorial_remote_name,
     upsert_app_entry,
 )
+from services.download_manager import DownloadManager, DownloadOutcome
+from services.sharepoint_manager import SharePointResult
 from services.storage import Storage
 from services.tutorial import (
     apply_tutorial_uploads,
+    bump_version,
     cache_path_for,
+    download_to_cache,
+    download_tutorial_assets,
+    form_videos_from_catalog,
     is_mp4_url,
     prepare_markdown_for_display,
     split_markdown_sections,
     tutorial_catalog_block,
     validate_tutorial_local_files,
+    video_row,
     with_video_part,
 )
 from ui.app_detail_view import AppDetailView
@@ -142,7 +149,8 @@ class CatalogTutorialTests(unittest.TestCase):
             }
         )
         self.assertEqual(app.tutorial_markdown_url, "https://x/t.md")
-        self.assertEqual(app.tutorial_videos, [("Como instalar", "https://x/a.mp4")])
+        self.assertEqual(app.tutorial_markdown_versao, "1")
+        self.assertEqual(app.tutorial_videos, [("Como instalar", "https://x/a.mp4", "1")])
         self.assertTrue(app.has_tutorial)
 
     def test_example_catalog_mixes_apps(self) -> None:
@@ -162,7 +170,8 @@ class CatalogTutorialTests(unittest.TestCase):
             block,
             {
                 "markdown_url": "https://x/t.md",
-                "videos": [{"titulo": "Como instalar", "url": "https://x/a.mp4"}],
+                "markdown_versao": "1",
+                "videos": [{"titulo": "Como instalar", "url": "https://x/a.mp4", "versao": "1"}],
             },
         )
         data = {
@@ -210,7 +219,7 @@ class CatalogTutorialTests(unittest.TestCase):
                 ) = previous
         app = catalog.apps[0]
         self.assertEqual(app.tutorial_markdown_url, "https://x/t.md")
-        self.assertEqual(app.tutorial_videos, [("Como instalar", "https://x/a.mp4")])
+        self.assertEqual(app.tutorial_videos, [("Como instalar", "https://x/a.mp4", "1")])
         self.assertTrue(app.has_tutorial)
         again = parse_catalog_dict(json.loads(saved))
         self.assertEqual(again.apps[0].imagem, "https://cdn.example.com/capa.png")
@@ -231,11 +240,14 @@ class CatalogTutorialTests(unittest.TestCase):
         self.assertTrue(form.is_changed("tutorial_videos"))
         self.assertTrue(form.video_part_changed(1, "titulo"))
         saved = tutorial_catalog_block(form.tutorial_markdown_url, form.tutorial_videos)
-        self.assertEqual(saved["videos"], [{"titulo": "Como instalar", "url": "https://x/a.mp4"}])
+        self.assertEqual(
+            saved["videos"],
+            [{"titulo": "Como instalar", "url": "https://x/a.mp4", "versao": "1"}],
+        )
 
 
 class TutorialUiTests(unittest.TestCase):
-    def test_badge_and_button_follow_content(self) -> None:
+    def test_badge_and_button_only_after_install(self) -> None:
         plain = AppInfo(id="sem", nome="Sem", descricao="d", versao="1")
         with_tutorial = AppInfo(
             id="com",
@@ -243,7 +255,7 @@ class TutorialUiTests(unittest.TestCase):
             descricao="d",
             versao="1",
             tutorial_markdown_url="https://x/t.md",
-            tutorial_videos=[("Como instalar", "https://x/a.mp4")],
+            tutorial_videos=[("Como instalar", "https://x/a.mp4", "1")],
         )
         home = build_home(
             [plain, with_tutorial],
@@ -259,19 +271,44 @@ class TutorialUiTests(unittest.TestCase):
             favorite_ids=set(),
             on_toggle_favorite=lambda _id: None,
         )
-        self.assertEqual(_texts(home).count("Tutorial"), 1)
-        self.assertEqual(_texts(setor).count("Tutorial"), 1)
+        self.assertEqual(_texts(home).count("Tutorial"), 0)
+        self.assertEqual(_texts(setor).count("Tutorial"), 0)
+        installed = {"com", "sem"}
+        home_on = build_home(
+            [plain, with_tutorial],
+            lambda _id: None,
+            gerencia=None,
+            favorite_ids=set(),
+            on_toggle_favorite=lambda _id: None,
+            installed_ids=installed,
+        )
+        setor_on = build_setor_view(
+            SetorInfo(id="s", nome="Setor"),
+            [plain, with_tutorial],
+            lambda _id: None,
+            favorite_ids=set(),
+            on_toggle_favorite=lambda _id: None,
+            installed_ids=installed,
+        )
+        self.assertEqual(_texts(home_on).count("Tutorial"), 1)
+        self.assertEqual(_texts(setor_on).count("Tutorial"), 1)
 
         page = _Page()
         with tempfile.TemporaryDirectory() as tmp:
-            storage = Storage(Path(tmp) / "apps", Path(tmp) / "installed.json")
+            root = Path(tmp)
+            storage = Storage(root / "apps", root / "installed.json")
+            before = AppDetailView(page, with_tutorial, storage, object()).build()
+            plain_file = root / "sem.exe"
+            plain_file.write_bytes(b"app")
+            storage.set_installed("sem", plain_file, "1")
+            installed_plain = AppDetailView(page, plain, storage, object()).build()
+            app_file = root / "com.exe"
+            app_file.write_bytes(b"app")
+            storage.set_installed("com", app_file, "1")
             detail = AppDetailView(page, with_tutorial, storage, object()).build()
-            hidden = AppDetailView(page, plain, storage, object()).build()
-        self.assertEqual(
-            _action_labels(detail),
-            ["Baixar / Instalar", "Tutorial", "Atualizar versao", "Desinstalar"],
-        )
-        self.assertNotIn("Tutorial", _action_labels(hidden))
+        self.assertEqual(_action_labels(before), ["Baixar / Instalar"])
+        self.assertNotIn("Tutorial", _action_labels(installed_plain))
+        self.assertEqual(_action_labels(detail), ["Executar", "Tutorial", "Desinstalar"])
 
     def test_player_switches_one_local_mp4(self) -> None:
         app = AppInfo(
@@ -331,9 +368,10 @@ class TutorialUploadTests(unittest.TestCase):
         )
         self.assertEqual(err, "")
         self.assertEqual(block["markdown_url"], "https://x/t.md")
+        self.assertEqual(block["markdown_versao"], "1")
         self.assertEqual(
             block["videos"],
-            [{"titulo": "Como instalar", "url": "https://x/a.mp4"}],
+            [{"titulo": "Como instalar", "url": "https://x/a.mp4", "versao": "1"}],
         )
         self.assertNotIn("\\", json.dumps(block))
 
@@ -365,11 +403,13 @@ class TutorialUploadTests(unittest.TestCase):
             block["markdown_url"],
             "https://empresa.sharepoint.com/:u:/r/sites/x/Pasta/Guia do Usuario.md",
         )
+        self.assertEqual(block["markdown_versao"], "2")
         self.assertEqual(
             block["videos"],
             [{
                 "titulo": "Como instalar",
                 "url": "https://empresa.sharepoint.com/:u:/r/sites/x/Pasta/instalar.mp4",
+                "versao": "2",
             }],
         )
         dumped = json.dumps(block)
@@ -412,9 +452,11 @@ class TutorialUploadTests(unittest.TestCase):
                 md = root / "guia.md"
                 md.write_text("# novo", encoding="utf-8")
                 url = "https://empresa.sharepoint.com/:u:/r/sites/x/Pasta/guia.md"
-                cached = cache_path_for(url, ".md")
-                cached.parent.mkdir(parents=True, exist_ok=True)
-                cached.write_text("velho", encoding="utf-8")
+                cached_v1 = cache_path_for(url, ".md", "1")
+                cached_v2 = cache_path_for(url, ".md", "2")
+                self.assertNotEqual(cached_v1, cached_v2)
+                cached_v1.parent.mkdir(parents=True, exist_ok=True)
+                cached_v1.write_text("velho", encoding="utf-8")
 
                 def upload(_path, _msg):
                     return True, url
@@ -422,20 +464,24 @@ class TutorialUploadTests(unittest.TestCase):
                 block, err = apply_tutorial_uploads("https://x/outro.md", str(md), [], upload)
                 self.assertEqual(err, "")
                 self.assertEqual(block["markdown_url"], url)
-                self.assertFalse(cached.exists())
+                self.assertEqual(block["markdown_versao"], "2")
+                self.assertTrue(cached_v1.is_file())
+                self.assertEqual(cached_v1.read_text(encoding="utf-8"), "velho")
+                self.assertFalse(cached_v2.exists())
             finally:
                 (config.TUTORIAL_CACHE_DIR,) = previous
 
     def test_title_edit_keeps_the_local_file(self) -> None:
         row = with_video_part(("Como instalar", "https://x/a.mp4", "/tmp/instalar.mp4"), "titulo", "Passo 1")
-        self.assertEqual(row, ("Passo 1", "https://x/a.mp4", "/tmp/instalar.mp4", ""))
+        self.assertEqual(row, ("Passo 1", "https://x/a.mp4", "/tmp/instalar.mp4", "", "1"))
         row = with_video_part(row, "url", "https://x/b.mp4")
         self.assertEqual(row[2], "/tmp/instalar.mp4")
         row = with_video_part(row, "nome", "instalar.mp4")
         self.assertEqual(row[2], "/tmp/instalar.mp4")
         self.assertEqual(row[3], "instalar.mp4")
+        self.assertEqual(row[4], "1")
         saved = tutorial_catalog_block("", [row])
-        self.assertEqual(saved["videos"], [{"titulo": "Passo 1", "url": "https://x/b.mp4"}])
+        self.assertEqual(saved["videos"], [{"titulo": "Passo 1", "url": "https://x/b.mp4", "versao": "1"}])
 
     def test_form_highlights_local_file_until_cleared(self) -> None:
         form = PublishFormState(
@@ -516,12 +562,193 @@ def _action_labels(control) -> list[str]:
         controls = getattr(node, "controls", None) or []
         labels = []
         for child in controls:
+            if getattr(child, "visible", True) is False:
+                continue
             content = getattr(child, "content", None)
             if isinstance(content, str):
                 labels.append(content)
         if "Baixar / Instalar" in labels or "Executar" in labels:
             return labels
     return []
+
+
+class TutorialVersionTests(unittest.TestCase):
+    def test_stored_version_roundtrips_and_is_not_a_path(self) -> None:
+        app = AppInfo.from_dict(
+            {
+                "id": "relatorio",
+                "nome": "Relatorio",
+                "tutorial": {
+                    "markdown_url": "https://x/t.md",
+                    "markdown_versao": "4",
+                    "videos": [{"titulo": "Como instalar", "url": "https://x/a.mp4", "versao": "7"}],
+                },
+            }
+        )
+        self.assertEqual(app.tutorial_markdown_versao, "4")
+        self.assertEqual(app.tutorial_videos, [("Como instalar", "https://x/a.mp4", "7")])
+        rows = form_videos_from_catalog(app.tutorial_videos)
+        self.assertEqual(rows, [("Como instalar", "https://x/a.mp4", "", "", "7")])
+        _titulo, _url, local, _nome, versao = video_row(rows[0])
+        self.assertEqual(local, "")
+        self.assertEqual(versao, "7")
+
+    def test_paste_keeps_version_and_new_file_bumps_it(self) -> None:
+        self.assertEqual(bump_version("3"), "4")
+        self.assertEqual(bump_version(""), "2")
+
+        def refuse(_path, _msg):
+            raise AssertionError("link colado nao envia arquivo")
+
+        pasted, err = apply_tutorial_uploads(
+            "https://x/t.md",
+            "",
+            [("Como instalar", "https://x/a.mp4", "", "", "3")],
+            refuse,
+            markdown_versao="3",
+        )
+        self.assertEqual(err, "")
+        self.assertEqual(pasted["markdown_versao"], "3")
+        self.assertEqual(pasted["videos"][0]["versao"], "3")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            md = root / "guia.md"
+            mp4 = root / "instalar.mp4"
+            md.write_text("# guia", encoding="utf-8")
+            mp4.write_bytes(b"mp4")
+
+            def upload(_path, _msg):
+                return True, "https://x/novo.md" if Path(_path).suffix == ".md" else "https://x/novo.mp4"
+
+            block, err = apply_tutorial_uploads(
+                "https://x/t.md",
+                str(md),
+                [("Como instalar", "https://x/a.mp4", str(mp4), "instalar.mp4", "3")],
+                upload,
+                markdown_versao="3",
+            )
+        self.assertEqual(err, "")
+        self.assertEqual(block["markdown_versao"], "4")
+        self.assertEqual(block["videos"][0]["versao"], "4")
+        self.assertEqual(block["videos"][0]["titulo"], "Como instalar")
+
+    def test_cache_key_follows_version_and_failure_is_not_saved(self) -> None:
+        import services.tutorial as tutorial_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            previous = config.TUTORIAL_CACHE_DIR
+            config.TUTORIAL_CACHE_DIR = Path(tmp) / "cache"
+            calls = []
+
+            def fake_download(link, pasta_destino, nome_arquivo, progress=None):
+                calls.append((link, nome_arquivo))
+                if "falha" in link:
+                    partial = Path(pasta_destino) / nome_arquivo
+                    partial.parent.mkdir(parents=True, exist_ok=True)
+                    partial.write_text("parcial", encoding="utf-8")
+                    return SharePointResult(ok=False, path=partial, message="rede")
+                path = Path(pasta_destino) / nome_arquivo
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(nome_arquivo, encoding="utf-8")
+                return SharePointResult(ok=True, path=path, message="ok")
+
+            original = tutorial_mod.baixar_do_sharepoint
+            tutorial_mod.baixar_do_sharepoint = fake_download
+            try:
+                url = "https://x/guia.md"
+                first, err = download_to_cache(url, ".md", version="1")
+                second, err2 = download_to_cache(url, ".md", version="1")
+                third, err3 = download_to_cache(url, ".md", version="2")
+                self.assertEqual(err, "")
+                self.assertEqual(err2, "")
+                self.assertEqual(err3, "")
+                self.assertEqual(first, second)
+                self.assertNotEqual(first, third)
+                self.assertEqual([nome for _link, nome in calls].count(first.name), 1)
+                self.assertTrue(third.is_file())
+                self.assertNotEqual(first.read_text(encoding="utf-8"), third.read_text(encoding="utf-8"))
+
+                failed, fail_err = download_to_cache("https://x/falha.md", ".md", version="1")
+                self.assertIsNone(failed)
+                self.assertIn("rede", fail_err)
+                self.assertFalse(cache_path_for("https://x/falha.md", ".md", "1").exists())
+
+                app = AppInfo(
+                    id="com",
+                    nome="Com",
+                    tutorial_markdown_url="https://x/falha.md",
+                    tutorial_markdown_versao="1",
+                    tutorial_videos=[
+                        ("Como instalar", "https://x/instalar.mp4", "4"),
+                        ("ruim", "https://x/clip.mkv", "1"),
+                    ],
+                )
+                note, errors = download_tutorial_assets(app)
+                self.assertEqual(note, "")
+                self.assertTrue(any("nao foi salvo" in item for item in errors))
+                self.assertFalse(any("Tutorial baixado" in item for item in errors))
+                self.assertTrue(cache_path_for("https://x/instalar.mp4", ".mp4", "4").is_file())
+                self.assertFalse(any(link.endswith(".mkv") for link, _nome in calls))
+            finally:
+                tutorial_mod.baixar_do_sharepoint = original
+                config.TUTORIAL_CACHE_DIR = previous
+
+    def test_install_downloads_tutorial_with_the_app(self) -> None:
+        import services.download_manager as download_mod
+        import services.tutorial as tutorial_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            previous = config.TUTORIAL_CACHE_DIR
+            config.TUTORIAL_CACHE_DIR = root / "tutorials"
+            storage = Storage(root / "apps", root / "installed.json")
+
+            def fake_app(link, pasta_destino, nome_arquivo, progress=None):
+                path = Path(pasta_destino) / nome_arquivo
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"exe")
+                return SharePointResult(ok=True, path=path, message="Download concluido.")
+
+            def fake_tutorial(link, pasta_destino, nome_arquivo, progress=None):
+                if link.endswith(".md"):
+                    partial = Path(pasta_destino) / nome_arquivo
+                    partial.parent.mkdir(parents=True, exist_ok=True)
+                    partial.write_text("parcial", encoding="utf-8")
+                    return SharePointResult(ok=False, path=partial, message="timeout")
+                path = Path(pasta_destino) / nome_arquivo
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"mp4")
+                return SharePointResult(ok=True, path=path, message="ok")
+
+            original_app = download_mod.baixar_do_sharepoint
+            original_tutorial = tutorial_mod.baixar_do_sharepoint
+            download_mod.baixar_do_sharepoint = fake_app
+            tutorial_mod.baixar_do_sharepoint = fake_tutorial
+            try:
+                app = AppInfo(
+                    id="relatorio",
+                    nome="Relatorio",
+                    download_url="https://x/app.xlsm",
+                    versao="1.2.0",
+                    tutorial_markdown_url="https://x/guia.md",
+                    tutorial_markdown_versao="3",
+                    tutorial_videos=[("Como instalar", "https://x/instalar.mp4", "5")],
+                )
+                result = DownloadManager(storage).download(app)
+                self.assertEqual(result.outcome, DownloadOutcome.SUCCESS)
+                self.assertIn("Tutorial (markdown) nao foi salvo.", result.message)
+                self.assertNotIn("Tutorial baixado.", result.message)
+                self.assertIn("Download concluido.", result.message)
+                self.assertTrue(cache_path_for("https://x/instalar.mp4", ".mp4", "5").is_file())
+                self.assertFalse(cache_path_for("https://x/guia.md", ".md", "3").exists())
+                from models import InstallStatus
+
+                self.assertEqual(storage.get_state(app.id).status, InstallStatus.INSTALLED)
+            finally:
+                download_mod.baixar_do_sharepoint = original_app
+                tutorial_mod.baixar_do_sharepoint = original_tutorial
+                config.TUTORIAL_CACHE_DIR = previous
 
 
 if __name__ == "__main__":

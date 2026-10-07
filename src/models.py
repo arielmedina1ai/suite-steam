@@ -157,20 +157,25 @@ class AppInfo:
     upload_url: str = ""  # link da pasta SharePoint para envio (opcional)
     versao: str = "1.0.0"
     tutorial_markdown_url: str = ""
-    tutorial_videos: list[tuple[str, str]] = field(default_factory=list)
+    tutorial_markdown_versao: str = "1"
+    tutorial_videos: list[tuple[str, str, str]] = field(default_factory=list)
 
     @property
     def has_tutorial(self) -> bool:
-        """Selo e botao so existem com markdown ou ao menos um video com url."""
+        """Ha markdown ou ao menos um video com url. O botao ainda exige app instalado."""
         if (self.tutorial_markdown_url or "").strip():
             return True
-        return any((url or "").strip() for _titulo, url in self.tutorial_videos)
+        return any((url or "").strip() for _titulo, url, _versao in self.iter_tutorial_videos())
+
+    def iter_tutorial_videos(self):
+        for item in self.tutorial_videos:
+            yield tutorial_video_fields(item)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AppInfo":
         imagem = str(data.get("imagem", "")).strip()
         icone = str(data.get("icone", "")).strip()
-        markdown_url, videos = _tutorial_from_dict(data.get("tutorial"))
+        markdown_url, markdown_versao, videos = _tutorial_from_dict(data.get("tutorial"))
         return cls(
             id=str(data["id"]).strip(),
             nome=str(data.get("nome", data["id"])).strip(),
@@ -188,6 +193,7 @@ class AppInfo:
             upload_url=str(data.get("upload_url", "")).strip(),
             versao=str(data.get("versao", "1.0.0")),
             tutorial_markdown_url=markdown_url,
+            tutorial_markdown_versao=markdown_versao,
             tutorial_videos=videos,
         )
 
@@ -257,15 +263,27 @@ class CatalogData:
         )
 
 
-def _tutorial_from_dict(raw: Any) -> tuple[str, list[tuple[str, str]]]:
-    """Le tutorial.markdown_url e tutorial.videos[{titulo, url}].
+def tutorial_video_fields(item) -> tuple[str, str, str]:
+    """titulo, url e versao de um video do catalogo. Versao ausente vale ``1``."""
+    if isinstance(item, (list, tuple)):
+        titulo = str(item[0]) if len(item) > 0 else ""
+        url = str(item[1]) if len(item) > 1 else ""
+        versao = str(item[2]).strip() if len(item) > 2 else ""
+        return titulo, url, versao or "1"
+    return "", "", "1"
+
+
+def _tutorial_from_dict(raw: Any) -> tuple[str, str, list[tuple[str, str, str]]]:
+    """Le tutorial.markdown_url, markdown_versao e videos[{titulo, url, versao}].
 
     Catalogo sem o bloco continua vazio. Url vazia nao vira video.
+    Versao ausente vale ``1`` e nao e um campo do formulario.
     """
     if not isinstance(raw, dict):
-        return "", []
+        return "", "1", []
     markdown_url = str(raw.get("markdown_url") or "").strip()
-    videos: list[tuple[str, str]] = []
+    markdown_versao = str(raw.get("markdown_versao") or "").strip() or "1"
+    videos: list[tuple[str, str, str]] = []
     items = raw.get("videos")
     if isinstance(items, list):
         for item in items:
@@ -273,10 +291,11 @@ def _tutorial_from_dict(raw: Any) -> tuple[str, list[tuple[str, str]]]:
                 continue
             titulo = str(item.get("titulo") or "").strip()
             url = str(item.get("url") or "").strip()
+            versao = str(item.get("versao") or "").strip() or "1"
             if not url:
                 continue
-            videos.append((titulo, url))
-    return markdown_url, videos
+            videos.append((titulo, url, versao))
+    return markdown_url, markdown_versao, videos
 
 
 def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:

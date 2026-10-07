@@ -596,7 +596,7 @@ def bind_publish_form(
     def _video_editor() -> ft.Control:
         rows: list[ft.Control] = []
         for index, item in enumerate(form.tutorial_videos):
-            titulo, url, local, nome = video_row(item)
+            titulo, url, local, nome, _versao = video_row(item)
 
             def _row_dirty(idx=index) -> bool:
                 return (

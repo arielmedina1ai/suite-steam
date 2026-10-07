@@ -11,6 +11,7 @@ import config
 from models import AppInfo
 from services.sharepoint_manager import baixar_do_sharepoint, parsear_link_sharepoint
 from services.storage import Storage
+from services.tutorial import download_tutorial_assets
 
 ProgressCb = Callable[[float, str], None]
 
@@ -57,10 +58,19 @@ class DownloadManager:
 
         if result.ok and result.path and result.path.exists():
             self.storage.set_installed(app.id, result.path, app.versao)
+            message = (result.message or "Download concluido.").strip()
+            try:
+                note, errors = download_tutorial_assets(app, progress=report)
+            except Exception as exc:
+                note, errors = "", [f"Tutorial nao foi salvo. {exc}"]
+            parts = [message]
+            if note:
+                parts.append(note)
+            parts.extend(errors)
             return DownloadResult(
                 DownloadOutcome.SUCCESS,
                 local_path=result.path,
-                message=result.message or "Download concluido.",
+                message="\n".join(part for part in parts if part),
             )
 
         return self._browser_fallback(

@@ -60,6 +60,7 @@ class PublishFormState:
     tutorial_markdown_url: str = ""
     tutorial_markdown_path: str = ""
     tutorial_markdown_upload_name: str = ""
+    tutorial_markdown_versao: str = "1"
     tutorial_videos: list[tuple] = field(default_factory=list)
     select_scroll: float = 0.0
     edit_scroll: float = 0.0
@@ -123,11 +124,11 @@ class PublishFormState:
     def video_part_changed(self, index: int, part: str) -> bool:
         if index < 0 or index >= len(self.tutorial_videos):
             return False
-        title, url, local, _nome = video_row(self.tutorial_videos[index])
+        title, url, local, _nome, _versao = video_row(self.tutorial_videos[index])
         original = _baseline_videos(self.baseline.get("tutorial_videos") or "[]")
         if index >= len(original):
             return True
-        orig_title, orig_url, orig_local, _orig_nome = original[index]
+        orig_title, orig_url, orig_local, _orig_nome, _orig_versao = original[index]
         if part == "titulo":
             return title != orig_title
         if part == "local":
@@ -138,15 +139,15 @@ class PublishFormState:
 def _videos_token(videos: list) -> str:
     return json.dumps(
         [
-            [titulo, url, local, nome]
-            for titulo, url, local, nome in (video_row(item) for item in videos)
+            [titulo, url, local, nome, versao]
+            for titulo, url, local, nome, versao in (video_row(item) for item in videos)
         ],
         ensure_ascii=False,
         separators=(",", ":"),
     )
 
 
-def _baseline_videos(raw: str) -> list[tuple[str, str, str, str]]:
+def _baseline_videos(raw: str) -> list[tuple[str, str, str, str, str]]:
     try:
         data = json.loads(raw or "[]")
     except json.JSONDecodeError:
@@ -435,7 +436,7 @@ def _tutorial_dest_name(form: PublishFormState, local: Path) -> str:
     if _same_picked_file(form.tutorial_markdown_path, local):
         return tutorial_remote_name(local, form.tutorial_markdown_upload_name)
     for item in form.tutorial_videos:
-        _titulo, _url, path, nome = video_row(item)
+        _titulo, _url, path, nome, _versao = video_row(item)
         if _same_picked_file(path, local):
             return tutorial_remote_name(local, nome)
     return tutorial_remote_name(local, "")
@@ -998,6 +999,7 @@ def publish_app(
             form.tutorial_markdown_path,
             form.tutorial_videos,
             _upload_tutorial,
+            markdown_versao=form.tutorial_markdown_versao,
         )
         if tutorial_err or tutorial_block is None:
             return PublishOutcome(ok=False, message=tutorial_err or "Falha no tutorial.")

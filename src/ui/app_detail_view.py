@@ -144,10 +144,12 @@ class AppDetailView:
                 self.favorite_button,
             ],
         )
-        action_controls: list[ft.Control] = [self.action_button]
-        if self.app.has_tutorial:
-            action_controls.append(self.tutorial_button)
-        action_controls.extend([self.update_button, self.uninstall_button])
+        action_controls: list[ft.Control] = [
+            self.action_button,
+            self.tutorial_button,
+            self.update_button,
+            self.uninstall_button,
+        ]
         actions = ft.Row(
             spacing=12,
             wrap=True,
@@ -179,7 +181,11 @@ class AppDetailView:
         )
 
     def _on_tutorial(self, _e) -> None:
-        if self.on_tutorial and self.app.has_tutorial:
+        if (
+            self.on_tutorial
+            and self.app.has_tutorial
+            and self._current_status() == InstallStatus.INSTALLED
+        ):
             self.on_tutorial(self.app)
 
     def _on_toggle_favorite(self, _e) -> None:
@@ -225,6 +231,8 @@ class AppDetailView:
             self.update_button.visible = False
             self.uninstall_button.visible = False
             self.local_info.value = ""
+        self.tutorial_button.visible = installed and self.app.has_tutorial
+        self.tutorial_button.disabled = self.work_busy
         if this and not self.work_busy:
             if installed and self._has_version_update(state):
                 self.status_text.value = (
@@ -297,6 +305,7 @@ class AppDetailView:
         self.work_busy = busy
         installed = self._current_status() == InstallStatus.INSTALLED
         self.action_button.disabled = busy or (installed and self.this_app_running)
+        self.tutorial_button.disabled = busy
         self.update_button.disabled = busy
         self.uninstall_button.disabled = busy or self.this_app_running
 

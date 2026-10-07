@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
 import flet as ft
 from catalog import SharePointCatalogProvider
-from models import AppInfo, CatalogData, apps_do_setor, setores_visiveis
+from models import AppInfo, CatalogData, InstallStatus, apps_do_setor, setores_visiveis
 from services.catalog_publish import (
     DraftGerencia,
     DraftSetor,
@@ -59,7 +59,7 @@ from services.self_update import (
 )
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
-from services.tutorial import video_row, with_video_part
+from services.tutorial import form_videos_from_catalog, video_row, with_video_part
 from services.tray import TrayController
 from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
@@ -536,7 +536,14 @@ class SuiteApp:
         self.show_publish = False
         self._render()
 
-    def _open_tutorial(self, _app: AppInfo | None = None) -> None:
+    def _open_tutorial(self, app: AppInfo | None = None) -> None:
+        target = app
+        if target is None and self.selected_id:
+            target = self.apps_by_id.get(self.selected_id)
+        if target is None or not target.has_tutorial:
+            return
+        if self.storage.get_state(target.id).status != InstallStatus.INSTALLED:
+            return
         self.show_tutorial = True
         self._render()
 
@@ -662,7 +669,8 @@ class SuiteApp:
             current_capa=file_capa or catalog_http_url(app.catalog_imagem),
             current_icone=file_icone or catalog_http_url(app.catalog_icone),
             tutorial_markdown_url=app.tutorial_markdown_url,
-            tutorial_videos=list(app.tutorial_videos),
+            tutorial_markdown_versao=app.tutorial_markdown_versao,
+            tutorial_videos=form_videos_from_catalog(app.tutorial_videos),
             preview_capa=str(app.imagem or "") if app.imagem and not str(app.imagem).lower().startswith(("http://", "https://")) else "",
             preview_icone=str(app.icone or "") if app.icone and not str(app.icone).lower().startswith(("http://", "https://")) else "",
             original_gerencia_id=gid,
@@ -921,7 +929,8 @@ class SuiteApp:
         form.current_capa = file_capa or catalog_http_url(app.catalog_imagem)
         form.current_icone = file_icone or catalog_http_url(app.catalog_icone)
         form.tutorial_markdown_url = app.tutorial_markdown_url
-        form.tutorial_videos = list(app.tutorial_videos)
+        form.tutorial_markdown_versao = app.tutorial_markdown_versao
+        form.tutorial_videos = form_videos_from_catalog(app.tutorial_videos)
         form.preview_capa = (
             str(app.imagem or "")
             if app.imagem and not str(app.imagem).lower().startswith(("http://", "https://"))
@@ -995,8 +1004,8 @@ class SuiteApp:
             self.publish_form.tutorial_markdown_path = ""
             self.publish_form.tutorial_markdown_upload_name = ""
             self.publish_form.tutorial_videos = [
-                (titulo, url)
-                for titulo, url, _local, _nome in (
+                (titulo, url, "", "", versao)
+                for titulo, url, _local, _nome, versao in (
                     video_row(item) for item in self.publish_form.tutorial_videos
                 )
             ]
@@ -1897,6 +1906,11 @@ class SuiteApp:
 
     def _render(self) -> None:
         fav_ids = self._favorite_ids()
+        installed_ids = {
+            app.id
+            for app in self.apps
+            if self.storage.get_state(app.id).status == InstallStatus.INSTALLED
+        }
         has_favs = self._has_visible_favorites()
         if self.show_favorites and not has_favs:
             self.show_favorites = False
@@ -1990,14 +2004,21 @@ class SuiteApp:
                 self.content_holder.content = ft.Text(
                     "Aplicativo nao encontrado.", color=config.COLOR_TEXT
                 )
-            elif self.show_tutorial and app.has_tutorial:
+            elif (
+                self.show_tutorial
+                and app.has_tutorial
+                and self.storage.get_state(app.id).status == InstallStatus.INSTALLED
+            ):
                 self.content_holder.content = TutorialView(
                     self.page,
                     app,
                     self._close_tutorial,
                 ).build()
             else:
-                if self.show_tutorial and not app.has_tutorial:
+                if self.show_tutorial and (
+                    not app.has_tutorial
+                    or self.storage.get_state(app.id).status != InstallStatus.INSTALLED
+                ):
                     self.show_tutorial = False
                 self.content_holder.content = AppDetailView(
                     self.page,
@@ -2022,6 +2043,7 @@ class SuiteApp:
                 self._select_app,
                 favorite_ids=fav_ids,
                 on_toggle_favorite=self._toggle_favorite,
+                installed_ids=installed_ids,
             )
         elif self.selected_setor is not None:
             filtrados = apps_do_setor(self.apps, self.selected_setor)
@@ -2040,6 +2062,7 @@ class SuiteApp:
                 self._select_app,
                 favorite_ids=fav_ids,
                 on_toggle_favorite=self._toggle_favorite,
+                installed_ids=installed_ids,
             )
         else:
             home = build_home(
@@ -2048,6 +2071,7 @@ class SuiteApp:
                 gerencia=self._gerencia_atual(),
                 favorite_ids=fav_ids,
                 on_toggle_favorite=self._toggle_favorite,
+                installed_ids=installed_ids,
             )
             extras: list[ft.Control] = []
             if self.sync_message:

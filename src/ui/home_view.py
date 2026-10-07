@@ -36,7 +36,7 @@ def _tutorial_badge() -> ft.Control:
     )
 
 
-def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bool, on_toggle_favorite: Callable[[str], None]) -> ft.Control:
+def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bool, on_toggle_favorite: Callable[[str], None], installed: bool) -> ft.Control:
     meta: list[ft.Control] = [
         ft.Container(
             bgcolor=config.COLOR_PRIMARY_DARK,
@@ -46,7 +46,7 @@ def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bo
         ),
         ft.Text(f"v{app.versao}", size=12, color="#8AA797"),
     ]
-    if app.has_tutorial:
+    if installed and app.has_tutorial:
         meta.append(_tutorial_badge())
     body = ft.Container(
         ink=True,
@@ -65,14 +65,14 @@ def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bo
     return ft.Container(width=_CARD_WIDTH, height=_CARD_HEIGHT, border_radius=12, bgcolor=config.COLOR_SURFACE, padding=12, clip_behavior=ft.ClipBehavior.HARD_EDGE, content=ft.Column(spacing=4, controls=[ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START, controls=[app_icon(app, size=36, color=config.COLOR_ACCENT), _star_button(app.id, is_favorite, on_toggle_favorite)]), body]))
 
 
-def _apps_grid(apps: list[AppInfo], on_select: Callable[[str], None], *, title: str, empty_message: str, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None]) -> ft.Control:
+def _apps_grid(apps: list[AppInfo], on_select: Callable[[str], None], *, title: str, empty_message: str, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str]) -> ft.Control:
     if not apps:
         return ft.Column(spacing=12, controls=[ft.Text(title, size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT), ft.Text(empty_message, size=14, color="#8AA797")])
-    cards = [_app_card(app, on_select, is_favorite=app.id in favorite_ids, on_toggle_favorite=on_toggle_favorite) for app in apps]
+    cards = [_app_card(app, on_select, is_favorite=app.id in favorite_ids, on_toggle_favorite=on_toggle_favorite, installed=app.id in installed_ids) for app in apps]
     return ft.Column(spacing=12, controls=[ft.Text(title, size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT), ft.Row(controls=cards, wrap=True, spacing=16, run_spacing=16)])
 
 
-def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None]) -> ft.Control:
+def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
     hero = ft.Container(border_radius=16, padding=20, gradient=ft.LinearGradient(begin=ft.Alignment.TOP_LEFT, end=ft.Alignment.BOTTOM_RIGHT, colors=[config.COLOR_PRIMARY_DARK, config.COLOR_PRIMARY]), content=ft.Row(spacing=24, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[_hero_banner(), ft.Column(spacing=6, expand=True, controls=[ft.Text(config.SECTOR_NAME, size=26, weight=ft.FontWeight.BOLD, color="white"), ft.Text(config.SECTOR_TAGLINE, size=14, color=config.COLOR_ACCENT), ft.Container(height=4), ft.Text(config.SECTOR_DESCRIPTION, size=14, color="#EAF3EE")])]))
     sections: list[ft.Control] = [hero]
     if gerencia is not None:
@@ -80,17 +80,18 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerenci
         if gerencia.descricao:
             block.append(ft.Text(gerencia.descricao, size=14, color="#B9CEC3"))
         sections.append(ft.Column(spacing=6, controls=block))
-    sections.append(_apps_grid(apps, on_select, title="Todos os aplicativos", empty_message="Nenhum aplicativo nesta gerencia." if gerencia is not None else "Nenhum aplicativo no catalogo.", favorite_ids=favorite_ids, on_toggle_favorite=on_toggle_favorite))
+    installed = installed_ids or set()
+    sections.append(_apps_grid(apps, on_select, title="Todos os aplicativos", empty_message="Nenhum aplicativo nesta gerencia." if gerencia is not None else "Nenhum aplicativo no catalogo.", favorite_ids=favorite_ids, on_toggle_favorite=on_toggle_favorite, installed_ids=installed))
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=sections)
 
 
-def build_favoritos_view(apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None]) -> ft.Control:
+def build_favoritos_view(apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
     header = ft.Column(spacing=4, controls=[ft.Text("Favoritos", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT), ft.Text(f"{len(apps)} aplicativo(s) favorito(s)", size=13, color="#8AA797")])
-    listing = _apps_grid(apps, on_select, title="Aplicativos", empty_message="Nenhum favorito. Clique na estrela de um app para adicionar.", favorite_ids=favorite_ids, on_toggle_favorite=on_toggle_favorite)
+    listing = _apps_grid(apps, on_select, title="Aplicativos", empty_message="Nenhum favorito. Clique na estrela de um app para adicionar.", favorite_ids=favorite_ids, on_toggle_favorite=on_toggle_favorite, installed_ids=installed_ids or set())
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[header, listing])
 
 
-def build_setor_view(setor: SetorInfo, apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None]) -> ft.Control:
+def build_setor_view(setor: SetorInfo, apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
     header_controls: list[ft.Control] = [ft.Text(setor.nome, size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT)]
     if setor.descricao:
         header_controls.append(ft.Text(setor.descricao, size=14, color="#B9CEC3"))
@@ -107,7 +108,7 @@ def build_setor_view(setor: SetorInfo, apps: list[AppInfo], on_select: Callable[
             block: list[ft.Control] = [ft.Text(sub_title, size=18, weight=ft.FontWeight.W_600, color=config.COLOR_ACCENT)]
             if sub_desc:
                 block.append(ft.Text(sub_desc, size=13, color="#8AA797"))
-            cards = [_app_card(app, on_select, is_favorite=app.id in favorite_ids, on_toggle_favorite=on_toggle_favorite) for app in chunk]
+            cards = [_app_card(app, on_select, is_favorite=app.id in favorite_ids, on_toggle_favorite=on_toggle_favorite, installed=app.id in (installed_ids or set())) for app in chunk]
             block.append(ft.Row(controls=cards, wrap=True, spacing=16, run_spacing=16))
             sections.append(ft.Column(spacing=8, controls=block))
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=16, controls=sections)

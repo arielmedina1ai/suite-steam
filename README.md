@@ -24,7 +24,7 @@ aparecem; sem selecao, o SuiteApps mostra todos.
 - Bandeja no Windows (fechar/minimizar nao encerra) e **iniciar com o Windows** ligado por padrao.
 - Branding local em `assets/branding/` (logo, hero, icone da janela e da bandeja).
 - Capas/icones em cache por `*_versao`.
-- Tutorial por app (opcional no catalogo): selo no card, botao na tela do app, markdown com topicos `##` e player de `.mp4` local. Em Publicar, o `.md` e cada `.mp4` escolhidos sobem para a Pasta Destino como o arquivo do app.
+- Tutorial por app (opcional no catalogo): selo no card e botao na tela do app so depois de instalar, markdown com topicos `##` e player de `.mp4` local. Em Publicar, o `.md` e cada `.mp4` escolhidos sobem para a Pasta Destino como o arquivo do app. **Baixar / Instalar** tambem grava esses arquivos no cache.
 
 ## Estrutura
 
