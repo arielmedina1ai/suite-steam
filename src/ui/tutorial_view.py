@@ -20,6 +20,17 @@ from ui.progress_util import bar_value, label as progress_label
 
 _PLAYER_WIDTH = 480
 _PLAYER_HEIGHT = 270  # 16:9
+_FRAME_BORDER = "#2C4036"
+
+
+def _framed_box(content: ft.Control) -> ft.Container:
+    return ft.Container(
+        bgcolor=config.COLOR_SURFACE,
+        border=ft.Border.all(1, _FRAME_BORDER),
+        border_radius=12,
+        padding=16,
+        content=content,
+    )
 
 
 def _markdown_sheet() -> ft.MarkdownStyleSheet:
@@ -121,15 +132,15 @@ class TutorialView:
                 )
             )
             self.players.append(player)
-            blocks.append(block)
+            blocks.append(_framed_box(block))
         self.player = self.players[0] if self.players else None
         self.videos_host = ft.Column(
-            spacing=24,
+            spacing=16,
             tight=True,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             controls=blocks,
         )
         self.markdown_host = ft.Column(spacing=8, tight=True)
+        self.markdown_frame = _framed_box(self.markdown_host)
 
     def build(self) -> ft.Control:
         if (self.app.tutorial_markdown_url or "").strip() and not self._markdown_started:
@@ -175,7 +186,8 @@ class TutorialView:
                 self._videos_started = True
                 for slot in self.slots:
                     self._begin_load(slot)
-        controls.append(self.markdown_host)
+        if (self.app.tutorial_markdown_url or "").strip() or self.markdown_host.controls:
+            controls.append(self.markdown_frame)
         return ft.Column(
             expand=True,
             scroll=ft.ScrollMode.AUTO,

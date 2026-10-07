@@ -197,10 +197,12 @@ O selo **Tutorial** no card e o botao **Tutorial** na tela do app aparecem so de
 
 **Baixar / Instalar** baixa o arquivo do app e, na mesma acao, o markdown e cada `.mp4` do tutorial (o mesmo PnP). O SharePoint usa o nome do link do catalogo (por exemplo `Meu Tutorial.md`). O hash fica so no arquivo local em `catalog/tutorials/`. Se um arquivo do tutorial falhar, a mensagem diz que ele nao foi salvo. Abrir **Tutorial** usa esse cache e nao baixa de novo enquanto o arquivo da versao atual (`markdown_versao` / `versao`) existir. So baixa outra vez se a versao no `catalog.json` mudou ou se o arquivo local sumiu.
 
-A pagina empilha um bloco por video: o titulo em texto, centralizado, acima do
-quadro 16:9. Play, pause e os demais controles sao os do proprio player, dentro
-do quadro. Outra extensao mostra um aviso curto e nao entra no player. Embaixo
-dos videos, o markdown: o texto antes do primeiro `##` fica visivel;
+A pagina empilha um bloco por video, cada um numa caixa propria (superficie,
+borda, cantos arredondados e espaco entre elas). O titulo fica em texto,
+centralizado, acima do quadro 16:9. Play, pause e os demais controles sao os
+do proprio player, dentro do quadro. Outra extensao mostra um aviso curto e
+nao entra no player. O markdown fica numa caixa separada, embaixo dos videos:
+o texto antes do primeiro `##` fica visivel;
 cada `##` abre e fecha. Imagem `https://` publica aparece. Imagem no SharePoint nao.
 Video escrito no markdown continua link.
 

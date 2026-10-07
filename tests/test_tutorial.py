@@ -341,19 +341,27 @@ class TutorialUiTests(unittest.TestCase):
         page = _Page()
         view = TutorialView(page, app, lambda: None)
         page_col = view.build()
-        self.assertIs(page_col.controls[-1], view.markdown_host)
-        self.assertIs(page_col.controls[-2], view.videos_host)
+        self.assertIs(page_col.controls[-1], view.videos_host)
+        self.assertNotIn(view.markdown_frame, page_col.controls)
         self.assertIsInstance(view.videos_host, ft.Column)
+        self.assertEqual(view.videos_host.spacing, 16)
         self.assertEqual(len(view.players), 2)
         self.assertEqual(len(view.videos_host.controls), 2)
         titles = []
-        for index, block in enumerate(view.videos_host.controls):
+        for index, box in enumerate(view.videos_host.controls):
             player = view.players[index]
             self.assertEqual(player.aspect_ratio, 16 / 9)
             self.assertEqual(player.width, 480)
             self.assertEqual(player.height, 270)
             self.assertIsNotNone(player.controls)
             self.assertIsNot(player.show_controls, False)
+            self.assertIsInstance(box, ft.Container)
+            self.assertEqual(box.bgcolor, config.COLOR_SURFACE)
+            self.assertEqual(box.border_radius, 12)
+            self.assertEqual(box.padding, 16)
+            self.assertEqual(box.border.top.width, 1)
+            self.assertIsNone(getattr(box, "on_click", None))
+            block = box.content
             self.assertIsInstance(block, ft.Column)
             title = block.controls[0]
             frame = block.controls[1]
@@ -944,8 +952,14 @@ class TutorialVersionTests(unittest.TestCase):
                 self.assertEqual(len(view.players[0].playlist), 1)
                 self.assertTrue(str(view.players[0].playlist[0].resource).endswith(".mp4"))
                 page_col = view.build()
-                self.assertIs(page_col.controls[-1], view.markdown_host)
+                self.assertIs(page_col.controls[-1], view.markdown_frame)
+                self.assertIs(view.markdown_frame.content, view.markdown_host)
+                self.assertEqual(view.markdown_frame.bgcolor, config.COLOR_SURFACE)
+                self.assertEqual(view.markdown_frame.border_radius, 12)
+                self.assertEqual(view.markdown_frame.padding, 16)
+                self.assertEqual(view.markdown_frame.border.top.width, 1)
                 self.assertIs(page_col.controls[-2], view.videos_host)
+                self.assertIsInstance(view.videos_host.controls[0], ft.Container)
             finally:
                 tutorial_mod.baixar_do_sharepoint = original
                 config.TUTORIAL_CACHE_DIR = previous
