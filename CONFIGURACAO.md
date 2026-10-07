@@ -248,8 +248,8 @@ copy assets\branding\window_icon.example.png assets\branding\window_icon.png
 | `window_icon.png` | `window_icon.example.png` | Icone da janela (gera `.ico`) | **256 x 256** px |
 
 **Nota Windows:** o SuiteApps converte `window_icon.png` → `window_icon.ico` ao abrir.
-O mesmo icone e usado na bandeja. Fechar ou minimizar envia o app para a area de
-notificacao (Abrir / Sair). **Iniciar com o Windows** vem ligado por padrao
+O mesmo icone e usado na bandeja. Fechar (X) envia o app para a area de
+notificacao (Abrir / Sair). Minimizar deixa a janela na barra de tarefas. **Iniciar com o Windows** vem ligado por padrao
 (atalho na pasta Startup); da para desligar no interruptor da sidebar
 (`preferences.json` > `start_with_windows`).
 

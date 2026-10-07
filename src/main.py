@@ -222,8 +222,23 @@ class SuiteApp:
         if self._exiting:
             return
         kind = _window_event_name(e)
-        if kind in {"CLOSE", "MINIMIZE"}:
+        if kind == "CLOSE":
             self._hide_to_tray()
+        elif kind == "MINIMIZE":
+            self._minimize_window()
+
+    def _minimize_window(self) -> None:
+        """Minimiza de verdade e permanece na barra de tarefas.
+
+        Nao esconde a janela e nao manda para a bandeja. O X continua em
+        ``_hide_to_tray``.
+        """
+        try:
+            self.page.window.skip_task_bar = False
+            self.page.window.minimized = True
+            self.page.update()
+        except Exception:
+            pass
 
     def _hide_to_tray(self) -> None:
         try:
