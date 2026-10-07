@@ -9,6 +9,7 @@ import flet_video as fv
 import config
 from models import AppInfo, tutorial_video_fields
 from services.tutorial import (
+    cached_tutorial_file,
     download_to_cache,
     is_mp4_url,
     prepare_markdown_for_display,
@@ -67,10 +68,18 @@ class TutorialView:
     def build(self) -> ft.Control:
         if (self.app.tutorial_markdown_url or "").strip() and not self._markdown_started:
             self._markdown_started = True
-            self.markdown_host.controls = [
-                ft.Text("Carregando passo a passo...", size=13, color="#8AA797")
-            ]
-            self.page.run_thread(self._load_markdown)
+            cached = cached_tutorial_file(
+                self.app.tutorial_markdown_url,
+                ".md",
+                self.app.tutorial_markdown_versao,
+            )
+            if cached is not None:
+                self._show_markdown(cached)
+            else:
+                self.markdown_host.controls = [
+                    ft.Text("Carregando passo a passo...", size=13, color="#8AA797")
+                ]
+                self.page.run_thread(self._load_markdown)
         elif not (self.app.tutorial_markdown_url or "").strip():
             self.markdown_host.controls = []
 
@@ -176,6 +185,14 @@ class TutorialView:
             self.status.color = config.COLOR_ACCENT
             self._safe_update()
             return
+        cached = cached_tutorial_file(url, ".mp4", versao)
+        if cached is not None:
+            self.progress.visible = False
+            self.status.value = ""
+            self.status.color = "#B9CEC3"
+            self._show_local(cached)
+            self._safe_update()
+            return
         self.status.color = "#B9CEC3"
         self._set_progress(-1.0, "Baixando video...")
         self.page.run_thread(lambda: self._load_video(index, url, versao, gen))
@@ -226,6 +243,10 @@ class TutorialView:
         url = (self.app.tutorial_markdown_url or "").strip()
         if not url:
             return
+        cached = cached_tutorial_file(url, ".md", self.app.tutorial_markdown_versao)
+        if cached is not None:
+            self._show_markdown(cached)
+            return
         path, err = download_to_cache(
             url,
             ".md",
@@ -238,6 +259,9 @@ class TutorialView:
             ]
             self._safe_update()
             return
+        self._show_markdown(path)
+
+    def _show_markdown(self, path: Path) -> None:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:

@@ -33,6 +33,7 @@ from services.tutorial import (
     form_videos_from_catalog,
     is_mp4_url,
     prepare_markdown_for_display,
+    remote_filename_from_url,
     split_markdown_sections,
     tutorial_catalog_block,
     validate_tutorial_local_files,
@@ -345,6 +346,7 @@ class TutorialUploadTests(unittest.TestCase):
         picked = Path(r"C:\Users\me\Desktop\Meu Tutorial.md")
         self.assertEqual(tutorial_remote_name(picked, ""), "Meu Tutorial.md")
         self.assertEqual(tutorial_remote_name(cache, "Meu Tutorial.md"), "Meu Tutorial.md")
+        self.assertEqual(tutorial_remote_name(picked, cache.name), "Meu Tutorial.md")
         self.assertEqual(original_upload_name(picked), "Meu Tutorial.md")
         self.assertNotEqual(tutorial_remote_name(cache, "Meu Tutorial.md"), cache.name)
 
@@ -547,6 +549,60 @@ class TutorialPublishUiTests(unittest.TestCase):
         self.assertTrue(_row_highlighted(edit_holder, "Markdown"))
         self.assertTrue(_row_highlighted(edit_holder, "Videos"))
 
+    def test_video_link_can_be_typed_and_pasted_as_written(self) -> None:
+        pasted = "https://empresa.sharepoint.com/sites/x/GuiXT/outro.mkv"
+        form = PublishFormState(
+            tutorial_videos=[("Como instalar", "https://x/a.mp4")],
+        )
+        form.capture_baseline()
+
+        def on_field(key: str, value: str) -> None:
+            if not key.startswith("tutorial_video_url:"):
+                return
+            idx = int(key.split(":", 1)[1])
+            form.tutorial_videos[idx] = with_video_part(form.tutorial_videos[idx], "url", value)
+
+        edit_holder = ft.Container()
+        bind_publish_form(
+            CatalogData(),
+            form,
+            on_select_app=lambda _value: None,
+            on_save=lambda: None,
+            on_cancel=lambda: None,
+            on_pick=lambda _kind: None,
+            on_field=on_field,
+            on_reopen=lambda: None,
+            select_holder=ft.Container(),
+            edit_holder=edit_holder,
+        )
+        fields = [
+            node
+            for node in _walk(edit_holder)
+            if type(node).__name__ == "TextField" and getattr(node, "value", "") == "https://x/a.mp4"
+        ]
+        self.assertEqual(len(fields), 1)
+        field = fields[0]
+        self.assertFalse(field.read_only)
+        self.assertIsNotNone(field.on_change)
+        self.assertIsNotNone(field.on_blur)
+
+        class _Event:
+            def __init__(self, control, data: str) -> None:
+                self.control = control
+                self.data = data
+
+        field.on_change(_Event(field, pasted))
+        self.assertEqual(video_row(form.tutorial_videos[0])[1], pasted)
+        self.assertEqual(field.value, pasted)
+
+        def refuse(_path, _msg):
+            raise AssertionError("link colado nao envia arquivo")
+
+        block, err = apply_tutorial_uploads("", "", form.tutorial_videos, refuse)
+        self.assertEqual(err, "")
+        self.assertEqual(block["videos"], [{"titulo": "Como instalar", "url": pasted, "versao": "1"}])
+        self.assertNotEqual(err, "Somente .mp4.")
+
 
 def _row_highlighted(control, label: str) -> bool:
     for node in _walk(control):
@@ -650,7 +706,7 @@ class TutorialVersionTests(unittest.TestCase):
                     return SharePointResult(ok=False, path=partial, message="rede")
                 path = Path(pasta_destino) / nome_arquivo
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(nome_arquivo, encoding="utf-8")
+                path.write_text(f"{nome_arquivo}:{len(calls)}", encoding="utf-8")
                 return SharePointResult(ok=True, path=path, message="ok")
 
             original = tutorial_mod.baixar_do_sharepoint
@@ -665,7 +721,9 @@ class TutorialVersionTests(unittest.TestCase):
                 self.assertEqual(err3, "")
                 self.assertEqual(first, second)
                 self.assertNotEqual(first, third)
-                self.assertEqual([nome for _link, nome in calls].count(first.name), 1)
+                self.assertEqual([nome for link, nome in calls if link == url], ["guia.md", "guia.md"])
+                self.assertNotEqual(first.name, "guia.md")
+                self.assertNotIn(first.name, [nome for _link, nome in calls])
                 self.assertTrue(third.is_file())
                 self.assertNotEqual(first.read_text(encoding="utf-8"), third.read_text(encoding="utf-8"))
 
@@ -745,9 +803,106 @@ class TutorialVersionTests(unittest.TestCase):
                 from models import InstallStatus
 
                 self.assertEqual(storage.get_state(app.id).status, InstallStatus.INSTALLED)
+                names = []
+
+                def recording(link, pasta_destino, nome_arquivo=None, progress=None):
+                    names.append(nome_arquivo)
+                    path = Path(pasta_destino) / (nome_arquivo or "arquivo")
+                    path.write_text("ok", encoding="utf-8")
+                    return SharePointResult(ok=True, path=path, message="ok")
+
+                tutorial_mod.baixar_do_sharepoint = recording
+                again, again_err = download_to_cache(
+                    "https://x/instalar.mp4",
+                    ".mp4",
+                    version="5",
+                )
+                self.assertEqual(again_err, "")
+                self.assertEqual(again, cache_path_for("https://x/instalar.mp4", ".mp4", "5"))
+                self.assertEqual(names, [])
             finally:
                 download_mod.baixar_do_sharepoint = original_app
                 tutorial_mod.baixar_do_sharepoint = original_tutorial
+                config.TUTORIAL_CACHE_DIR = previous
+
+
+    def test_download_asks_sharepoint_for_the_catalog_name(self) -> None:
+        import services.tutorial as tutorial_mod
+
+        url = (
+            "https://empresa.sharepoint.com/:u:/r/sites/x/"
+            "Documentos%20Compartilhados/GuiXT/Meu%20Tutorial.md"
+        )
+        self.assertEqual(remote_filename_from_url(url), "Meu Tutorial.md")
+        self.assertEqual(remote_filename_from_url(
+            "https://empresa.sharepoint.com/:u:/r/sites/x/GuiXT/c99dc33b43f536c78780.md"
+        ), "")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            previous = config.TUTORIAL_CACHE_DIR
+            config.TUTORIAL_CACHE_DIR = Path(tmp) / "cache"
+            seen = []
+
+            def fake(link, pasta_destino, nome_arquivo=None, progress=None):
+                seen.append(nome_arquivo)
+                self.assertNotEqual(nome_arquivo, cache_path_for(url, ".md", "1").name)
+                path = Path(pasta_destino) / nome_arquivo
+                path.write_text("# tutorial", encoding="utf-8")
+                return SharePointResult(ok=True, path=path, message="ok")
+
+            original = tutorial_mod.baixar_do_sharepoint
+            tutorial_mod.baixar_do_sharepoint = fake
+            try:
+                local, err = download_to_cache(url, ".md", version="1")
+                self.assertEqual(err, "")
+                self.assertEqual(seen, ["Meu Tutorial.md"])
+                self.assertEqual(local.name, cache_path_for(url, ".md", "1").name)
+                self.assertNotEqual(local.name, "Meu Tutorial.md")
+                self.assertEqual(len(local.stem), 20)
+                self.assertEqual(local.read_text(encoding="utf-8"), "# tutorial")
+                again, again_err = download_to_cache(url, ".md", version="1")
+                self.assertEqual(again_err, "")
+                self.assertEqual(again, local)
+                self.assertEqual(seen, ["Meu Tutorial.md"])
+            finally:
+                tutorial_mod.baixar_do_sharepoint = original
+                config.TUTORIAL_CACHE_DIR = previous
+
+    def test_open_uses_cached_files_without_download(self) -> None:
+        import services.tutorial as tutorial_mod
+
+        md_url = "https://x/guia.md"
+        video_url = "https://x/instalar.mp4"
+        with tempfile.TemporaryDirectory() as tmp:
+            previous = config.TUTORIAL_CACHE_DIR
+            config.TUTORIAL_CACHE_DIR = Path(tmp)
+            cache_path_for(md_url, ".md", "2").write_text("## Usar\nPasso\n", encoding="utf-8")
+            cache_path_for(video_url, ".mp4", "4").write_bytes(b"mp4")
+            app = AppInfo(
+                id="com",
+                nome="Com",
+                tutorial_markdown_url=md_url,
+                tutorial_markdown_versao="2",
+                tutorial_videos=[("Certo", video_url, "4")],
+            )
+
+            def boom(*_args, **_kwargs):
+                raise AssertionError("cache da versao atual nao baixa de novo")
+
+            original = tutorial_mod.baixar_do_sharepoint
+            tutorial_mod.baixar_do_sharepoint = boom
+            try:
+                page = _Page()
+                view = TutorialView(page, app, lambda: None)
+                view.build()
+                self.assertEqual(page.threads, [])
+                self.assertIn("Passo", _texts(view.markdown_host))
+                view._on_pick(0)
+                self.assertEqual(page.threads, [])
+                self.assertEqual(len(view.player.playlist), 1)
+                self.assertTrue(str(view.player.playlist[0].resource).endswith(".mp4"))
+            finally:
+                tutorial_mod.baixar_do_sharepoint = original
                 config.TUTORIAL_CACHE_DIR = previous
 
 

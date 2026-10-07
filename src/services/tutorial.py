@@ -5,12 +5,15 @@ O player nao entra aqui. Este modulo so prepara texto e arquivos.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import config
-from services.sharepoint_manager import baixar_do_sharepoint
+from services.sharepoint_manager import baixar_do_sharepoint, parsear_link_sharepoint
 
 _H2 = re.compile(r"^##(?!#)\s*(.*?)\s*$")
 _IMG = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
@@ -288,6 +291,38 @@ def prepare_markdown_for_display(text: str) -> str:
     return "\n".join(out)
 
 
+def is_cache_leaf(name: str) -> bool:
+    """O hash do cache local ({sha}.md / {sha}.mp4). Nao e nome no SharePoint."""
+    leaf = Path((name or "").replace("\\", "/")).name.strip()
+    if not leaf:
+        return False
+    suffix = Path(leaf).suffix.lower()
+    stem = Path(leaf).stem.lower()
+    return suffix in {".md", ".mp4"} and len(stem) == 20 and all(c in "0123456789abcdef" for c in stem)
+
+
+def remote_filename_from_url(url: str) -> str:
+    """Nome do arquivo no link do catalogo. Nunca o hash do cache."""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    name = ""
+    try:
+        info = parsear_link_sharepoint(raw)
+        if info.get("tipo") != "unique_id":
+            name = str(info.get("nome_arquivo") or "").strip()
+    except ValueError:
+        name = ""
+    if not name:
+        leaf = unquote(urlparse(raw).path).replace("\\", "/").rstrip("/").split("/")[-1]
+        if leaf.lower() not in {"", "download.aspx", "download"}:
+            name = leaf.split("?")[0]
+    name = Path(name.replace("\\", "/")).name if name else ""
+    if not name or name in {".", ".."} or is_cache_leaf(name):
+        return ""
+    return name
+
+
 def is_mp4_url(url: str) -> bool:
     raw = (url or "").strip()
     if not raw:
@@ -306,6 +341,17 @@ def cache_path_for(url: str, suffix: str, version: str = "1") -> Path:
     return config.TUTORIAL_CACHE_DIR / f"{digest}{ext}"
 
 
+def cached_tutorial_file(url: str, suffix: str, version: str = "1") -> Path | None:
+    """Arquivo ja gravado para esta URL e versao do catalogo. Sem novo download."""
+    target = cache_path_for(url, suffix, version)
+    try:
+        if target.is_file() and target.stat().st_size > 0:
+            return target
+    except OSError:
+        return None
+    return None
+
+
 def download_to_cache(
     url: str,
     suffix: str,
@@ -315,27 +361,65 @@ def download_to_cache(
 ) -> tuple[Path | None, str]:
     """Baixa com o mesmo PnP do arquivo do app. Reusa o cache se a versao nao mudou.
 
-    Falha nao deixa arquivo no cache: a proxima abertura nao trata isso como salvo.
+    O nome passado ao SharePoint e o do link (ex. ``Meu Tutorial.md``).
+    O hash fica so no arquivo local. Falha nao deixa arquivo no cache.
     """
+    cached = cached_tutorial_file(url, suffix, version)
+    if cached is not None:
+        return cached, ""
     target = cache_path_for(url, suffix, version)
-    if target.is_file() and target.stat().st_size > 0:
-        return target, ""
+    remote_name = remote_filename_from_url(url)
     config.TUTORIAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    result = baixar_do_sharepoint(
-        link=url,
-        pasta_destino=config.TUTORIAL_CACHE_DIR,
-        nome_arquivo=target.name,
-        progress=progress,
-    )
-    saved = result.path if result.ok and result.path else None
-    if saved is not None and Path(saved).is_file() and Path(saved).stat().st_size > 0:
-        return Path(saved), ""
+    stage = tempfile.mkdtemp(prefix="suite-tut-")
     try:
-        if target.is_file():
-            target.unlink()
-    except OSError:
-        pass
-    return None, (result.message or "Falha no download.").strip()
+        result = baixar_do_sharepoint(
+            link=url,
+            pasta_destino=stage,
+            nome_arquivo=remote_name or None,
+            progress=progress,
+        )
+        saved = _downloaded_file(result, stage, remote_name)
+        if saved is None:
+            return None, (getattr(result, "message", None) or "Falha no download.").strip()
+        part = target.with_name(target.name + ".part")
+        shutil.copyfile(saved, part)
+        os.replace(part, target)
+    except Exception as exc:
+        try:
+            if target.is_file() and target.stat().st_size <= 0:
+                target.unlink()
+        except OSError:
+            pass
+        part = target.with_name(target.name + ".part")
+        try:
+            if part.is_file():
+                part.unlink()
+        except OSError:
+            pass
+        return None, str(exc)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    if not target.is_file() or target.stat().st_size <= 0:
+        try:
+            if target.is_file():
+                target.unlink()
+        except OSError:
+            pass
+        return None, "Falha no download."
+    return target, ""
+
+
+def _downloaded_file(result, stage: str, remote_name: str) -> Path | None:
+    if not getattr(result, "ok", False):
+        return None
+    path = getattr(result, "path", None)
+    if path is not None and Path(path).is_file() and Path(path).stat().st_size > 0:
+        return Path(path)
+    if remote_name:
+        candidate = Path(stage) / remote_name
+        if candidate.is_file() and candidate.stat().st_size > 0:
+            return candidate
+    return None
 
 
 def download_tutorial_assets(app, progress=None) -> tuple[str, list[str]]:

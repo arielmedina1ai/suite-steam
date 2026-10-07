@@ -419,6 +419,7 @@ def bind_publish_form(
             multiline=True,
             min_lines=2,
             max_lines=8,
+            read_only=False,
             text_size=12,
             filled=True,
             fill_color=_CHANGED_FILL if url_changed else _INPUT_FILL,
@@ -476,6 +477,12 @@ def bind_publish_form(
             changed=changed,
         )
         if url_key:
+            def _typed(e) -> str:
+                data = getattr(e, "data", None)
+                if isinstance(data, str):
+                    return data
+                return str(getattr(getattr(e, "control", None), "value", "") or "")
+
             def _on_url(
                 e,
                 k=url_key,
@@ -485,16 +492,22 @@ def bind_publish_form(
                 url_fn=url_dirty,
                 row_fn=row_dirty,
             ) -> None:
-                on_field(k, e.control.value or "")
-                if row_fn is not None:
-                    dirty = row_fn()
-                elif url_fn is not None:
-                    dirty = url_fn() or form.is_changed(path_key)
-                else:
-                    dirty = form.is_changed(k) or form.is_changed(path_key)
-                apply_live_highlight(wrap, field, dirty)
+                typed = _typed(e)
+                field.value = typed
+                on_field(k, typed)
+                try:
+                    if row_fn is not None:
+                        dirty = row_fn()
+                    elif url_fn is not None:
+                        dirty = url_fn() or form.is_changed(path_key)
+                    else:
+                        dirty = form.is_changed(k) or form.is_changed(path_key)
+                    apply_live_highlight(wrap, field, dirty)
+                except Exception:
+                    pass
 
             url_field.on_change = _on_url
+            url_field.on_blur = _on_url
         return box
 
     folder_options = []

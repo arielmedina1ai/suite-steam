@@ -17,6 +17,7 @@ from catalog.provider import hydrate_catalog_images
 from models import CatalogData, parse_catalog_dict
 from services.tutorial import (
     apply_tutorial_uploads,
+    is_cache_leaf,
     tutorial_has_local_files,
     validate_tutorial_local_files,
     video_row,
@@ -411,9 +412,14 @@ def tutorial_remote_name(local: Path, picked_name: str = "") -> str:
     """Nome do objeto no SharePoint: o arquivo escolhido, nao o hash do cache local."""
     chosen = (picked_name or "").replace("\\", "/").strip()
     leaf = chosen.rstrip("/").split("/")[-1].strip() if chosen else ""
+    if leaf and leaf not in {".", ".."} and not is_cache_leaf(leaf):
+        return original_upload_name(Path(leaf))
+    fallback = original_upload_name(local)
+    if not is_cache_leaf(fallback):
+        return fallback
     if leaf and leaf not in {".", ".."}:
         return original_upload_name(Path(leaf))
-    return original_upload_name(local)
+    return fallback
 
 
 def _same_picked_file(stored: str, local: Path) -> bool:

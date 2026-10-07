@@ -195,7 +195,7 @@ Com gerencia selecionada, o **Inicio** mostra nome + descricao da gerencia
 
 O selo **Tutorial** no card e o botao **Tutorial** na tela do app aparecem so depois que o app esta instalado (o mesmo estado de **Executar** e **Desinstalar**). Sem conteudo de tutorial, nao ha selo nem botao.
 
-**Baixar / Instalar** baixa o arquivo do app e, na mesma acao, o markdown e cada `.mp4` do tutorial para `catalog/tutorials/` (o mesmo PnP). Se um arquivo do tutorial falhar, a mensagem diz que ele nao foi salvo. Abrir **Tutorial** usa esse cache e so baixa de novo quando a versao mudou. A chave do cache inclui a versao, no mesmo espirito de `images_manifest.json`.
+**Baixar / Instalar** baixa o arquivo do app e, na mesma acao, o markdown e cada `.mp4` do tutorial (o mesmo PnP). O SharePoint usa o nome do link do catalogo (por exemplo `Meu Tutorial.md`). O hash fica so no arquivo local em `catalog/tutorials/`. Se um arquivo do tutorial falhar, a mensagem diz que ele nao foi salvo. Abrir **Tutorial** usa esse cache e nao baixa de novo enquanto o arquivo da versao atual (`markdown_versao` / `versao`) existir. So baixa outra vez se a versao no `catalog.json` mudou ou se o arquivo local sumiu.
 
 A pagina abre com um player 16:9 de largura fixa e a lista de titulos ao lado.
 O video clicado toca o arquivo local. Outra extensao mostra um aviso curto e nao
