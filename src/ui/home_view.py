@@ -29,10 +29,10 @@ def _star_button(app_id: str, is_fav: bool, on_toggle: Callable[[str], None]) ->
 
 def _tutorial_badge() -> ft.Control:
     return ft.Container(
-        bgcolor=config.COLOR_PRIMARY,
+        bgcolor=config.COLOR_PRIMARY_DARK,
         border_radius=6,
         padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-        content=ft.Text("Tutorial", size=11, color="white"),
+        content=ft.Text("Tutorial", size=11, color=config.COLOR_ACCENT),
     )
 
 

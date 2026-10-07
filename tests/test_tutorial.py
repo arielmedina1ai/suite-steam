@@ -68,6 +68,14 @@ def _texts(control) -> list[str]:
     return found
 
 
+def _badge_for(control, label: str):
+    for node in _walk(control):
+        content = getattr(node, "content", None)
+        if isinstance(content, ft.Text) and content.value == label:
+            return node, content
+    raise AssertionError(f"badge {label!r} nao encontrado")
+
+
 class _Page:
     def __init__(self) -> None:
         self.threads = []
@@ -293,6 +301,15 @@ class TutorialUiTests(unittest.TestCase):
         )
         self.assertEqual(_texts(home_on).count("Tutorial"), 1)
         self.assertEqual(_texts(setor_on).count("Tutorial"), 1)
+        for view in (home_on, setor_on):
+            type_box, type_text = _badge_for(view, "EXE")
+            tutorial_box, tutorial_text = _badge_for(view, "Tutorial")
+            self.assertEqual(tutorial_box.bgcolor, config.COLOR_PRIMARY_DARK)
+            self.assertEqual(tutorial_text.color, config.COLOR_ACCENT)
+            self.assertEqual(tutorial_box.bgcolor, type_box.bgcolor)
+            self.assertEqual(tutorial_text.color, type_text.color)
+            self.assertEqual(tutorial_text.size, type_text.size)
+            self.assertEqual(tutorial_text.size, 11)
 
         page = _Page()
         with tempfile.TemporaryDirectory() as tmp:
