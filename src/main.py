@@ -59,6 +59,7 @@ from services.self_update import (
 )
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
+from services.tutorial import video_row, with_video_part
 from services.tray import TrayController
 from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
@@ -707,7 +708,7 @@ class SuiteApp:
             }
             return
         if key == "tutorial_video_add":
-            self.publish_form.tutorial_videos.append(("", ""))
+            self.publish_form.tutorial_videos.append(("", "", ""))
             self._render()
             return
         if key.startswith("tutorial_video_remove:"):
@@ -728,11 +729,8 @@ class SuiteApp:
             videos = self.publish_form.tutorial_videos
             if idx < 0 or idx >= len(videos):
                 return
-            title, url = videos[idx]
-            if key.startswith("tutorial_video_title:"):
-                videos[idx] = (value, url)
-            else:
-                videos[idx] = (title, value)
+            part = "titulo" if key.startswith("tutorial_video_title:") else "url"
+            videos[idx] = with_video_part(videos[idx], part, value)
             return
         if hasattr(self.publish_form, key):
             setattr(self.publish_form, key, "" if value in {"", GERAL_KEY} else value)
@@ -818,6 +816,10 @@ class SuiteApp:
             "capa": ["png", "jpg", "jpeg", "webp"],
             "icone": ["png", "jpg", "jpeg", "webp", "ico"],
         }.get(kind)
+        if kind == "tutorial_markdown_path":
+            allowed = ["md"]
+        elif (kind or "").startswith("tutorial_video:"):
+            allowed = ["mp4"]
         picker = self._file_picker
         if picker is None:
             picker = ft.FilePicker()
@@ -856,6 +858,27 @@ class SuiteApp:
             self.publish_form.capa_path = path
         elif kind == "icone":
             self.publish_form.icone_path = path
+        elif kind == "tutorial_markdown_path":
+            if Path(path).suffix.lower() != ".md":
+                self.publish_form.message = "Somente .md."
+                self._render()
+                return
+            self.publish_form.tutorial_markdown_path = path
+            self.publish_form.message = ""
+        elif (kind or "").startswith("tutorial_video:"):
+            if Path(path).suffix.lower() != ".mp4":
+                self.publish_form.message = "Somente .mp4."
+                self._render()
+                return
+            try:
+                idx = int(kind.split(":", 1)[1])
+            except ValueError:
+                return
+            videos = self.publish_form.tutorial_videos
+            if idx < 0 or idx >= len(videos):
+                return
+            videos[idx] = with_video_part(videos[idx], "local", path)
+            self.publish_form.message = ""
         self._render()
 
     def _publish_save(self) -> None:
@@ -910,6 +933,7 @@ class SuiteApp:
         form.app_path = ""
         form.capa_path = ""
         form.icone_path = ""
+        form.tutorial_markdown_path = ""
         form.folder_choice = KEEP_FOLDER
         form.new_folder_name = ""
         form.move_files = False
@@ -964,6 +988,13 @@ class SuiteApp:
             self.publish_form.app_path = ""
             self.publish_form.capa_path = ""
             self.publish_form.icone_path = ""
+            self.publish_form.tutorial_markdown_path = ""
+            self.publish_form.tutorial_videos = [
+                (titulo, url)
+                for titulo, url, _local in (
+                    video_row(item) for item in self.publish_form.tutorial_videos
+                )
+            ]
             self.publish_form.notice = notice
             self.publish_form.notice_ok = True
             self.publish_form.message = ""

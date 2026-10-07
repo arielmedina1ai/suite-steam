@@ -16,13 +16,37 @@ _H2 = re.compile(r"^##(?!#)\s*(.*?)\s*$")
 _IMG = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
 
+def video_row(item) -> tuple[str, str, str]:
+    """titulo, url do catalogo, caminho local ainda nao enviado."""
+    if isinstance(item, (list, tuple)):
+        titulo = str(item[0]) if len(item) > 0 else ""
+        url = str(item[1]) if len(item) > 1 else ""
+        local = str(item[2]) if len(item) > 2 else ""
+        return titulo, url, local
+    return "", "", ""
+
+
+def with_video_part(item, part: str, value: str) -> tuple[str, str, str]:
+    """Troca titulo, url ou arquivo local sem perder os outros dois."""
+    titulo, url, local = video_row(item)
+    if part == "titulo":
+        return value, url, local
+    if part == "url":
+        return titulo, value, local
+    return titulo, url, value
+
+
 def tutorial_catalog_block(
     markdown_url: str,
-    videos: list[tuple[str, str]],
+    videos: list,
 ) -> dict:
-    """Bloco ``tutorial`` gravado no catalog.json. Url vazia nao gera video."""
+    """Bloco ``tutorial`` gravado no catalog.json. Url vazia nao gera video.
+
+    O terceiro item da linha, se existir, e so o arquivo local. Nao entra no JSON.
+    """
     items = []
-    for titulo, url in videos:
+    for item in videos:
+        titulo, url, _local = video_row(item)
         clean = (url or "").strip()
         if not clean:
             continue
@@ -31,6 +55,97 @@ def tutorial_catalog_block(
         "markdown_url": (markdown_url or "").strip(),
         "videos": items,
     }
+
+
+def tutorial_has_local_files(markdown_path: str, videos: list) -> bool:
+    if (markdown_path or "").strip():
+        return True
+    return any(video_row(item)[2].strip() for item in videos)
+
+
+def validate_tutorial_local_files(markdown_path: str, videos: list) -> str:
+    """Extensao errada ou arquivo ausente. Vazio se nao ha o que enviar."""
+    md = _as_local(markdown_path)
+    if md is not None:
+        if md.suffix.lower() != ".md":
+            return "Somente .md."
+        if not md.is_file():
+            return "Arquivo de markdown nao encontrado."
+    for item in videos:
+        local = _as_local(video_row(item)[2])
+        if local is None:
+            continue
+        if local.suffix.lower() != ".mp4":
+            return "Somente .mp4."
+        if not local.is_file():
+            return "Arquivo de video nao encontrado."
+    return ""
+
+
+def apply_tutorial_uploads(
+    markdown_url: str,
+    markdown_path: str,
+    videos: list,
+    upload,
+) -> tuple[dict | None, str]:
+    """Cola o link se nao houver arquivo novo. Arquivo escolhido substitui o link.
+
+    ``upload(path, message)`` usa a mesma sessao WebLogin do restante do save
+    e devolve ``(ok, url_ou_erro)``.
+    """
+    err = validate_tutorial_local_files(markdown_path, videos)
+    if err:
+        return None, err
+    md_url = _http_url(markdown_url)
+    md = _as_local(markdown_path)
+    if md is not None:
+        ok, payload = upload(md, "Enviando markdown...")
+        if not ok:
+            return None, payload or "Falha no upload do markdown."
+        md_url = (payload or "").strip()
+        invalidate_tutorial_cache(md_url, ".md")
+    out: list[tuple[str, str]] = []
+    for item in videos:
+        titulo, url, local_raw = video_row(item)
+        final = _http_url(url)
+        local = _as_local(local_raw)
+        if local is not None:
+            ok, payload = upload(local, "Enviando video...")
+            if not ok:
+                return None, payload or "Falha no upload do video."
+            final = (payload or "").strip()
+            invalidate_tutorial_cache(final, ".mp4")
+        if not final:
+            continue
+        out.append(((titulo or "").strip(), final))
+    return tutorial_catalog_block(md_url, out), ""
+
+
+def _as_local(raw: str) -> Path | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    return Path(text)
+
+
+def _http_url(value: str) -> str:
+    raw = (value or "").strip()
+    if raw.lower().startswith(("http://", "https://")):
+        return raw
+    return ""
+
+
+def invalidate_tutorial_cache(url: str, suffix: str) -> None:
+    """Apaga a copia local dessa URL para o proximo Tutorial baixar o arquivo novo."""
+    raw = (url or "").strip()
+    if not raw:
+        return
+    target = cache_path_for(raw, suffix)
+    try:
+        if target.is_file():
+            target.unlink()
+    except OSError:
+        pass
 
 
 def split_markdown_sections(text: str) -> tuple[str, list[tuple[str, str]]]:

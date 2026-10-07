@@ -15,7 +15,12 @@ from urllib.parse import quote, urlparse
 import config
 from catalog.provider import hydrate_catalog_images
 from models import CatalogData, parse_catalog_dict
-from services.tutorial import tutorial_catalog_block
+from services.tutorial import (
+    apply_tutorial_uploads,
+    tutorial_has_local_files,
+    validate_tutorial_local_files,
+    video_row,
+)
 from services.sharepoint_manager import (
     PnPWebLoginSession,
     baixar_do_sharepoint,
@@ -53,7 +58,8 @@ class PublishFormState:
     preview_capa: str = ""
     preview_icone: str = ""
     tutorial_markdown_url: str = ""
-    tutorial_videos: list[tuple[str, str]] = field(default_factory=list)
+    tutorial_markdown_path: str = ""
+    tutorial_videos: list[tuple] = field(default_factory=list)
     select_scroll: float = 0.0
     edit_scroll: float = 0.0
     hold_scroll: bool = False
@@ -90,6 +96,7 @@ class PublishFormState:
             "app_path": "",
             "capa_path": "",
             "icone_path": "",
+            "tutorial_markdown_path": "",
             "current_download": self.current_download,
             "current_capa": self.current_capa,
             "current_icone": self.current_icone,
@@ -98,7 +105,7 @@ class PublishFormState:
         }
 
     def is_changed(self, key: str) -> bool:
-        if key in {"app_path", "capa_path", "icone_path"}:
+        if key in {"app_path", "capa_path", "icone_path", "tutorial_markdown_path"}:
             return bool((getattr(self, key, "") or "").strip())
         if key == "tutorial_videos":
             return _videos_token(self.tutorial_videos) != (
@@ -115,36 +122,34 @@ class PublishFormState:
     def video_part_changed(self, index: int, part: str) -> bool:
         if index < 0 or index >= len(self.tutorial_videos):
             return False
-        title, url = self.tutorial_videos[index]
+        title, url, local = video_row(self.tutorial_videos[index])
         original = _baseline_videos(self.baseline.get("tutorial_videos") or "[]")
         if index >= len(original):
             return True
-        orig_title, orig_url = original[index]
+        orig_title, orig_url, orig_local = original[index]
         if part == "titulo":
             return title != orig_title
+        if part == "local":
+            return local != orig_local
         return url != orig_url
 
 
-def _videos_token(videos: list[tuple[str, str]]) -> str:
+def _videos_token(videos: list) -> str:
     return json.dumps(
-        [[titulo, url] for titulo, url in videos],
+        [[titulo, url, local] for titulo, url, local in (video_row(item) for item in videos)],
         ensure_ascii=False,
         separators=(",", ":"),
     )
 
 
-def _baseline_videos(raw: str) -> list[tuple[str, str]]:
+def _baseline_videos(raw: str) -> list[tuple[str, str, str]]:
     try:
         data = json.loads(raw or "[]")
     except json.JSONDecodeError:
         return []
     if not isinstance(data, list):
         return []
-    rows: list[tuple[str, str]] = []
-    for item in data:
-        if isinstance(item, list) and len(item) >= 2:
-            rows.append((str(item[0]), str(item[1])))
-    return rows
+    return [video_row(item) for item in data if isinstance(item, list)]
 
 
 @dataclass
@@ -731,6 +736,14 @@ def publish_app(
     for label, path in (("capa", capa), ("icone", icone), ("app", app_path)):
         if path is not None and not path.is_file():
             return PublishOutcome(ok=False, message=f"Arquivo de {label} nao encontrado.")
+    tutorial_err = validate_tutorial_local_files(
+        form.tutorial_markdown_path, form.tutorial_videos
+    )
+    if tutorial_err:
+        return PublishOutcome(ok=False, message=tutorial_err)
+    tutorial_upload = tutorial_has_local_files(
+        form.tutorial_markdown_path, form.tutorial_videos
+    )
 
     session: PnPWebLoginSession | None = None
     try:
@@ -796,6 +809,7 @@ def publish_app(
             or app_path is not None
             or capa is not None
             or icone is not None
+            or tutorial_upload
         ):
             return PublishOutcome(ok=False, message=folder_err)
         dest_folder = chosen or ""
@@ -808,7 +822,9 @@ def publish_app(
                 return PublishOutcome(ok=False, message=create_err)
         elif form.move_files and not dest_folder:
             return PublishOutcome(ok=False, message=folder_err or "Informe a Pasta Destino para mover os arquivos.")
-        elif (app_path is not None or capa is not None or icone is not None) and not dest_folder:
+        elif (
+            app_path is not None or capa is not None or icone is not None or tutorial_upload
+        ) and not dest_folder:
             return PublishOutcome(ok=False, message="Informe a Pasta Destino dos arquivos.")
 
         def _put_to(local: Path, dest_name: str, dest_folder_url: str, kind: str, msg: str) -> tuple[bool, str]:
@@ -929,10 +945,24 @@ def publish_app(
             entry["upload_url"] = upload_url
         elif "upload_url" in current:
             entry["upload_url"] = ""
-        entry["tutorial"] = tutorial_catalog_block(
+        def _upload_tutorial(local: Path, msg: str) -> tuple[bool, str]:
+            return _put_to(
+                local,
+                original_upload_name(local),
+                dest_folder,
+                "file",
+                msg,
+            )
+
+        tutorial_block, tutorial_err = apply_tutorial_uploads(
             form.tutorial_markdown_url,
+            form.tutorial_markdown_path,
             form.tutorial_videos,
+            _upload_tutorial,
         )
+        if tutorial_err or tutorial_block is None:
+            return PublishOutcome(ok=False, message=tutorial_err or "Falha no tutorial.")
+        entry["tutorial"] = tutorial_block
 
         upsert_app_entry(data, entry)
         apply_gerencia_change(

@@ -15,6 +15,7 @@ from services.catalog_publish import (
     ROOT_FOLDER,
     catalog_http_url,
 )
+from services.tutorial import video_row
 from ui.progress_util import bar_value, label as progress_label
 
 NEW_APP_KEY = "__new__"
@@ -570,32 +571,45 @@ def bind_publish_form(
 
     def _video_editor() -> ft.Control:
         rows: list[ft.Control] = []
-        for index, (titulo, url) in enumerate(form.tutorial_videos):
+        for index, item in enumerate(form.tutorial_videos):
+            titulo, url, local = video_row(item)
             title_changed = form.video_part_changed(index, "titulo")
             url_changed = form.video_part_changed(index, "url")
+            local_changed = form.video_part_changed(index, "local")
+            changed = title_changed or url_changed or local_changed
+            catalog_url = catalog_http_url(url)
             title_field = ft.TextField(
                 value=titulo,
                 hint_text="Titulo",
-                expand=2,
                 **field_kwargs(changed=title_changed),
             )
             url_field = ft.TextField(
-                value=url,
-                hint_text="Link .mp4",
-                expand=3,
-                **field_kwargs(changed=url_changed),
+                value=catalog_url,
+                hint_text="vazio no catalog.json (url do video)",
+                multiline=True,
+                min_lines=2,
+                max_lines=8,
+                text_size=12,
+                filled=True,
+                fill_color=_CHANGED_FILL if url_changed else _INPUT_FILL,
+                color=config.COLOR_TEXT if catalog_url else "#8AA797",
+                cursor_color=config.COLOR_ACCENT,
+                **_borderless(),
             )
-            row_box = ft.Container(
-                bgcolor=_CHANGED_FILL if (title_changed or url_changed) else None,
-                border_radius=8,
-                padding=ft.Padding.symmetric(horizontal=8, vertical=6) if (title_changed or url_changed) else 0,
-                border=ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)) if (title_changed or url_changed) else None,
-                content=ft.Row(
-                    spacing=8,
+            picked = Path(local).name if (local or "").strip() else ""
+            detail: list[ft.Control] = [
+                title_field,
+                url_field,
+                ft.Row(
+                    spacing=12,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        title_field,
-                        url_field,
+                        ft.OutlinedButton(
+                            content="Escolher arquivo",
+                            icon=ft.Icons.FOLDER_OPEN,
+                            disabled=form.busy,
+                            on_click=lambda e, idx=index: on_pick(f"tutorial_video:{idx}"),
+                        ),
                         ft.IconButton(
                             icon=ft.Icons.DELETE_OUTLINE,
                             icon_color="#8AA797",
@@ -605,15 +619,31 @@ def bind_publish_form(
                         ),
                     ],
                 ),
+            ]
+            if picked:
+                detail.append(
+                    ft.Text(
+                        f"Arquivo local a enviar (nome original): {picked}",
+                        size=12,
+                        color=config.COLOR_ACCENT,
+                        weight=ft.FontWeight.W_600,
+                    )
+                )
+            row_box = ft.Container(
+                bgcolor=_CHANGED_FILL if changed else None,
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6) if changed else 0,
+                border=ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)) if changed else None,
+                content=ft.Column(spacing=6, tight=True, controls=detail),
             )
 
             def _paint(idx: int, box: ft.Container, title_ctl: ft.TextField, url_ctl: ft.TextField) -> None:
                 t_changed = form.video_part_changed(idx, "titulo")
                 u_changed = form.video_part_changed(idx, "url")
-                changed = t_changed or u_changed
-                box.bgcolor = _CHANGED_FILL if changed else None
-                box.padding = ft.Padding.symmetric(horizontal=8, vertical=6) if changed else 0
-                box.border = ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)) if changed else None
+                row_changed = t_changed or u_changed or form.video_part_changed(idx, "local")
+                box.bgcolor = _CHANGED_FILL if row_changed else None
+                box.padding = ft.Padding.symmetric(horizontal=8, vertical=6) if row_changed else 0
+                box.border = ft.Border(left=ft.BorderSide(3, _CHANGED_BORDER)) if row_changed else None
                 title_ctl.fill_color = _CHANGED_FILL if t_changed else _INPUT_FILL
                 url_ctl.fill_color = _CHANGED_FILL if u_changed else _INPUT_FILL
                 try:
@@ -644,18 +674,7 @@ def bind_publish_form(
         )
         return option7_row(
             "Videos",
-            ft.Column(
-                spacing=8,
-                tight=True,
-                controls=[
-                    ft.Text(
-                        "Titulo e link .mp4. Link vazio e ignorado. O arquivo nao e enviado.",
-                        size=12,
-                        color="#8AA797",
-                    ),
-                    *rows,
-                ],
-            ),
+            ft.Column(spacing=8, tight=True, controls=rows),
             align=ft.CrossAxisAlignment.START,
             changed=form.is_changed("tutorial_videos"),
         )
@@ -759,11 +778,14 @@ def bind_publish_form(
                 url_key="current_icone",
                 preview_src=form.preview_icone,
             ),
-            _tf("Markdown", "tutorial_markdown_url", form.tutorial_markdown_url),
-            ft.Text(
-                "Link do .md no SharePoint. O arquivo nao e enviado por aqui.",
-                size=12,
-                color="#8AA797",
+            _file_block(
+                "Markdown",
+                "tutorial_markdown_path",
+                form.tutorial_markdown_path,
+                form.tutorial_markdown_url,
+                preview=False,
+                empty="vazio no catalog.json (tutorial.markdown_url)",
+                url_key="tutorial_markdown_url",
             ),
             _video_editor(),
         ],

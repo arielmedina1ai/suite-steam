@@ -14,17 +14,26 @@ import flet as ft
 
 import config
 from catalog.provider import hydrate_catalog_images
-from models import AppInfo, SetorInfo, parse_catalog_dict
-from services.catalog_publish import PublishFormState, upsert_app_entry
+from models import AppInfo, CatalogData, SetorInfo, parse_catalog_dict
+from services.catalog_publish import (
+    PublishFormState,
+    original_upload_name,
+    upsert_app_entry,
+)
 from services.storage import Storage
 from services.tutorial import (
+    apply_tutorial_uploads,
+    cache_path_for,
     is_mp4_url,
     prepare_markdown_for_display,
     split_markdown_sections,
     tutorial_catalog_block,
+    validate_tutorial_local_files,
+    with_video_part,
 )
 from ui.app_detail_view import AppDetailView
 from ui.home_view import build_home, build_setor_view
+from ui.publish_view import bind_publish_form
 from ui.tutorial_view import TutorialView
 
 
@@ -288,6 +297,187 @@ class TutorialUiTests(unittest.TestCase):
         view._show_local(Path("/tmp/dois.mp4"))
         self.assertEqual(len(view.player.playlist), 1)
         self.assertTrue(str(view.player.playlist[0].resource).endswith("dois.mp4"))
+
+
+class TutorialUploadTests(unittest.TestCase):
+    def test_pasted_link_is_saved_and_not_uploaded(self) -> None:
+        def upload(_path, _msg):
+            raise AssertionError("link colado nao envia arquivo")
+
+        block, err = apply_tutorial_uploads(
+            " https://x/t.md ",
+            "",
+            [("Como instalar", " https://x/a.mp4 ", ""), ("", "  ", "")],
+            upload,
+        )
+        self.assertEqual(err, "")
+        self.assertEqual(block["markdown_url"], "https://x/t.md")
+        self.assertEqual(
+            block["videos"],
+            [{"titulo": "Como instalar", "url": "https://x/a.mp4"}],
+        )
+        self.assertNotIn("\\", json.dumps(block))
+
+    def test_chosen_file_replaces_old_link_and_keeps_original_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            md = root / "Guia do Usuario.md"
+            mp4 = root / "instalar.mp4"
+            md.write_text("# guia", encoding="utf-8")
+            mp4.write_bytes(b"mp4")
+            calls = []
+
+            def upload(path, msg):
+                calls.append((Path(path), msg))
+                name = original_upload_name(Path(path))
+                return True, f"https://empresa.sharepoint.com/:u:/r/sites/x/Pasta/{name}"
+
+            block, err = apply_tutorial_uploads(
+                "https://x/antigo.md",
+                str(md),
+                [("Como instalar", "https://x/antigo.mp4", str(mp4))],
+                upload,
+            )
+        self.assertEqual(err, "")
+        self.assertEqual([msg for _path, msg in calls], ["Enviando markdown...", "Enviando video..."])
+        self.assertEqual(original_upload_name(calls[0][0]), "Guia do Usuario.md")
+        self.assertEqual(original_upload_name(calls[1][0]), "instalar.mp4")
+        self.assertEqual(
+            block["markdown_url"],
+            "https://empresa.sharepoint.com/:u:/r/sites/x/Pasta/Guia do Usuario.md",
+        )
+        self.assertEqual(
+            block["videos"],
+            [{
+                "titulo": "Como instalar",
+                "url": "https://empresa.sharepoint.com/:u:/r/sites/x/Pasta/instalar.mp4",
+            }],
+        )
+        dumped = json.dumps(block)
+        self.assertNotIn(str(md), dumped)
+        self.assertNotIn(str(mp4), dumped)
+
+    def test_bad_extension_and_missing_file_are_rejected_before_upload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_md = Path(tmp) / "ausente.md"
+            missing_mp4 = Path(tmp) / "ausente.mp4"
+            self.assertEqual(validate_tutorial_local_files(str(Path(tmp) / "nota.txt"), []), "Somente .md.")
+            self.assertEqual(
+                validate_tutorial_local_files("", [("T", "https://x/a.mp4", str(Path(tmp) / "clip.mkv"))]),
+                "Somente .mp4.",
+            )
+            self.assertEqual(validate_tutorial_local_files(str(missing_md), []), "Arquivo de markdown nao encontrado.")
+            self.assertEqual(
+                validate_tutorial_local_files("", [("T", "", str(missing_mp4))]),
+                "Arquivo de video nao encontrado.",
+            )
+            calls = []
+
+            def upload(path, msg):
+                calls.append((path, msg))
+                return True, "https://x/nao"
+
+            block, err = apply_tutorial_uploads("", "", [("T", "https://x/old.mp4", str(Path(tmp) / "clip.mkv"))], upload)
+        self.assertEqual(err, "Somente .mp4.")
+        self.assertIsNone(block)
+        self.assertEqual(calls, [])
+
+    def test_upload_drops_the_cached_copy_of_the_new_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            previous = (
+                config.TUTORIAL_CACHE_DIR,
+            )
+            config.TUTORIAL_CACHE_DIR = root / "cache"
+            try:
+                md = root / "guia.md"
+                md.write_text("# novo", encoding="utf-8")
+                url = "https://empresa.sharepoint.com/:u:/r/sites/x/Pasta/guia.md"
+                cached = cache_path_for(url, ".md")
+                cached.parent.mkdir(parents=True, exist_ok=True)
+                cached.write_text("velho", encoding="utf-8")
+
+                def upload(_path, _msg):
+                    return True, url
+
+                block, err = apply_tutorial_uploads("https://x/outro.md", str(md), [], upload)
+                self.assertEqual(err, "")
+                self.assertEqual(block["markdown_url"], url)
+                self.assertFalse(cached.exists())
+            finally:
+                (config.TUTORIAL_CACHE_DIR,) = previous
+
+    def test_title_edit_keeps_the_local_file(self) -> None:
+        row = with_video_part(("Como instalar", "https://x/a.mp4", "/tmp/instalar.mp4"), "titulo", "Passo 1")
+        self.assertEqual(row, ("Passo 1", "https://x/a.mp4", "/tmp/instalar.mp4"))
+        row = with_video_part(row, "url", "https://x/b.mp4")
+        self.assertEqual(row[2], "/tmp/instalar.mp4")
+        saved = tutorial_catalog_block("", [row])
+        self.assertEqual(saved["videos"], [{"titulo": "Passo 1", "url": "https://x/b.mp4"}])
+
+    def test_form_highlights_local_file_until_cleared(self) -> None:
+        form = PublishFormState(
+            tutorial_markdown_url="https://x/t.md",
+            tutorial_videos=[("Como instalar", "https://x/a.mp4")],
+        )
+        form.capture_baseline()
+        self.assertFalse(form.is_changed("tutorial_markdown_path"))
+        self.assertFalse(form.video_part_changed(0, "local"))
+        form.tutorial_markdown_path = "/tmp/guia.md"
+        form.tutorial_videos[0] = ("Como instalar", "https://x/a.mp4", "/tmp/instalar.mp4")
+        self.assertTrue(form.is_changed("tutorial_markdown_path"))
+        self.assertTrue(form.video_part_changed(0, "local"))
+        self.assertFalse(form.video_part_changed(0, "url"))
+        form.tutorial_markdown_path = ""
+        form.tutorial_videos = [("Como instalar", "https://x/a.mp4")]
+        form.capture_baseline()
+        self.assertFalse(form.is_changed("tutorial_markdown_path"))
+        self.assertFalse(form.is_changed("tutorial_videos"))
+
+
+class TutorialPublishUiTests(unittest.TestCase):
+    def test_fields_show_catalog_url_and_local_file_hint(self) -> None:
+        md_url = "https://empresa.sharepoint.com/sites/x/Documentos/Pasta/guia.md"
+        video_url = "https://empresa.sharepoint.com/sites/x/Documentos/Pasta/antigo.mp4"
+        form = PublishFormState(
+            tutorial_markdown_url=md_url,
+            tutorial_videos=[("Como instalar", video_url)],
+        )
+        form.capture_baseline()
+        form.tutorial_markdown_path = "/home/me/docs/Guia do Usuario.md"
+        form.tutorial_videos[0] = ("Como instalar", video_url, "/home/me/clips/instalar.mp4")
+        select_holder = ft.Container()
+        edit_holder = ft.Container()
+        bind_publish_form(
+            CatalogData(),
+            form,
+            on_select_app=lambda _value: None,
+            on_save=lambda: None,
+            on_cancel=lambda: None,
+            on_pick=lambda _kind: None,
+            on_field=lambda _key, _value: None,
+            on_reopen=lambda: None,
+            select_holder=select_holder,
+            edit_holder=edit_holder,
+        )
+        shown = _texts(edit_holder)
+        self.assertIn(md_url, shown)
+        self.assertIn(video_url, shown)
+        self.assertIn("Arquivo local a enviar (nome original): Guia do Usuario.md", shown)
+        self.assertIn("Arquivo local a enviar (nome original): instalar.mp4", shown)
+        self.assertNotIn("/home/me/docs/Guia do Usuario.md", shown)
+        self.assertNotIn("/home/me/clips/instalar.mp4", shown)
+        self.assertTrue(_row_highlighted(edit_holder, "Markdown"))
+        self.assertTrue(_row_highlighted(edit_holder, "Videos"))
+
+
+def _row_highlighted(control, label: str) -> bool:
+    for node in _walk(control):
+        if getattr(node, "bgcolor", None) != "#2A3820":
+            continue
+        if label in _texts(node):
+            return True
+    return False
 
 
 def _action_labels(control) -> list[str]:

@@ -203,9 +203,16 @@ markdown: o texto antes do primeiro `##` fica visivel; cada `##` abre e fecha.
 Imagem `https://` publica aparece. Imagem no SharePoint nao. Video escrito no
 markdown continua link.
 
-Na aba **Publicar**, em **Editar**, ha o link do markdown e linhas de titulo +
-link de video (adicionar/remover). O save grava so os links, no mesmo login
-WebLogin. Nao envia o `.md` nem o `.mp4`.
+Na aba **Publicar**, em **Editar**, o markdown e cada video seguem Arquivo, capa
+e icone. **Pasta Destino** e a pasta do envio: se nao existir, e criada com o
+nome exatamente como digitado. **Escolher arquivo** envia o arquivo local com o
+nome original (markdown `.md`; video `.mp4`, senao o aviso curto "Somente .mp4.").
+Um link colado, sem arquivo novo, entra no `catalog.json` e nao e enviado. Se
+houver arquivo novo e link antigo, o arquivo escolhido vale e vai para a Pasta
+Destino. O campo mostra a URL do catalogo por inteiro; o arquivo recem escolhido
+aparece a parte, como arquivo local a enviar. O que mudou fica destacado ate o
+save. Markdown, videos e o restante da publicacao usam o mesmo WebLogin oculto.
+Abrir **Tutorial** baixa essa URL com PnP para `catalog/tutorials/`.
 
 ### Imagens e cache
 
