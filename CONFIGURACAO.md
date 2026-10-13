@@ -234,6 +234,21 @@ A cada abertura, o SuiteApps:
 3. Sincroniza capas/icones em lote quando necessario.
 4. Em falha, usa o ultimo cache.
 
+Todo dia as **10:00** (horario do PC), se o processo estiver aberto (janela,
+barra de tarefas ou bandeja), roda o mesmo sync do botao **Buscar
+atualizacoes**. Se o app nao estava aberto nesse horario, a checagem daquele
+dia roda uma vez na proxima abertura, depois da sincronizacao normal de
+abertura, para o dia nao ficar sem consulta. Nao roda duas vezes no mesmo dia
+local: a data fica em `preferences.json` (`last_auto_catalog_check`). Depois
+que essa checagem ja rodou, reiniciar nao dispara outra — a abertura continua
+sincronizando como sempre. Com a janela na tela, a sidebar mostra por um
+instante `100% Catalogo sincronizado.` debaixo do botao e depois apaga. A
+frase nao fica em Publicar nem em Estrutura. Na barra de tarefas ou na
+bandeja a checagem roda sem essa linha. Se falhar, a mensagem e curta e o
+catalogo atual permanece. O PowerShell do SharePoint continua sem console
+(`CREATE_NO_WINDOW` / janela oculta). **Baixar Atualizacao** segue sendo o
+unico jeito de baixar o instalador do Suite.
+
 ---
 
 ## 2.1 Branding local (nao vai no SharePoint)

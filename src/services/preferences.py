@@ -48,3 +48,11 @@ class PreferencesStore:
     def set_start_with_windows(self, enabled: bool) -> None:
         self._data["start_with_windows"] = bool(enabled)
         self._save()
+
+    def get_last_auto_catalog_check(self) -> str:
+        """Dia local (``YYYY-MM-DD``) da ultima checagem automatica, ou vazio."""
+        return str(self._data.get("last_auto_catalog_check", "") or "").strip()
+
+    def set_last_auto_catalog_check(self, day: str) -> None:
+        self._data["last_auto_catalog_check"] = (day or "").strip()
+        self._save()

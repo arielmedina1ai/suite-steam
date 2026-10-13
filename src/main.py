@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 import config
@@ -21,6 +22,13 @@ if __name__ == "__main__":
 import flet as ft
 from catalog import SharePointCatalogProvider
 from models import AppInfo, CatalogData, InstallStatus, apps_do_setor, setores_visiveis
+from services.catalog_check import (
+    WAIT_SLICE_SECONDS,
+    catalog_check_is_due,
+    local_day,
+    seconds_until_auto_check,
+    window_shows_catalog_notice,
+)
 from services.catalog_publish import (
     DraftGerencia,
     DraftSetor,
@@ -120,6 +128,9 @@ class SuiteApp:
         self.sync_message = ""
         self.sync_notice = ""
         self._sync_notice_gen = 0
+        self._catalog_sync_lock = threading.Lock()
+        self._sync_screen_visible = False
+        self._auto_check_day = ""
         self.sync_busy = True
         self.sync_progress: float | None = -1.0
         self.sync_status = "Sincronizando catalogo com SharePoint..."
@@ -161,6 +172,7 @@ class SuiteApp:
         self._apply_startup_preference()
         self._show_sync_screen()
         self.page.run_thread(lambda: self._sync_catalog_worker(True))
+        self.page.run_thread(self._auto_catalog_check_loop)
 
     # ------------------------------------------------------------------
     def _setup_page(self) -> None:
@@ -303,6 +315,7 @@ class SuiteApp:
         self._render()
 
     def _show_sync_screen(self) -> None:
+        self._sync_screen_visible = True
         self.sidebar_holder.content = ft.Container(
             width=260,
             bgcolor=config.COLOR_SURFACE,
@@ -342,37 +355,83 @@ class SuiteApp:
         )
         self.page.update()
 
-    def _sync_catalog_worker(self, initial: bool = False) -> None:
+    def _sync_catalog_worker(self, initial: bool = False, *, automatic: bool = False) -> None:
         self.sync_busy = True
-        provider = SharePointCatalogProvider()
-        result = provider.sync(progress=self._on_sync_progress)
-        if result.ok or initial or not self.catalog.apps:
-            self.catalog = result.catalog
-            self._apply_gerencia_filter()
-        if result.ok:
-            self.sync_message = ""
-        else:
-            self.sync_message = result.message or "Falha ao buscar atualizacoes."
-        if initial:
-            self.selected_id = None
-            self.selected_setor = None
-            self.show_favorites = False
-        self.sync_busy = False
+        if automatic:
+            # Dia em que a checagem comecou, mesmo se o SharePoint passar da meia-noite.
+            self._auto_check_day = local_day(datetime.now())
+        try:
+            provider = SharePointCatalogProvider()
+            try:
+                result = provider.sync(progress=self._on_sync_progress)
+            except Exception:
+                result = None
+            if result is None:
+                # Excecao: nao troca o catalogo. A checagem automatica conta o dia
+                # para nao repetir em loop.
+                self.sync_message = "Falha ao buscar atualizacoes."
+                self._finish_catalog_sync(show_notice=False, automatic=automatic)
+                return
+            # Abertura sempre aplica o resultado. Fora dela, aplica se deu certo
+            # ou se ainda nao ha apps; falha com catalogo carregado mantem o atual.
+            if result.ok or initial or not self.catalog.apps:
+                self.catalog = result.catalog
+                self._apply_gerencia_filter()
+            if result.ok:
+                self.sync_message = ""
+            elif automatic:
+                self.sync_message = "Falha ao buscar atualizacoes."
+            else:
+                self.sync_message = result.message or "Falha ao buscar atualizacoes."
+            if initial:
+                self.selected_id = None
+                self.selected_setor = None
+                self.show_favorites = False
+            show_notice = (not initial) and result.ok
+            if show_notice and automatic and not self._window_shows_sync_notice():
+                show_notice = False
+            self._finish_catalog_sync(show_notice=show_notice, automatic=automatic)
+        except Exception:
+            self._release_catalog_sync()
+            raise
+
+    def _finish_catalog_sync(self, *, show_notice: bool, automatic: bool) -> None:
+        if automatic and self._auto_check_day:
+            self.preferences.set_last_auto_catalog_check(self._auto_check_day)
         self.sync_progress = None
         self.sync_status = ""
-        if not initial and result.ok:
-            self._sync_notice_gen += 1
-            token = self._sync_notice_gen
-            self.sync_notice = progress_label(1.0, "Catalogo sincronizado.")
-            self._render()
-            self.page.run_thread(lambda: self._clear_sync_notice(token))
+        try:
+            if show_notice:
+                # So na sidebar, debaixo do botao. Nao entra em Publicar nem Estrutura.
+                self._sync_notice_gen += 1
+                token = self._sync_notice_gen
+                self.sync_notice = progress_label(1.0, "Catalogo sincronizado.")
+                self._render()
+                self.page.run_thread(lambda: self._clear_sync_notice(token))
+            else:
+                self.sync_notice = ""
+                self._render()
+        finally:
+            # Solta so depois da UI, para a checagem das 10:00 nao entrar no meio.
+            self._release_catalog_sync()
+
+    def _release_catalog_sync(self) -> None:
+        lock = getattr(self, "_catalog_sync_lock", None)
+        if lock is None:
+            self.sync_busy = False
             return
-        self.sync_notice = ""
-        self._render()
+        with lock:
+            self.sync_busy = False
+
+    def _window_shows_sync_notice(self) -> bool:
+        return window_shows_catalog_notice(getattr(self.page, "window", None))
 
     def _on_sync_progress(self, pct: float, msg: str) -> None:
         self.sync_progress = pct
         self.sync_status = msg
+        # So a tela cheia da abertura. Publicar/Estrutura e o restante nao recebem a frase.
+        if not getattr(self, "_sync_screen_visible", False):
+            return
         try:
             content = self.content_holder.content
             if content is self._catalog_shell:
@@ -403,14 +462,64 @@ class SuiteApp:
             pass
 
     def _check_updates(self) -> None:
-        if self.sync_busy:
-            return
-        self.sync_busy = True
-        self.sync_message = ""
-        self.sync_notice = ""
-        self._sync_notice_gen += 1
+        self._start_catalog_sync(automatic=False)
+
+    def _start_catalog_sync(self, *, automatic: bool) -> bool:
+        """Mesmo sync do botao Buscar atualizacoes. Nao baixa o instalador do Suite."""
+        lock = getattr(self, "_catalog_sync_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._catalog_sync_lock = lock
+        with lock:
+            if self.sync_busy or self._exiting:
+                return False
+            self.sync_busy = True
+            self.sync_message = ""
+            self.sync_notice = ""
+            self._sync_notice_gen += 1
         self._render()
-        self.page.run_thread(lambda: self._sync_catalog_worker(False))
+        self.page.run_thread(
+            lambda: self._sync_catalog_worker(False, automatic=automatic)
+        )
+        return True
+
+    def _auto_catalog_check_loop(self) -> None:
+        """10:00 local, ou uma vez na abertura se esse horario ja passou hoje."""
+        while not self._exiting:
+            action = self._consider_auto_catalog_check(datetime.now())
+            if action == "stop":
+                return
+            if action in {"started", "busy"}:
+                if not self._interruptible_sleep(0.25):
+                    return
+                continue
+            last = self.preferences.get_last_auto_catalog_check()
+            wait = seconds_until_auto_check(last, datetime.now())
+            slice_s = wait if wait < WAIT_SLICE_SECONDS else WAIT_SLICE_SECONDS
+            if slice_s <= 0:
+                slice_s = 0.25
+            if not self._interruptible_sleep(slice_s):
+                return
+
+    def _consider_auto_catalog_check(self, now: datetime) -> str:
+        if self._exiting:
+            return "stop"
+        if self.sync_busy:
+            return "busy"
+        last = self.preferences.get_last_auto_catalog_check()
+        if not catalog_check_is_due(last, now):
+            return "wait"
+        if self._start_catalog_sync(automatic=True):
+            return "started"
+        return "busy"
+
+    def _interruptible_sleep(self, seconds: float) -> bool:
+        end = time.monotonic() + max(0.0, seconds)
+        while time.monotonic() < end:
+            if self._exiting:
+                return False
+            time.sleep(min(0.25, max(0.0, end - time.monotonic())))
+        return not self._exiting
 
     # ------------------------------------------------------------------
     def _apply_gerencia_filter(self) -> None:
@@ -1920,6 +2029,7 @@ class SuiteApp:
         return self._catalog_shell
 
     def _render(self) -> None:
+        self._sync_screen_visible = False
         fav_ids = self._favorite_ids()
         installed_ids = {
             app.id
