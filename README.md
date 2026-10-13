@@ -12,6 +12,7 @@ aparecem; sem selecao, o SuiteApps mostra todos.
 
 - Catalogo sincronizado do SharePoint (PnP) a cada execucao, com cache local.
 - Botao **Buscar atualizacoes** na sidebar (mesmo sync da abertura).
+- Checagem automatica do catalogo todo dia as **10:00** em **America/Sao_Paulo** (Brasilia, o mesmo fuso de Sao Paulo — nao o fuso do Windows nem UTC), com o app aberto na janela, na barra de tarefas ou na bandeja. Se nao estava aberto as 10:00 nesse fuso, a checagem daquele dia roda uma vez na proxima abertura (depois da sincronizacao normal de abertura). Nao repete no mesmo dia de Sao Paulo (`preferences.json` > `last_auto_catalog_check`): reiniciar depois disso nao dispara outra checagem automatica. Nao baixa o instalador do Suite — isso continua no clique **Baixar Atualizacao**.
 - Filtro por **gerencia** na sidebar (persistido em `preferences.json`).
 - Home: banner com textos do `settings.sector`; com gerencia selecionada, nome/descricao acima de "Todos os aplicativos".
 - Sidebar: Inicio, Favoritos (se houver), seletor de gerencia, setores.
@@ -87,7 +88,7 @@ Pasta sob `%LOCALAPPDATA%` definida por `app.data_dir` (padrao `SuiteApps`):
     tutorials/             # cache do markdown e dos mp4 do tutorial
   installed.json           # manifesto de instalacao
   favorites.json           # favoritos do usuario
-  preferences.json         # gerencia selecionada + iniciar com o Windows
+  preferences.json         # gerencia, iniciar com o Windows, dia da checagem automatica
   updates/                 # staging da nova versao do proprio SuiteApps
 ```
 
@@ -130,7 +131,9 @@ flet pack src\main.py `
   --hidden-import pystray._win32 `
   --hidden-import PIL `
   --hidden-import flet_video `
+  --hidden-import tzdata `
   --pyinstaller-build-args=--collect-all=pystray `
   --pyinstaller-build-args=--collect-all=flet_video `
+  --pyinstaller-build-args=--collect-all=tzdata `
   --yes
 ```
