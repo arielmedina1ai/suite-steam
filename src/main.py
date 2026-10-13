@@ -26,6 +26,7 @@ from services.catalog_check import (
     WAIT_SLICE_SECONDS,
     catalog_check_is_due,
     local_day,
+    sao_paulo_now,
     seconds_until_auto_check,
     window_shows_catalog_notice,
 )
@@ -359,7 +360,7 @@ class SuiteApp:
         self.sync_busy = True
         if automatic:
             # Dia em que a checagem comecou, mesmo se o SharePoint passar da meia-noite.
-            self._auto_check_day = local_day(datetime.now())
+            self._auto_check_day = local_day(sao_paulo_now())
         try:
             provider = SharePointCatalogProvider()
             try:
@@ -484,9 +485,9 @@ class SuiteApp:
         return True
 
     def _auto_catalog_check_loop(self) -> None:
-        """10:00 local, ou uma vez na abertura se esse horario ja passou hoje."""
+        """10:00 em America/Sao_Paulo, ou uma vez na abertura se esse horario ja passou."""
         while not self._exiting:
-            action = self._consider_auto_catalog_check(datetime.now())
+            action = self._consider_auto_catalog_check(sao_paulo_now())
             if action == "stop":
                 return
             if action in {"started", "busy"}:
@@ -494,7 +495,7 @@ class SuiteApp:
                     return
                 continue
             last = self.preferences.get_last_auto_catalog_check()
-            wait = seconds_until_auto_check(last, datetime.now())
+            wait = seconds_until_auto_check(last, sao_paulo_now())
             slice_s = wait if wait < WAIT_SLICE_SECONDS else WAIT_SLICE_SECONDS
             if slice_s <= 0:
                 slice_s = 0.25

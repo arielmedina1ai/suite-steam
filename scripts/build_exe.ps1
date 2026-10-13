@@ -98,8 +98,10 @@ $PackArgs = @(
     "--hidden-import", "PIL",
     "--hidden-import", "PIL.Image",
     "--hidden-import", "flet_video",
+    "--hidden-import", "tzdata",
     "--pyinstaller-build-args=--collect-all=pystray",
     "--pyinstaller-build-args=--collect-all=flet_video",
+    "--pyinstaller-build-args=--collect-all=tzdata",
     "--yes"
 )
 

@@ -1,4 +1,4 @@
-"""Checagem automatica do catalogo: 10:00 local, uma vez por dia."""
+"""Checagem automatica do catalogo: 10:00 em America/Sao_Paulo, uma vez por dia."""
 from __future__ import annotations
 
 import json
@@ -6,7 +6,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,20 +16,30 @@ sys.path.insert(0, str(ROOT / "src"))
 from catalog.provider import CatalogSyncResult
 from main import SuiteApp
 from models import AppInfo, CatalogData, SuiteUpdateInfo
+from services import catalog_check
 from services.catalog_check import (
+    ZONE_NAME,
+    ZoneUnavailable,
     already_checked_today,
     catalog_check_is_due,
     local_day,
     next_auto_check_at,
+    sao_paulo_zone,
     seconds_until_auto_check,
     window_shows_catalog_notice,
+    zone_source,
 )
 from services.preferences import PreferencesStore
 from ui.progress_util import label as progress_label
 
 
-def _at(hour: int, minute: int = 0, second: int = 0) -> datetime:
-    return datetime(2026, 10, 13, hour, minute, second)
+def _at(hour: int, minute: int = 0, second: int = 0, day: int = 13) -> datetime:
+    """Relogio de parede em America/Sao_Paulo (sem fuso: o modulo aplica a zona)."""
+    return datetime(2026, 10, day, hour, minute, second)
+
+
+def _sp(hour: int, minute: int = 0, second: int = 0, day: int = 13) -> datetime:
+    return datetime(2026, 10, day, hour, minute, second, tzinfo=sao_paulo_zone())
 
 
 class ScheduleTests(unittest.TestCase):
@@ -37,7 +47,7 @@ class ScheduleTests(unittest.TestCase):
         now = _at(9, 59, 59)
         self.assertFalse(catalog_check_is_due("", now))
         self.assertEqual(seconds_until_auto_check("", now), 1.0)
-        self.assertEqual(next_auto_check_at("", now), _at(10, 0, 0))
+        self.assertEqual(next_auto_check_at("", now), _sp(10, 0, 0))
 
     def test_exactly_ten_is_due(self) -> None:
         now = _at(10, 0, 0)
@@ -54,12 +64,90 @@ class ScheduleTests(unittest.TestCase):
         last = local_day(now)
         self.assertTrue(already_checked_today(last, now))
         self.assertFalse(catalog_check_is_due(last, now))
-        self.assertEqual(next_auto_check_at(last, now), datetime(2026, 10, 14, 10, 0, 0))
+        self.assertEqual(next_auto_check_at(last, now), _sp(10, day=14))
 
     def test_morning_after_yesterday_waits_for_today_at_ten(self) -> None:
         now = _at(9, 0)
         self.assertFalse(catalog_check_is_due("2026-10-12", now))
-        self.assertEqual(next_auto_check_at("2026-10-12", now), _at(10, 0, 0))
+        self.assertEqual(next_auto_check_at("2026-10-12", now), _sp(10, 0, 0))
+
+    def test_utc_and_other_zones_use_the_sao_paulo_day(self) -> None:
+        # 10:00 UTC e 07:00 em Sao Paulo: ainda nao chegou a hora.
+        utc_ten = datetime(2026, 10, 13, 10, 0, tzinfo=timezone.utc)
+        self.assertEqual(local_day(utc_ten), "2026-10-13")
+        self.assertFalse(catalog_check_is_due("", utc_ten))
+        # 13:00 UTC e 10:00 em Sao Paulo (UTC-3, sem horario de verao).
+        utc_thirteen = datetime(2026, 10, 13, 13, 0, tzinfo=timezone.utc)
+        self.assertTrue(catalog_check_is_due("", utc_thirteen))
+        self.assertEqual(seconds_until_auto_check("", utc_thirteen), 0.0)
+        # 10:00 no Japao (UTC+9) ainda e 22:00 do dia anterior em Sao Paulo.
+        japan = timezone(timedelta(hours=9))
+        morning_japan = datetime(2026, 10, 13, 10, 0, tzinfo=japan)
+        self.assertEqual(local_day(morning_japan), "2026-10-12")
+        self.assertTrue(catalog_check_is_due("", morning_japan))
+        self.assertFalse(catalog_check_is_due("2026-10-12", morning_japan))
+
+
+class ZoneResolutionTests(unittest.TestCase):
+    def test_zone_name_is_america_sao_paulo(self) -> None:
+        zone = sao_paulo_zone()
+        source = zone_source()
+        self.assertIn(source, {"system", "tzdata"})
+        self.assertEqual(getattr(zone, "key", None), ZONE_NAME)
+        sample = datetime(2026, 10, 13, 12, 0, tzinfo=zone)
+        self.assertEqual(sample.utcoffset(), timedelta(hours=-3))
+
+    def test_fixed_brt_only_when_both_databases_are_missing(self) -> None:
+        catalog_check.reset_zone_cache()
+        try:
+            with (
+                patch.object(catalog_check, "_system_has_zone", return_value=False),
+                patch.object(catalog_check, "_tzdata_package_available", return_value=False),
+            ):
+                zone, source = catalog_check._load_zone()
+            self.assertEqual(source, "fixed-brt")
+            self.assertIsNone(getattr(zone, "key", None))
+            self.assertEqual(
+                zone.utcoffset(datetime(2026, 6, 1, 12, 0)),
+                timedelta(hours=-3),
+            )
+            wall = datetime(2026, 10, 13, 9, 30)
+            with patch.object(catalog_check, "_resolved", (zone, source)):
+                self.assertFalse(catalog_check_is_due("", wall))
+                self.assertEqual(next_auto_check_at("", wall).hour, 10)
+                self.assertEqual(local_day(wall), "2026-10-13")
+        finally:
+            catalog_check.reset_zone_cache()
+
+    def test_tzdata_package_is_used_when_the_os_has_no_zone_file(self) -> None:
+        catalog_check.reset_zone_cache()
+        try:
+            with (
+                patch.object(catalog_check, "_system_has_zone", return_value=False),
+                patch.object(catalog_check, "_tzdata_package_available", return_value=True),
+                patch.object(catalog_check, "_zone_from_zoneinfo", return_value=timezone(timedelta(hours=-3))),
+            ):
+                _zone, source = catalog_check._load_zone()
+            self.assertEqual(source, "tzdata")
+        finally:
+            catalog_check.reset_zone_cache()
+
+    def test_broken_zoneinfo_falls_through_to_fixed_brt(self) -> None:
+        catalog_check.reset_zone_cache()
+        try:
+            with (
+                patch.object(catalog_check, "_system_has_zone", return_value=True),
+                patch.object(catalog_check, "_tzdata_package_available", return_value=True),
+                patch.object(
+                    catalog_check,
+                    "_zone_from_zoneinfo",
+                    side_effect=ZoneUnavailable("missing"),
+                ),
+            ):
+                _zone, source = catalog_check._load_zone()
+            self.assertEqual(source, "fixed-brt")
+        finally:
+            catalog_check.reset_zone_cache()
 
 
 class WindowNoticeTests(unittest.TestCase):
@@ -189,10 +277,9 @@ class AutomaticSyncTests(unittest.TestCase):
             provider = _Provider(result)
             with (
                 patch("main.SharePointCatalogProvider", return_value=provider),
-                patch("main.datetime") as clock,
+                patch("main.sao_paulo_now", return_value=_at(10, 5)),
                 patch("main.baixar_do_sharepoint") as download,
             ):
-                clock.now.return_value = _at(10, 5)
                 SuiteApp._sync_catalog_worker(app, False, automatic=True)
             self.assertIs(app.catalog, incoming)
             self.assertEqual(
@@ -214,9 +301,8 @@ class AutomaticSyncTests(unittest.TestCase):
             app.page.window.visible = False
             with (
                 patch("main.SharePointCatalogProvider", return_value=_Provider(result)),
-                patch("main.datetime") as clock,
+                patch("main.sao_paulo_now", return_value=_at(10, 5)),
             ):
-                clock.now.return_value = _at(10, 5)
                 SuiteApp._sync_catalog_worker(app, False, automatic=True)
             self.assertIs(app.catalog, incoming)
             self.assertEqual(app.sync_notice, "")
@@ -238,10 +324,9 @@ class AutomaticSyncTests(unittest.TestCase):
             kept.apps = current_apps
             with (
                 patch("main.SharePointCatalogProvider", return_value=_Provider(result)),
-                patch("main.datetime") as clock,
+                patch("main.sao_paulo_now", return_value=_at(11, 0)),
                 patch("main.baixar_do_sharepoint") as download,
             ):
-                clock.now.return_value = _at(11, 0)
                 SuiteApp._sync_catalog_worker(app, False, automatic=True)
             self.assertIs(app.catalog, kept)
             self.assertEqual(app.catalog.apps[0].id, "atual")
@@ -264,10 +349,9 @@ class AutomaticSyncTests(unittest.TestCase):
             kept = app.catalog
             with (
                 patch("main.SharePointCatalogProvider", return_value=Boom()),
-                patch("main.datetime") as clock,
+                patch("main.sao_paulo_now", return_value=_at(10, 5)),
                 patch("main.baixar_do_sharepoint") as download,
             ):
-                clock.now.return_value = _at(10, 5)
                 SuiteApp._sync_catalog_worker(app, False, automatic=True)
             self.assertIs(app.catalog, kept)
             self.assertEqual(app.sync_message, "Falha ao buscar atualizacoes.")

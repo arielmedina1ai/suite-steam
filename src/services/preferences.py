@@ -50,7 +50,7 @@ class PreferencesStore:
         self._save()
 
     def get_last_auto_catalog_check(self) -> str:
-        """Dia local (``YYYY-MM-DD``) da ultima checagem automatica, ou vazio."""
+        """Dia em America/Sao_Paulo (``YYYY-MM-DD``) da ultima checagem, ou vazio."""
         return str(self._data.get("last_auto_catalog_check", "") or "").strip()
 
     def set_last_auto_catalog_check(self, day: str) -> None:
