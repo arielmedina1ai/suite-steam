@@ -1,4 +1,4 @@
-"""Tela Catálogo: abas Publicar e Estrutura."""
+"""Tela Catálogo: abas Publicar, Estrutura e Dicas."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -8,6 +8,8 @@ import flet as ft
 import config
 from models import CatalogData
 from services.catalog_publish import PublishFormState, StructureFormState
+from services.tips import DicasFormState
+from ui.dicas_view import bind_dicas_form
 from ui.publish_view import bind_publish_form
 from ui.structure_view import bind_structure_form
 
@@ -69,12 +71,34 @@ def bind_catalog_view(
     publish_edit: ft.Container,
     structure_select: ft.Container,
     structure_edit: ft.Container,
+    dicas: DicasFormState | None = None,
+    on_dicas_save: Callable[[], None] | None = None,
+    on_dicas_pick: Callable[[], None] | None = None,
+    on_dicas_field: Callable[[str, str], None] | None = None,
+    dicas_layout: ft.Column | None = None,
+    dicas_select: ft.Container | None = None,
+    dicas_edit: ft.Container | None = None,
 ) -> None:
     tab_row.controls = [
-        _tab_chip("Publicar", selected=tab != "estrutura", on_click=lambda: on_tab("publish")),
+        _tab_chip("Publicar", selected=tab == "publish", on_click=lambda: on_tab("publish")),
         _tab_chip("Estrutura", selected=tab == "estrutura", on_click=lambda: on_tab("estrutura")),
+        _tab_chip("Dicas", selected=tab == "dicas", on_click=lambda: on_tab("dicas")),
     ]
-    if tab == "estrutura":
+    if tab == "dicas" and dicas is not None and dicas_layout is not None and dicas_select is not None and dicas_edit is not None:
+        bind_dicas_form(
+            dicas,
+            on_save=on_dicas_save or (lambda: None),
+            on_pick=on_dicas_pick or (lambda: None),
+            on_field=on_dicas_field or (lambda _key, _value: None),
+            on_reopen=on_reopen,
+            select_holder=dicas_select,
+            edit_holder=dicas_edit,
+        )
+        cur = list(dicas_layout.controls or [])
+        if len(cur) != 2 or cur[0] is not dicas_select or cur[1] is not dicas_edit:
+            dicas_layout.controls = [dicas_select, dicas_edit]
+        session_host.content = dicas_layout
+    elif tab == "estrutura":
         bind_structure_form(
             catalog,
             structure,

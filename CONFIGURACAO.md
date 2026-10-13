@@ -86,6 +86,10 @@ Estrutura completa (veja `catalog.example.json`):
     "versao": "0.2.0",
     "download_url": "https://empresa.sharepoint.com/.../SuiteApps.exe"
   },
+  "dicas": {
+    "url": "https://empresa.sharepoint.com/.../tips.json",
+    "versao": "1"
+  },
   "gerencia_geral": "Geral",
   "gerencias": [
     {
@@ -154,6 +158,48 @@ permanece como fallback. O app atual continua usavel.
 
 O botao **Buscar atualizacoes** na sidebar dispara o mesmo sync do SharePoint da
 abertura (catalogo, badges de versao e banner do proprio SuiteApps).
+
+### Dicas (opcional)
+
+O bloco `dicas` aponta para um `tips.json` no SharePoint (o mesmo tipo de link
+PnP do catalogo). Sem `url` ou sem `versao`, o Suite segue igual: sem balao e
+sem aviso. Catalogo antigo, sem o bloco, continua valendo.
+
+```json
+{
+  "dicas": [
+    { "titulo": "Atalho", "texto": "Texto da dica." }
+  ]
+}
+```
+
+A copia local fica em `%LOCALAPPDATA%/<app.data_dir>/catalog/tips.json`, e a
+versao ja salva ao lado, em `tips.versao`. Essa versao so muda depois de um
+download que deu certo.
+
+Na abertura, em **Buscar atualizacoes** e na checagem das 10:00
+(America/Sao_Paulo), depois de ler o `catalog.json`:
+
+- sem `dicas.url` ou sem `dicas.versao`: nao baixa;
+- versao remota igual a salva e o arquivo local existe: nao baixa de novo;
+- versao diferente, ou ainda sem copia: baixa o `tips.json`.
+
+Se o download falhar, nao ha banner de erro nem balao novo. A copia anterior,
+se houver, permanece.
+
+Na tela **Inicio**, um balao solto na base mostra o titulo e o texto. A lista
+e embaralhada sem repetir: uma dica por vez, troca a cada 1 minuto, e ao
+acabar embaralha de novo. Uma dica so volta no minuto seguinte. Lista vazia
+ou arquivo ausente: sem balao. O ciclo vale enquanto o programa esta aberto.
+
+A aba **Dicas** do Catalogo usa o mesmo acesso de `publish.users`. O bloco
+**Selecionar ou adicionar** recebe o `tips.json`: colar o link do SharePoint
+ou escolher um arquivo local (o envio vai para a pasta de destino com o nome
+original). O bloco **Editar** so abre com esse arquivo: pares **Título da dica**
+e **Dica**, quantos quiser, com uma linha entre cada par. Salvar envia o
+`tips.json` e grava `dicas.url`, somando 1 em `dicas.versao`. Se o envio do
+`tips.json` falhar, a versao nao muda. Um WebLogin so, PowerShell sem janela,
+como o restante do Catalogo.
 
 ### Gerencias
 
@@ -289,7 +335,7 @@ notificacao (Abrir / Sair). Minimizar deixa a janela na barra de tarefas. **Inic
 - **Tutorial** (contornado, so com o app instalado e se houver markdown ou video)
 - **Atualizar versao** (quando `versao` do catalogo difere da instalada; se **esse**
   processo estiver aberto, o hub encerra, instala e reabre)
-- **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps) e Estrutura (gerencias, setores, sub-setores); envio para `publish.folder_url`
+- **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps), Estrutura (gerencias, setores, sub-setores) e Dicas (tips.json); envio para `publish.folder_url`
 - Barra de progresso com percentual durante download/update (indeterminado no WebLogin)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**
