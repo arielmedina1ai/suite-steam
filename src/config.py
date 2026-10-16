@@ -204,6 +204,9 @@ CATALOG_CACHE_FILE = CATALOG_CACHE_DIR / "catalog.json"
 CATALOG_IMAGES_DIR = CATALOG_CACHE_DIR / "images"
 CATALOG_IMAGES_MANIFEST = CATALOG_CACHE_DIR / "images_manifest.json"
 TUTORIAL_CACHE_DIR = CATALOG_CACHE_DIR / "tutorials"
+# tips.json baixado e a versao que ja deu certo. A versao so muda depois do arquivo.
+TIPS_FILE = CATALOG_CACHE_DIR / "tips.json"
+TIPS_VERSION_FILE = CATALOG_CACHE_DIR / "tips.versao"
 
 
 def user_downloads_dir() -> Path:

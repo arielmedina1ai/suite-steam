@@ -63,6 +63,34 @@ class SuiteUpdateInfo:
 
 
 @dataclass
+class DicasInfo:
+    """Bloco opcional catalog.json > dicas. Ausente: sem url e sem versao."""
+
+    url: str = ""
+    versao: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "DicasInfo":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            url=str(data.get("url", "")).strip(),
+            versao=str(data.get("versao", "")).strip(),
+        )
+
+    @property
+    def configured(self) -> bool:
+        """Os dois campos precisam existir para a Suite buscar o tips.json."""
+        return bool(self.url and self.versao)
+
+
+@dataclass
+class Dica:
+    titulo: str
+    texto: str
+
+
+@dataclass
 class SubSetorInfo:
     id: str
     nome: str
@@ -208,6 +236,7 @@ class CatalogData:
     setores: list[SetorInfo] = field(default_factory=list)
     # Rotulo da opcao "sem filtro" no seletor de gerencia (default: Geral)
     gerencia_geral: str = "Geral"
+    dicas: DicasInfo = field(default_factory=DicasInfo)
 
     def gerencia_by_id(self, gerencia_id: str) -> GerenciaInfo | None:
         alvo = (gerencia_id or "").strip()
@@ -232,6 +261,7 @@ class CatalogData:
                 gerencias=self.gerencias,
                 setores=self.setores,
                 gerencia_geral=self.gerencia_geral,
+                dicas=self.dicas,
             )
         g = self.gerencia_by_id(gerencia_id)
         if g is None:
@@ -244,6 +274,7 @@ class CatalogData:
                     gerencias=self.gerencias,
                     setores=self.setores,
                     gerencia_geral=self.gerencia_geral,
+                    dicas=self.dicas,
                 )
             return CatalogData(
                 apps=list(self.apps),
@@ -251,6 +282,7 @@ class CatalogData:
                 gerencias=self.gerencias,
                 setores=self.setores,
                 gerencia_geral=self.gerencia_geral,
+                dicas=self.dicas,
             )
         allowed = set(g.apps)
         apps = [a for a in self.apps if a.id in allowed]
@@ -260,6 +292,7 @@ class CatalogData:
             gerencias=self.gerencias,
             setores=self.setores,
             gerencia_geral=self.gerencia_geral,
+            dicas=self.dicas,
         )
 
 
@@ -352,13 +385,52 @@ def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:
         else "Geral"
     )
 
+    dicas_raw = data.get("dicas")
+    dicas = DicasInfo.from_dict(dicas_raw if isinstance(dicas_raw, dict) else None)
+
     return CatalogData(
         apps=apps,
         suite=suite,
         gerencias=gerencias,
         setores=setores,
         gerencia_geral=gerencia_geral,
+        dicas=dicas,
     )
+
+
+def parse_tips_payload(data: Any) -> list[Dica]:
+    """Le tips.json `{ "dicas": [ { "titulo", "texto" } ] }`.
+
+    Item que nao e objeto e ignorado. Par sem titulo e sem texto tambem.
+    Formato errado levanta ValueError — o download trata isso como falha.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("tips.json invalido")
+    raw = data.get("dicas")
+    if not isinstance(raw, list):
+        raise ValueError("tips.json sem lista dicas")
+    tips: list[Dica] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        titulo = str(item.get("titulo", "")).strip()
+        texto = str(item.get("texto", "")).strip()
+        if not titulo and not texto:
+            continue
+        tips.append(Dica(titulo=titulo, texto=texto))
+    return tips
+
+
+def tips_payload(pairs: list[tuple[str, str]]) -> dict[str, Any]:
+    """Monta o tips.json a partir dos pares da aba Dicas."""
+    dicas: list[dict[str, str]] = []
+    for titulo, texto in pairs:
+        titulo_s = (titulo or "").strip()
+        texto_s = (texto or "").strip()
+        if not titulo_s and not texto_s:
+            continue
+        dicas.append({"titulo": titulo_s, "texto": texto_s})
+    return {"dicas": dicas}
 
 
 def setores_visiveis(catalog: CatalogData) -> list[SetorInfo]:

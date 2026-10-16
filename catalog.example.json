@@ -3,6 +3,10 @@
     "versao": "0.2.0",
     "download_url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/SuiteApps.exe"
   },
+  "dicas": {
+    "url": "https://empresa.sharepoint.com/:u:/r/sites/seu-site/Documentos%20Compartilhados/tips.json",
+    "versao": "1"
+  },
   "gerencia_geral": "Geral",
   "gerencias": [
     {

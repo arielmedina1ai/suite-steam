@@ -6,7 +6,7 @@ from typing import Callable
 import flet as ft
 
 import config
-from models import AppInfo, GerenciaInfo, SetorInfo, group_apps_by_sub_setor
+from models import AppInfo, Dica, GerenciaInfo, SetorInfo, group_apps_by_sub_setor
 from ui.components import app_badge, app_icon
 
 _HERO_ASPECT = 2220 / 1140
@@ -72,7 +72,33 @@ def _apps_grid(apps: list[AppInfo], on_select: Callable[[str], None], *, title: 
     return ft.Column(spacing=12, controls=[ft.Text(title, size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT), ft.Row(controls=cards, wrap=True, spacing=16, run_spacing=16)])
 
 
-def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
+def tip_balloon(dica: Dica) -> ft.Control:
+    """Balao solto na base da home. So a tela inicial o coloca na pilha."""
+    return ft.Container(
+        left=0,
+        right=0,
+        bottom=0,
+        bgcolor=config.COLOR_SURFACE,
+        border_radius=12,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+        border=ft.Border.all(1, config.COLOR_ACCENT),
+        content=ft.Column(
+            spacing=4,
+            tight=True,
+            controls=[
+                ft.Text(
+                    dica.titulo,
+                    size=14,
+                    weight=ft.FontWeight.BOLD,
+                    color=config.COLOR_ACCENT,
+                ),
+                ft.Text(dica.texto, size=13, color=config.COLOR_TEXT),
+            ],
+        ),
+    )
+
+
+def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None, tip: Dica | None = None) -> ft.Control:
     hero = ft.Container(border_radius=16, padding=20, gradient=ft.LinearGradient(begin=ft.Alignment.TOP_LEFT, end=ft.Alignment.BOTTOM_RIGHT, colors=[config.COLOR_PRIMARY_DARK, config.COLOR_PRIMARY]), content=ft.Row(spacing=24, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[_hero_banner(), ft.Column(spacing=6, expand=True, controls=[ft.Text(config.SECTOR_NAME, size=26, weight=ft.FontWeight.BOLD, color="white"), ft.Text(config.SECTOR_TAGLINE, size=14, color=config.COLOR_ACCENT), ft.Container(height=4), ft.Text(config.SECTOR_DESCRIPTION, size=14, color="#EAF3EE")])]))
     sections: list[ft.Control] = [hero]
     if gerencia is not None:
@@ -82,7 +108,13 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerenci
         sections.append(ft.Column(spacing=6, controls=block))
     installed = installed_ids or set()
     sections.append(_apps_grid(apps, on_select, title="Todos os aplicativos", empty_message="Nenhum aplicativo nesta gerencia." if gerencia is not None else "Nenhum aplicativo no catalogo.", favorite_ids=favorite_ids, on_toggle_favorite=on_toggle_favorite, installed_ids=installed))
-    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=sections)
+    show_tip = tip is not None and bool((tip.titulo or "").strip() or (tip.texto or "").strip())
+    if show_tip:
+        sections.append(ft.Container(height=88))
+    column = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=sections)
+    if not show_tip or tip is None:
+        return column
+    return ft.Stack(expand=True, controls=[column, tip_balloon(tip)])
 
 
 def build_favoritos_view(apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:

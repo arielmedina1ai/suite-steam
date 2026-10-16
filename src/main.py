@@ -51,7 +51,15 @@ from services.catalog_publish import (
     prepare_sharepoint_app_delete,
     publish_app,
     save_catalog_structure,
+    save_dicas,
     structure_from_catalog,
+)
+from services.tips import (
+    TIP_ROTATE_SECONDS,
+    DicasFormState,
+    TipCycle,
+    load_local_tips,
+    read_tips_pairs,
 )
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.favorites import FavoritesStore
@@ -125,6 +133,13 @@ class SuiteApp:
         self._sess_pub_edit = session_holder()
         self._sess_str_sel = session_holder()
         self._sess_str_edit = session_holder()
+        self.dicas = DicasFormState()
+        self._dicas_layout = ft.Column(expand=True, spacing=12)
+        self._sess_dicas_sel = session_holder()
+        self._sess_dicas_edit = session_holder()
+        self._tip_cycle: TipCycle | None = None
+        self._tips_signature: tuple[tuple[str, str], ...] | None = None
+        self._current_tip = None
         self._confirm_open = False
         self.sync_message = ""
         self.sync_notice = ""
@@ -174,6 +189,7 @@ class SuiteApp:
         self._show_sync_screen()
         self.page.run_thread(lambda: self._sync_catalog_worker(True))
         self.page.run_thread(self._auto_catalog_check_loop)
+        self.page.run_thread(self._tip_loop)
 
     # ------------------------------------------------------------------
     def _setup_page(self) -> None:
@@ -391,6 +407,7 @@ class SuiteApp:
             show_notice = (not initial) and result.ok
             if show_notice and automatic and not self._window_shows_sync_notice():
                 show_notice = False
+            self._reload_tips()
             self._finish_catalog_sync(show_notice=show_notice, automatic=automatic)
         except Exception:
             self._release_catalog_sync()
@@ -461,6 +478,49 @@ class SuiteApp:
             self._render()
         except Exception:
             pass
+
+    def _reload_tips(self) -> None:
+        """Recarrega o ciclo se o arquivo local mudou. Falha nao vira banner."""
+        try:
+            tips = load_local_tips()
+        except Exception:
+            return
+        signature = tuple((item.titulo, item.texto) for item in tips)
+        if signature == getattr(self, "_tips_signature", None) and getattr(self, "_tip_cycle", None) is not None:
+            return
+        self._tips_signature = signature
+        if not tips:
+            self._tip_cycle = None
+            self._current_tip = None
+            return
+        self._tip_cycle = TipCycle(tips)
+        self._current_tip = self._tip_cycle.current()
+
+    def _tip_loop(self) -> None:
+        """Um minuto por dica, enquanto o processo estiver aberto."""
+        while not self._exiting:
+            if not self._interruptible_sleep(TIP_ROTATE_SECONDS):
+                return
+            cycle = getattr(self, "_tip_cycle", None)
+            if cycle is None:
+                continue
+            try:
+                self._current_tip = cycle.advance()
+            except Exception:
+                continue
+            if self._home_is_current() and not getattr(self, "_sync_screen_visible", False):
+                try:
+                    self._render()
+                except Exception:
+                    pass
+
+    def _home_is_current(self) -> bool:
+        return (
+            self.selected_id is None
+            and self.selected_setor is None
+            and not self.show_favorites
+            and not self.show_publish
+        )
 
     def _check_updates(self) -> None:
         self._start_catalog_sync(automatic=False)
@@ -650,7 +710,155 @@ class SuiteApp:
     def _catalog_tab(self, tab: str) -> None:
         if not self.can_publish:
             return
-        self.catalog_tab = "estrutura" if tab == "estrutura" else "publish"
+        if tab == "estrutura":
+            self.catalog_tab = "estrutura"
+        elif tab == "dicas":
+            self.catalog_tab = "dicas"
+            self._ensure_dicas_form()
+        else:
+            self.catalog_tab = "publish"
+        self._render()
+
+    def _ensure_dicas_form(self) -> None:
+        form = getattr(self, "dicas", None)
+        if form is None or form.fingerprint or form.busy:
+            return
+        self._fill_dicas_from_catalog()
+
+    def _fill_dicas_from_catalog(self) -> None:
+        form = self.dicas
+        info = self.catalog.dicas
+        form.url = info.url
+        form.versao = info.versao
+        form.dest_folder = config.PUBLISH_FOLDER_URL
+        form.local_path = ""
+        form.local_name = ""
+        form.pairs = [(item.titulo, item.texto) for item in load_local_tips()] if info.url else []
+        form.fingerprint = self.publish_form.fingerprint or fingerprint_cache_file()
+        form.busy = False
+        form.conflict = False
+        form.notice = ""
+        form.notice_ok = False
+        form.progress = None
+        form.hold_scroll = False
+        if not form.message:
+            form.message = ""
+
+    def _dicas_field(self, key: str, value: str) -> None:
+        form = self.dicas
+        if key == "url":
+            had_file = form.has_file
+            form.url = value or ""
+            form.notice = ""
+            form.notice_ok = False
+            if had_file != form.has_file:
+                self._render()
+            return
+        if key == "dest_folder":
+            form.dest_folder = value or ""
+            return
+        if key == "adicionar":
+            form.pairs.append(("", ""))
+            self._render()
+            return
+        if key.startswith("remover:"):
+            try:
+                idx = int(key.split(":", 1)[1])
+            except ValueError:
+                return
+            if 0 <= idx < len(form.pairs):
+                del form.pairs[idx]
+            self._render()
+            return
+        if key.startswith("titulo:") or key.startswith("texto:"):
+            try:
+                idx = int(key.split(":", 1)[1])
+            except ValueError:
+                return
+            if idx < 0 or idx >= len(form.pairs):
+                return
+            titulo, texto = form.pairs[idx]
+            if key.startswith("titulo:"):
+                form.pairs[idx] = (value or "", texto)
+            else:
+                form.pairs[idx] = (titulo, value or "")
+            return
+
+    def _catalog_forms_busy(self) -> bool:
+        dicas = getattr(self, "dicas", None)
+        return bool(
+            getattr(self.publish_form, "busy", False)
+            or getattr(self.structure, "busy", False)
+            or (dicas is not None and getattr(dicas, "busy", False))
+        )
+
+    def _dicas_save(self) -> None:
+        if not self.can_publish or self._catalog_forms_busy():
+            return
+        if not self.dicas.has_file:
+            self.dicas.message = "Selecione ou adicione o tips.json."
+            self.dicas.notice = ""
+            self.dicas.notice_ok = False
+            self._render()
+            return
+        self.dicas.busy = True
+        self.dicas.conflict = False
+        self.dicas.hold_scroll = True
+        self.dicas.notice = ""
+        self.dicas.notice_ok = False
+        self.dicas.message = "Salvando dicas..."
+        self.dicas.progress = -1.0
+        self._render()
+        self.page.run_thread(self._dicas_save_worker)
+
+    def _on_dicas_progress(self, pct: float, msg: str) -> None:
+        self.dicas.hold_scroll = True
+        self.dicas.progress = pct
+        self.dicas.message = msg
+        if self._confirm_open:
+            return
+        try:
+            self._render()
+        except Exception:
+            pass
+
+    def _dicas_save_worker(self) -> None:
+        result = save_dicas(
+            self.dicas,
+            expected_fingerprint=self.dicas.fingerprint or self.publish_form.fingerprint,
+            progress=self._on_dicas_progress,
+        )
+        self.dicas.busy = False
+        self.dicas.progress = None
+        self.dicas.hold_scroll = True
+        if result.conflict:
+            self.dicas.conflict = True
+            self.dicas.message = result.message
+            self._render()
+            self.dicas.hold_scroll = False
+            return
+        if not result.ok:
+            self.dicas.message = result.message
+            self._render()
+            self.dicas.hold_scroll = False
+            return
+        if result.catalog is not None:
+            self.catalog = result.catalog
+            self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
+        self.dicas.fingerprint = fp
+        self.publish_form.fingerprint = fp
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self.dicas.versao = self.catalog.dicas.versao
+        self.dicas.url = self.catalog.dicas.url or self.dicas.url
+        self.dicas.local_path = ""
+        self.dicas.local_name = ""
+        self.dicas.notice = "Dicas salvas."
+        self.dicas.notice_ok = True
+        self.dicas.message = ""
+        self.dicas.conflict = False
+        self._reload_tips()
+        self.dicas.hold_scroll = False
         self._render()
 
     def _select_setor(self, setor_id: str) -> None:
@@ -885,12 +1093,16 @@ class SuiteApp:
         self._render()
 
     def _publish_reopen(self) -> None:
-        if self.publish_form.busy or self.structure.busy:
+        dicas = getattr(self, "dicas", None)
+        if self.publish_form.busy or self.structure.busy or (dicas is not None and dicas.busy):
             return
         self.publish_form.busy = True
         self.structure.busy = True
         self.publish_form.message = "Relendo catalogo remoto..."
         self.structure.message = "Relendo catalogo remoto..."
+        if dicas is not None:
+            dicas.busy = True
+            dicas.message = "Relendo catalogo remoto..."
         self._render()
         self.page.run_thread(self._publish_reopen_worker)
 
@@ -906,15 +1118,41 @@ class SuiteApp:
             )
             self.structure = structure_from_catalog(self.catalog, self.publish_form.fingerprint)
             self.structure.message = "Catalogo recarregado."
+            if getattr(self, "dicas", None) is not None:
+                self.dicas.fingerprint = ""
+                self.dicas.message = ""
+                self._fill_dicas_from_catalog()
+                self.dicas.message = "Catalogo recarregado."
+            self._reload_tips()
         else:
             self.publish_form.conflict = True
             self.publish_form.message = result.message or "Falha ao reler o catalogo."
             self.structure.busy = False
             self.structure.conflict = True
             self.structure.message = result.message or "Falha ao reler o catalogo."
+            if getattr(self, "dicas", None) is not None:
+                self.dicas.busy = False
+                self.dicas.conflict = True
+                self.dicas.message = result.message or "Falha ao reler o catalogo."
         self._render()
 
     def _on_publish_progress(self, pct: float, msg: str) -> None:
+        dicas = getattr(self, "dicas", None)
+        if (
+            dicas is not None
+            and dicas.busy
+            and getattr(self, "catalog_tab", "") == "dicas"
+        ):
+            dicas.hold_scroll = True
+            dicas.progress = pct
+            dicas.message = msg
+            if self._confirm_open:
+                return
+            try:
+                self._render()
+            except Exception:
+                pass
+            return
         if self.structure.busy:
             self.structure.hold_scroll = True
             self.structure.progress = pct
@@ -933,7 +1171,8 @@ class SuiteApp:
     def _publish_pick(self, kind: str) -> None:
         self._publish_pick_kind = kind
         if not hasattr(ft, "FilePicker"):
-            self.publish_form.message = "Seletor de arquivo indisponivel neste ambiente."
+            target = self.dicas if kind == "dicas" and getattr(self, "dicas", None) is not None else self.publish_form
+            target.message = "Seletor de arquivo indisponivel neste ambiente."
             self._render()
             return
         try:
@@ -951,6 +1190,8 @@ class SuiteApp:
         }.get(kind)
         if kind == "tutorial_markdown_path":
             allowed = ["md"]
+        elif kind == "dicas":
+            allowed = ["json"]
         elif (kind or "").startswith("tutorial_video:"):
             allowed = ["mp4"]
         picker = self._file_picker
@@ -980,12 +1221,25 @@ class SuiteApp:
         selected = files[0]
         path = getattr(selected, "path", None) or ""
         if not path:
-            self.publish_form.message = (
-                "O seletor nao devolveu o caminho do arquivo. Tente de novo."
-            )
+            target = self.dicas if kind == "dicas" else self.publish_form
+            target.message = "O seletor nao devolveu o caminho do arquivo. Tente de novo."
             self._render()
             return
         picked_name = str(getattr(selected, "name", "") or "").strip() or Path(path).name
+        if kind == "dicas":
+            try:
+                self.dicas.pairs = read_tips_pairs(Path(path))
+            except (OSError, ValueError, UnicodeDecodeError):
+                self.dicas.message = "O arquivo nao e um tips.json valido."
+                self._render()
+                return
+            self.dicas.local_path = path
+            self.dicas.local_name = picked_name or Path(path).name
+            self.dicas.message = ""
+            self.dicas.notice = ""
+            self.dicas.notice_ok = False
+            self._render()
+            return
         if kind == "app":
             self.publish_form.app_path = path
         elif kind == "capa":
@@ -1018,7 +1272,7 @@ class SuiteApp:
         self._render()
 
     def _publish_save(self) -> None:
-        if not self.can_publish or self.publish_form.busy or self.structure.busy:
+        if not self.can_publish or self._catalog_forms_busy():
             return
         self.publish_form.busy = True
         self.publish_form.conflict = False
@@ -1700,7 +1954,7 @@ class SuiteApp:
             self._confirm_open = False
 
     def _structure_save(self) -> None:
-        if not self.can_publish or self.structure.busy:
+        if not self.can_publish or self._catalog_forms_busy():
             return
         self.structure.busy = True
         self.structure.conflict = False
@@ -2010,6 +2264,8 @@ class SuiteApp:
     def _ensure_catalog_shell(self) -> ft.Column:
         self._publish_layout.controls = [self._sess_pub_sel, self._sess_pub_edit]
         self._estrutura_layout.controls = [self._sess_str_sel, self._sess_str_edit]
+        if getattr(self, "_dicas_layout", None) is not None:
+            self._dicas_layout.controls = [self._sess_dicas_sel, self._sess_dicas_edit]
         self._catalog_session_box.content = self._session_host
         if self._catalog_shell is None:
             self._session_host.content = self._publish_layout
@@ -2122,6 +2378,13 @@ class SuiteApp:
                 publish_edit=self._sess_pub_edit,
                 structure_select=self._sess_str_sel,
                 structure_edit=self._sess_str_edit,
+                dicas=self.dicas,
+                on_dicas_save=self._dicas_save,
+                on_dicas_pick=lambda: self._publish_pick("dicas"),
+                on_dicas_field=self._dicas_field,
+                dicas_layout=self._dicas_layout,
+                dicas_select=self._sess_dicas_sel,
+                dicas_edit=self._sess_dicas_edit,
             )
             self.content_holder.content = shell
         elif self.selected_id is not None:
@@ -2191,6 +2454,7 @@ class SuiteApp:
                 installed_ids=installed_ids,
             )
         else:
+            tip = getattr(self, "_current_tip", None) if self._home_is_current() else None
             home = build_home(
                 self.apps,
                 self._select_app,
@@ -2198,6 +2462,7 @@ class SuiteApp:
                 favorite_ids=fav_ids,
                 on_toggle_favorite=self._toggle_favorite,
                 installed_ids=installed_ids,
+                tip=tip,
             )
             extras: list[ft.Control] = []
             if self.sync_message:
@@ -2234,12 +2499,18 @@ class SuiteApp:
                         ),
                     )
                 )
-            if extras:
+            if extras and tip is None:
                 self.content_holder.content = ft.Column(
                     expand=True,
                     scroll=ft.ScrollMode.AUTO,
                     spacing=16,
                     controls=[*extras, home],
+                )
+            elif extras:
+                self.content_holder.content = ft.Column(
+                    expand=True,
+                    spacing=16,
+                    controls=[*extras, ft.Container(expand=True, content=home)],
                 )
             else:
                 self.content_holder.content = home

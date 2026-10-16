@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlparse
 
 import config
 from models import AppInfo, CatalogData, parse_catalog_dict
+from services.tips import sync_tips
 from services.sharepoint_manager import (
     SharePointBatchItem,
     baixar_do_sharepoint,
@@ -408,6 +409,14 @@ class SharePointCatalogProvider(CatalogProvider):
             if progress:
                 progress(pct, msg)
 
+        def finish(result: CatalogSyncResult) -> CatalogSyncResult:
+            # Dicas nao entram na mensagem do catalogo. Falha fica silenciosa.
+            try:
+                sync_tips(result.catalog)
+            except Exception:
+                pass
+            return result
+
         if not self.url:
             cached = _load_cached_catalog()
             if cached is not None and cached.apps:
@@ -443,18 +452,18 @@ class SharePointCatalogProvider(CatalogProvider):
         if not result.ok or not result.path or not result.path.exists():
             cached = _load_cached_catalog()
             if cached is not None:
-                return CatalogSyncResult(
+                return finish(CatalogSyncResult(
                     catalog=cached,
                     message=f"Falha ao sincronizar catalogo ({result.message}). Usando cache.",
                     from_cache=True,
                     ok=False,
-                )
-            return CatalogSyncResult(
+                ))
+            return finish(CatalogSyncResult(
                 catalog=CatalogData(),
                 message=f"Falha ao sincronizar catalogo: {result.message}",
                 from_cache=False,
                 ok=False,
-            )
+            ))
 
         try:
             text = result.path.read_text(encoding="utf-8")
@@ -463,23 +472,23 @@ class SharePointCatalogProvider(CatalogProvider):
             catalog = _parse_catalog(text)
         except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
             cached = _load_cached_catalog()
-            return CatalogSyncResult(
+            return finish(CatalogSyncResult(
                 catalog=cached or CatalogData(),
                 message=f"Catalogo invalido: {exc}",
                 from_cache=bool(cached),
                 ok=False,
-            )
+            ))
 
         report(0.55, "Verificando capas e icones em cache...")
         _sync_images(catalog.apps, progress=report)
         report(1.0, "Catalogo sincronizado.")
 
-        return CatalogSyncResult(
+        return finish(CatalogSyncResult(
             catalog=catalog,
             message="",
             from_cache=False,
             ok=True,
-        )
+        ))
 
 
 def get_default_provider() -> CatalogProvider:
