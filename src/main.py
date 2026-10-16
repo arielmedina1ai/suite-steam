@@ -86,7 +86,7 @@ from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
 from ui.tutorial_view import TutorialView
 from ui.catalog_view import bind_catalog_view, session_holder
-from ui.home_view import build_favoritos_view, build_home, build_setor_view
+from ui.home_view import apply_tip, build_favoritos_view, build_home, build_setor_view
 from ui.progress_util import bar_value, label as progress_label
 from ui.publish_view import GERAL_KEY, NEW_APP_KEY
 
@@ -142,6 +142,7 @@ class SuiteApp:
         self._tip_cycle: TipCycle | None = None
         self._tips_signature: tuple[tuple[str, str], ...] | None = None
         self._current_tip = None
+        self._home_tip_balloon: ft.Control | None = None
         self._confirm_open = False
         self.sync_message = ""
         self.sync_notice = ""
@@ -525,11 +526,56 @@ class SuiteApp:
                 self._current_tip = cycle.advance()
             except Exception:
                 continue
-            if self._home_is_current() and not getattr(self, "_sync_screen_visible", False):
-                try:
-                    self._render()
-                except Exception:
-                    pass
+            self._schedule_tip_refresh()
+
+    def _schedule_tip_refresh(self) -> None:
+        """Pinta a dica nova na hora, no loop da pagina.
+
+        No Flet 0.85, update chamado da thread do timer so aparece no proximo clique.
+        """
+        if self._exiting:
+            return
+        if not self._home_is_current() or getattr(self, "_sync_screen_visible", False):
+            return
+        page = getattr(self, "page", None)
+        run_task = getattr(page, "run_task", None) if page is not None else None
+        if callable(run_task):
+            try:
+                run_task(self._refresh_tip_on_page)
+                return
+            except Exception:
+                pass
+        self._paint_current_tip()
+
+    async def _refresh_tip_on_page(self) -> None:
+        self._paint_current_tip()
+
+    def _paint_current_tip(self) -> None:
+        """Atualiza so o balao. Nao remonta a janela."""
+        if self._exiting:
+            return
+        if not self._home_is_current() or getattr(self, "_sync_screen_visible", False):
+            return
+        balloon = getattr(self, "_home_tip_balloon", None)
+        tip = getattr(self, "_current_tip", None)
+        if balloon is None or tip is None:
+            return
+        try:
+            apply_tip(balloon, tip, self._open_tip_link)
+        except Exception:
+            return
+        try:
+            balloon.update()
+            return
+        except Exception:
+            pass
+        update = getattr(getattr(self, "page", None), "update", None)
+        if not callable(update):
+            return
+        try:
+            update()
+        except Exception:
+            pass
 
     def _home_is_current(self) -> bool:
         return (
@@ -2350,6 +2396,7 @@ class SuiteApp:
         )
         favorites_selected = self.show_favorites and self.selected_id is None
         running_name = self._running_app_names()
+        self._home_tip_balloon = None
 
         self.sidebar_holder.content = build_sidebar(
             self.view_catalog,
@@ -2502,6 +2549,7 @@ class SuiteApp:
                 tip=tip,
                 on_open_url=self._open_tip_link,
             )
+            self._home_tip_balloon = getattr(home, "_suite_tip", None)
             extras: list[ft.Control] = []
             if self.sync_message:
                 extras.append(

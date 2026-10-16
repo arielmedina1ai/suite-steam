@@ -14,6 +14,9 @@ _HERO_ASPECT = 2220 / 1140
 _HERO_DISPLAY_WIDTH = 240
 _CARD_WIDTH = 260
 _CARD_HEIGHT = 230
+# Folga da lista sob o balao: linha Dica! + titulo + texto.
+_TIP_CLEARANCE = 112
+_TIP_LINE_SIZE = 13
 
 
 def _hero_banner() -> ft.Control:
@@ -109,12 +112,44 @@ def _tip_body(texto: str, on_open_url: Callable[[str], None] | None) -> ft.Contr
     return ft.Text(spans=spans, size=13, color=config.COLOR_TEXT)
 
 
+def _tip_kicker() -> ft.Control:
+    """Linha Dica! acima do titulo. Icones no mesmo tamanho e cor do texto."""
+    size = _TIP_LINE_SIZE
+    color = config.COLOR_ACCENT
+    return ft.Row(
+        spacing=6,
+        tight=True,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Icon(ft.Icons.LIGHTBULB, size=size, color=color),
+            ft.Text("Dica!", size=size, color=color),
+            ft.Icon(ft.Icons.ARROW_FORWARD, size=size, color=color),
+        ],
+    )
+
+
 def tip_balloon(dica: Dica, on_open_url: Callable[[str], None] | None = None) -> ft.Control:
     """Balao solto na base da home. So a tela inicial o coloca na pilha.
 
     O titulo e texto puro. No texto, https e link markdown abrem no navegador.
+    A linha Dica! fica acima do titulo, dentro do mesmo cartao.
     """
-    return ft.Container(
+    title = ft.Text(
+        dica.titulo,
+        size=14,
+        weight=ft.FontWeight.BOLD,
+        color=config.COLOR_ACCENT,
+    )
+    column = ft.Column(
+        spacing=4,
+        tight=True,
+        controls=[
+            _tip_kicker(),
+            title,
+            _tip_body(dica.texto, on_open_url),
+        ],
+    )
+    balloon = ft.Container(
         left=0,
         right=0,
         bottom=0,
@@ -122,20 +157,22 @@ def tip_balloon(dica: Dica, on_open_url: Callable[[str], None] | None = None) ->
         border_radius=12,
         padding=ft.Padding.symmetric(horizontal=16, vertical=12),
         border=ft.Border.all(1, config.COLOR_ACCENT),
-        content=ft.Column(
-            spacing=4,
-            tight=True,
-            controls=[
-                ft.Text(
-                    dica.titulo,
-                    size=14,
-                    weight=ft.FontWeight.BOLD,
-                    color=config.COLOR_ACCENT,
-                ),
-                _tip_body(dica.texto, on_open_url),
-            ],
-        ),
+        content=column,
     )
+    balloon._tip_title = title
+    balloon._tip_column = column
+    return balloon
+
+
+def apply_tip(balloon: ft.Control, dica: Dica, on_open_url: Callable[[str], None] | None = None) -> None:
+    """Troca titulo e texto no balao que ja esta na tela. Nao monta a janela de novo."""
+    title = getattr(balloon, "_tip_title", None)
+    column = getattr(balloon, "_tip_column", None)
+    controls = getattr(column, "controls", None)
+    if title is None or not isinstance(controls, list) or len(controls) < 3:
+        raise RuntimeError("balao de dica incompleto")
+    title.value = dica.titulo or ""
+    column.controls = [controls[0], title, _tip_body(dica.texto, on_open_url)]
 
 
 def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None, tip: Dica | None = None, on_open_url: Callable[[str], None] | None = None) -> ft.Control:
@@ -150,11 +187,14 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerenci
     sections.append(_apps_grid(apps, on_select, title="Todos os aplicativos", empty_message="Nenhum aplicativo nesta gerencia." if gerencia is not None else "Nenhum aplicativo no catalogo.", favorite_ids=favorite_ids, on_toggle_favorite=on_toggle_favorite, installed_ids=installed))
     show_tip = tip is not None and bool((tip.titulo or "").strip() or (tip.texto or "").strip())
     if show_tip:
-        sections.append(ft.Container(height=88))
+        sections.append(ft.Container(height=_TIP_CLEARANCE))
     column = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=sections)
     if not show_tip or tip is None:
         return column
-    return ft.Stack(expand=True, controls=[column, tip_balloon(tip, on_open_url)])
+    balloon = tip_balloon(tip, on_open_url)
+    stack = ft.Stack(expand=True, controls=[column, balloon])
+    stack._suite_tip = balloon
+    return stack
 
 
 def build_favoritos_view(apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
