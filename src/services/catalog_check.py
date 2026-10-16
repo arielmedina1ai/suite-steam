@@ -1,8 +1,10 @@
 """Quando a checagem automatica do catalogo deve rodar.
 
 Uma vez por dia em America/Sao_Paulo (Brasilia), as 10:00 desse fuso.
-Nao usa o fuso do Windows nem UTC. Se o processo nao estava aberto as 10:00,
-a checagem fica devida na proxima abertura, depois que esse horario passou.
+Nao usa o fuso do Windows nem UTC. So dispara se o processo ja estava
+aberto antes das 10:00 e continua aberto quando o relogio chega nesse
+horario (ou passa dele, por exemplo apos suspensao). Abrir as 10:00 ou
+depois grava o dia e nao sincroniza: a abertura ja baixou o catalogo.
 Nao repete no mesmo dia de Sao Paulo.
 """
 from __future__ import annotations
@@ -126,12 +128,35 @@ def already_checked_today(last_day: str, now: datetime) -> bool:
     return (last_day or "").strip() == local_day(now)
 
 
+def auto_check_day_on_open(now: datetime) -> str:
+    """Dia ``YYYY-MM-DD`` a gravar na abertura, ou vazio antes das 10:00.
+
+    Abrir as 10:00:00 ou depois em America/Sao_Paulo nao dispara a
+    sincronizacao das 10:00: a abertura ja baixou o catalogo. O dia fica
+    marcado para nao repetir. Quem abriu antes devolve vazio e sincroniza
+    uma vez quando o relogio cruzar 10:00 com o processo ainda aberto.
+    """
+    now_sp = as_sao_paulo(now)
+    slot = now_sp.replace(
+        hour=CHECK_HOUR,
+        minute=CHECK_MINUTE,
+        second=0,
+        microsecond=0,
+    )
+    if now_sp >= slot:
+        return now_sp.date().isoformat()
+    return ""
+
+
 def next_auto_check_at(last_day: str, now: datetime) -> datetime:
     """Proximo instante em America/Sao_Paulo.
 
-    Dia ainda nao checado e ja passou das 10:00: agora (recuperacao).
-    Dia ainda nao checado e antes das 10:00: hoje as 10:00.
-    Dia ja checado: amanha as 10:00.
+    Dia ainda nao marcado e antes das 10:00: hoje as 10:00.
+    Dia ainda nao marcado e ja passou das 10:00: agora. Vale para o
+    processo que ja estava aberto quando o relogio cruzou (ou voltou da
+    suspensao depois das 10:00). Abrir nesse horario grava o dia antes
+    e nao consulta este caminho.
+    Dia ja marcado: amanha as 10:00.
     """
     now = as_sao_paulo(now)
     slot = now.replace(
@@ -156,7 +181,12 @@ def seconds_until_auto_check(last_day: str, now: datetime) -> float:
 
 
 def catalog_check_is_due(last_day: str, now: datetime) -> bool:
-    """True se ja passou das 10:00 em Sao Paulo e o dia ainda nao foi gravado."""
+    """True se o processo ja aberto deve sincronizar agora.
+
+    O relogio de Sao Paulo chegou as 10:00 deste dia e o dia ainda nao
+    foi gravado. A abertura as 10:00 ou depois grava o dia antes, entao
+    isto fica falso e nao ha sincronizacao extra.
+    """
     if already_checked_today(last_day, now):
         return False
     return seconds_until_auto_check(last_day, now) == 0.0

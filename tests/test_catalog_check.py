@@ -21,6 +21,7 @@ from services.catalog_check import (
     ZONE_NAME,
     ZoneUnavailable,
     already_checked_today,
+    auto_check_day_on_open,
     catalog_check_is_due,
     local_day,
     next_auto_check_at,
@@ -49,13 +50,20 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(seconds_until_auto_check("", now), 1.0)
         self.assertEqual(next_auto_check_at("", now), _sp(10, 0, 0))
 
-    def test_exactly_ten_is_due(self) -> None:
+    def test_exactly_ten_is_due_for_a_process_already_open(self) -> None:
         now = _at(10, 0, 0)
         self.assertTrue(catalog_check_is_due("", now))
         self.assertEqual(seconds_until_auto_check("", now), 0.0)
+        self.assertEqual(auto_check_day_on_open(now), "2026-10-13")
 
-    def test_after_ten_without_a_check_is_the_catch_up(self) -> None:
+    def test_open_after_ten_marks_the_day_instead_of_catching_up(self) -> None:
         now = _at(15, 30)
+        marked = auto_check_day_on_open(now)
+        self.assertEqual(marked, "2026-10-13")
+        self.assertEqual(auto_check_day_on_open(_at(9, 59, 59)), "")
+        self.assertFalse(catalog_check_is_due(marked, now))
+        self.assertEqual(next_auto_check_at(marked, now), _sp(10, day=14))
+        # Dia em branco depois das 10:00 so vale para quem ja estava aberto.
         self.assertTrue(catalog_check_is_due("", now))
         self.assertTrue(catalog_check_is_due("2026-10-12", now))
 
@@ -80,10 +88,12 @@ class ScheduleTests(unittest.TestCase):
         utc_thirteen = datetime(2026, 10, 13, 13, 0, tzinfo=timezone.utc)
         self.assertTrue(catalog_check_is_due("", utc_thirteen))
         self.assertEqual(seconds_until_auto_check("", utc_thirteen), 0.0)
+        self.assertEqual(auto_check_day_on_open(utc_thirteen), "2026-10-13")
         # 10:00 no Japao (UTC+9) ainda e 22:00 do dia anterior em Sao Paulo.
         japan = timezone(timedelta(hours=9))
         morning_japan = datetime(2026, 10, 13, 10, 0, tzinfo=japan)
         self.assertEqual(local_day(morning_japan), "2026-10-12")
+        self.assertEqual(auto_check_day_on_open(morning_japan), "2026-10-12")
         self.assertTrue(catalog_check_is_due("", morning_japan))
         self.assertFalse(catalog_check_is_due("2026-10-12", morning_japan))
 
@@ -408,6 +418,96 @@ class AutomaticSyncTests(unittest.TestCase):
             self.assertEqual(other.controls[2].value, "antes")
             self.assertEqual(app.publish_form.message, "publico")
             self.assertEqual(app.structure.message, "estrutura")
+
+
+def _run_auto_loop(app: SuiteApp, moments: list[datetime]):
+    """Roda o loop. Cada espera avanca o relogio e executa sync ja enfileirado."""
+    index = {"i": 0, "ran": 0}
+
+    def now() -> datetime:
+        return moments[min(index["i"], len(moments) - 1)]
+
+    def sleep(_seconds: float) -> bool:
+        while index["ran"] < len(app.page.threads):
+            fn = app.page.threads[index["ran"]]
+            index["ran"] += 1
+            fn()
+        index["i"] += 1
+        if index["i"] >= len(moments):
+            app._exiting = True
+            return False
+        return True
+
+    app._interruptible_sleep = sleep  # type: ignore[method-assign]
+    with (
+        patch("main.sao_paulo_now", side_effect=now),
+        patch("main.baixar_do_sharepoint") as download,
+    ):
+        SuiteApp._auto_catalog_check_loop(app)
+    return download
+
+
+class OpenAutoCheckTests(unittest.TestCase):
+    def test_open_after_ten_marks_the_day_and_does_not_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            app.preferences.set_last_auto_catalog_check("2026-10-12")
+            download = _run_auto_loop(app, [_at(10, 0, 0), _at(15, 30)])
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-13")
+            self.assertEqual(app.page.threads, [])
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_open_before_ten_does_not_mark_or_sync_yet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            app.preferences.set_last_auto_catalog_check("2026-10-12")
+            download = _run_auto_loop(app, [_at(9, 59, 59)])
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-12")
+            self.assertEqual(app.page.threads, [])
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_crossing_ten_while_open_syncs_once_and_a_later_tick_waits(self) -> None:
+        incoming = CatalogData(apps=[AppInfo(id="novo", nome="Novo", versao="2")])
+        result = CatalogSyncResult(catalog=incoming, message="", ok=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            app.page.window.minimized = True
+            with patch("main.SharePointCatalogProvider", return_value=_Provider(result)):
+                download = _run_auto_loop(app, [_at(9, 0), _at(10, 0), _at(10, 1), _at(18, 0)])
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-13")
+            self.assertEqual(len(app.page.threads), 1)
+            self.assertFalse(app.sync_busy)
+            self.assertIs(app.catalog, incoming)
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_open_after_ten_and_staying_open_does_not_sync_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            download = _run_auto_loop(app, [_at(11, 0), _at(16, 0), _at(23, 59)])
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-13")
+            self.assertEqual(app.page.threads, [])
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_next_day_syncs_only_when_ten_passes_while_open(self) -> None:
+        incoming = CatalogData(apps=[AppInfo(id="novo", nome="Novo")])
+        result = CatalogSyncResult(catalog=incoming, ok=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            app.page.window.minimized = True
+            with patch("main.SharePointCatalogProvider", return_value=_Provider(result)):
+                download = _run_auto_loop(
+                    app,
+                    [_at(15, 0, day=13), _at(9, 0, day=14), _at(10, 0, day=14), _at(11, 0, day=14)],
+                )
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-14")
+            self.assertEqual(len(app.page.threads), 1)
+            self.assertIs(app.catalog, incoming)
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
 
 
 class ConsiderTests(unittest.TestCase):

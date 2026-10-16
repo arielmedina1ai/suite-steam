@@ -24,6 +24,7 @@ from catalog import SharePointCatalogProvider
 from models import AppInfo, CatalogData, InstallStatus, apps_do_setor, setores_visiveis
 from services.catalog_check import (
     WAIT_SLICE_SECONDS,
+    auto_check_day_on_open,
     catalog_check_is_due,
     local_day,
     sao_paulo_now,
@@ -549,8 +550,23 @@ class SuiteApp:
         )
         return True
 
+    def _record_auto_check_on_open(self, now: datetime) -> None:
+        """Abertura as 10:00 ou depois marca o dia e nao sincroniza.
+
+        A abertura ja baixou o catalog.json. Antes das 10:00 o dia fica
+        em branco para a passagem do relogio sincronizar uma vez.
+        """
+        day = auto_check_day_on_open(now)
+        if not day:
+            return
+        self.preferences.set_last_auto_catalog_check(day)
+
     def _auto_catalog_check_loop(self) -> None:
-        """10:00 em America/Sao_Paulo, ou uma vez na abertura se esse horario ja passou."""
+        """10:00 em America/Sao_Paulo, so se o processo ja estava aberto antes.
+
+        Abrir as 10:00:00 ou depois grava o dia e nao busca de novo.
+        """
+        self._record_auto_check_on_open(sao_paulo_now())
         while not self._exiting:
             action = self._consider_auto_catalog_check(sao_paulo_now())
             if action == "stop":
