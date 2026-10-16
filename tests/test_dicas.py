@@ -16,7 +16,7 @@ import flet as ft
 import config
 from catalog.provider import SharePointCatalogProvider
 from models import CatalogData, Dica, DicasInfo, parse_catalog_dict
-from services.catalog_publish import PublishOutcome, save_dicas
+from services.catalog_publish import PublishOutcome, _upload_tips_document, save_dicas
 from services.sharepoint_manager import SharePointResult
 from services.tips import (
     DicasFormState,
@@ -396,6 +396,35 @@ class TipLinkTests(unittest.TestCase):
         quiet = tip_balloon(Dica("T", "veja [x]() e texto"), on_open_url=opened.append)
         self.assertIn("veja [x]() e texto", _texts(quiet))
         self.assertEqual(opened, ["https://exemplo.com/guia"])
+
+
+class UniqueIdTipsUrlTests(unittest.TestCase):
+    def test_pasted_download_aspx_url_is_stored_unchanged(self) -> None:
+        pasted = (
+            "https://empresa.sharepoint.com/teams/seu-time/"
+            "_layouts/15/download.aspx?UniqueId=11111111-2222-3333-4444-555555555555"
+        )
+        form = DicasFormState(
+            url=pasted,
+            local_path="/tmp/tips.json",
+            local_name="tips.json",
+            dest_folder="https://empresa.sharepoint.com/sites/seu-site/Documentos%20Compartilhados",
+            pairs=[("Atalho", "Texto")],
+        )
+        with (
+            patch("services.catalog_publish.enviar_por_unique_id") as upload,
+            patch("services.catalog_publish.sharing_url") as sharing,
+        ):
+            upload.return_value = SharePointResult(ok=True, message="ok")
+            ok, _message, url = _upload_tips_document(object(), form, "{}", None)
+        self.assertTrue(ok)
+        self.assertEqual(url, pasted)
+        self.assertNotIn(":u:", url)
+        sharing.assert_not_called()
+        self.assertEqual(
+            upload.call_args.kwargs["unique_id"],
+            "11111111-2222-3333-4444-555555555555",
+        )
 
 
 class DicasUiTests(unittest.TestCase):

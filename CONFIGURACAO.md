@@ -88,7 +88,7 @@ Estrutura completa (veja `catalog.example.json`):
     "download_url": "https://empresa.sharepoint.com/.../SuiteApps.exe"
   },
   "dicas": {
-    "url": "https://empresa.sharepoint.com/.../tips.json",
+    "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
     "versao": "1"
   },
   "gerencia_geral": "Geral",
@@ -162,9 +162,11 @@ abertura (catalogo, badges de versao e banner do proprio SuiteApps).
 
 ### Dicas (opcional)
 
-O bloco `dicas` aponta para um `tips.json` no SharePoint (o mesmo tipo de link
-PnP do catalogo). Sem `url` ou sem `versao`, o Suite segue igual: sem balao e
-sem aviso. Catalogo antigo, sem o bloco, continua valendo.
+O bloco `dicas` aponta para o `tips.json` no SharePoint. `dicas.url` e o link
+`download.aspx?UniqueId=`, o mesmo tipo de `catalog.remote_url` no
+`settings.json`, porque o `tips.json` e baixado como o catalogo. Nao use link
+de compartilhamento (`:u:/r/...`). Sem `url` ou sem `versao`, o Suite segue
+igual: sem balao e sem aviso. Catalogo antigo, sem o bloco, continua valendo.
 
 O corpo desse arquivo — a lista de pares, nao o ponteiro `dicas` do
 `catalog.json` — esta em [`tips.example.json`](tips.example.json), na raiz,
@@ -196,8 +198,10 @@ A aba **Dicas** do Catalogo usa o mesmo acesso de `publish.users`. O bloco
 ou escolher um arquivo local (o envio vai para a pasta de destino com o nome
 original). O bloco **Editar** so abre com esse arquivo: pares **Título da dica**
 e **Dica**, quantos quiser, com uma linha entre cada par. Salvar envia o
-`tips.json` e grava `dicas.url`, somando 1 em `dicas.versao`. Se o envio do
-`tips.json` falhar, a versao nao muda. Um WebLogin so, PowerShell sem janela,
+`tips.json` e grava `dicas.url`, somando 1 em `dicas.versao`. Um link
+`download.aspx?UniqueId=` colado entra no catalogo como foi colado, sem virar
+`:u:`. Se o envio do `tips.json` falhar, a versao nao muda. Um WebLogin so,
+PowerShell sem janela,
 como o restante do Catalogo.
 
 ### Gerencias
