@@ -1622,6 +1622,23 @@ def _tips_upload_name(form: DicasFormState) -> str:
     return leaf or "tips.json"
 
 
+def _pasted_unique_id_url(url: str) -> str:
+    """Link download.aspx?UniqueId= colado. Vazio se for outro formato.
+
+    O catalogo guarda essa string como veio. Nao vira link ``:u:``.
+    """
+    raw = (url or "").strip()
+    if "download.aspx" not in raw.lower() or "uniqueid=" not in raw.lower():
+        return ""
+    try:
+        info = parsear_link_sharepoint(raw)
+    except ValueError:
+        return ""
+    if info.get("tipo") != "unique_id":
+        return ""
+    return raw
+
+
 def _upload_tips_document(
     session: PnPWebLoginSession,
     form: DicasFormState,
@@ -1634,6 +1651,20 @@ def _upload_tips_document(
     local = folder / filename
     local.write_text(body, encoding="utf-8")
     try:
+        pasted = _pasted_unique_id_url(form.url)
+        if pasted:
+            info = parsear_link_sharepoint(pasted)
+            result = enviar_por_unique_id(
+                local,
+                site_url=str(info.get("site_url") or ""),
+                unique_id=str(info.get("unique_id") or ""),
+                progress=progress,
+                session=session,
+            )
+            if not result.ok:
+                return False, result.message or "Falha ao enviar tips.json.", ""
+            return True, "", pasted
+
         if (form.local_path or "").strip():
             dest = (form.dest_folder or "").strip() or (config.PUBLISH_FOLDER_URL or "").strip()
             if not dest:
@@ -1652,20 +1683,9 @@ def _upload_tips_document(
         if not url:
             return False, "Selecione ou adicione o tips.json.", ""
         try:
-            info = parsear_link_sharepoint(url)
+            parsear_link_sharepoint(url)
         except ValueError as exc:
             return False, str(exc), ""
-        if info.get("tipo") == "unique_id":
-            result = enviar_por_unique_id(
-                local,
-                site_url=str(info.get("site_url") or ""),
-                unique_id=str(info.get("unique_id") or ""),
-                progress=progress,
-                session=session,
-            )
-            if not result.ok:
-                return False, result.message or "Falha ao enviar tips.json.", ""
-            return True, "", url
         try:
             folder_url = folder_url_of_file(url)
         except ValueError as exc:
