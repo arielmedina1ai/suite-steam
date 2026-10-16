@@ -74,7 +74,7 @@ def _apps_grid(apps: list[AppInfo], on_select: Callable[[str], None], *, title: 
 
 
 def _tip_link_click(url: str, on_open_url: Callable[[str], None] | None):
-    """Mesmo caminho do tutorial: page.launch_url, sem estourar se falhar."""
+    """Mesmo caminho do tutorial: UrlLauncher awaited, sem estourar se falhar."""
 
     def _click(_e=None) -> None:
         if not callable(on_open_url):
