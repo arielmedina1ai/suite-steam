@@ -431,7 +431,7 @@ class UniqueIdTipsUrlTests(unittest.TestCase):
 
 
 class TipLineTests(unittest.TestCase):
-    def test_dica_line_sits_above_the_title_with_matching_icons(self) -> None:
+    def test_dica_and_title_share_one_line_with_matching_icons(self) -> None:
         balloon = tip_balloon(Dica("Titulo da dica", "Corpo da dica"))
         labels = _texts(balloon)
         self.assertLess(labels.index("Dica!"), labels.index("Titulo da dica"))
@@ -449,18 +449,35 @@ class TipLineTests(unittest.TestCase):
         self.assertEqual(balloon.right, 0)
         self.assertEqual(balloon.bottom, 0)
 
-        row = next(
-            node
-            for node in _walk(balloon)
-            if isinstance(node, ft.Row) and any(getattr(child, "value", None) == "Dica!" for child in node.controls)
+        column = balloon.content
+        self.assertIsInstance(column, ft.Column)
+        self.assertEqual(len(column.controls), 2)
+        self.assertIs(column.controls[1], body)
+        row = column.controls[0]
+        self.assertIsInstance(row, ft.Row)
+        self.assertEqual(
+            [type(child) for child in row.controls],
+            [ft.Icon, ft.Text, ft.Icon, ft.Text],
         )
-        self.assertIs(row.controls[1], kicker)
         self.assertEqual(row.controls[0].icon, ft.Icons.LIGHTBULB)
+        self.assertIs(row.controls[1], kicker)
         self.assertEqual(row.controls[2].icon, ft.Icons.ARROW_FORWARD)
+        self.assertIs(row.controls[3], title)
         for icon in (row.controls[0], row.controls[2]):
-            self.assertIsInstance(icon, ft.Icon)
             self.assertEqual(icon.size, kicker.size)
             self.assertEqual(icon.color, kicker.color)
+
+        home = build_home(
+            [],
+            lambda _app: None,
+            gerencia=None,
+            favorite_ids=set(),
+            on_toggle_favorite=lambda _app: None,
+            tip=Dica("Titulo da dica", "Corpo da dica"),
+        )
+        gaps = [getattr(node, "height", None) for node in _walk(home)]
+        self.assertIn(88, gaps)
+        self.assertNotIn(112, gaps)
 
     def test_apply_tip_keeps_the_line_and_the_title_style(self) -> None:
         opened: list[str] = []
