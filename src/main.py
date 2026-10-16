@@ -24,6 +24,7 @@ from catalog import SharePointCatalogProvider
 from models import AppInfo, CatalogData, InstallStatus, apps_do_setor, setores_visiveis
 from services.catalog_check import (
     WAIT_SLICE_SECONDS,
+    auto_check_day_on_open,
     catalog_check_is_due,
     local_day,
     sao_paulo_now,
@@ -148,6 +149,8 @@ class SuiteApp:
         self._catalog_sync_lock = threading.Lock()
         self._sync_screen_visible = False
         self._auto_check_day = ""
+        # A carga inicial trava o sync, mas nao e o botao Buscar atualizacoes.
+        self.check_updates_busy = False
         self.sync_busy = True
         self.sync_progress: float | None = -1.0
         self.sync_status = "Sincronizando catalogo com SharePoint..."
@@ -188,6 +191,9 @@ class SuiteApp:
         self._setup_page()
         self._apply_startup_preference()
         self._show_sync_screen()
+        # Antes das threads: abrir as 10:00 ou depois grava o dia e o loop
+        # nao pode disparar o botao quando a carga inicial soltar o sync.
+        self._record_auto_check_on_open(sao_paulo_now())
         self.page.run_thread(lambda: self._sync_catalog_worker(True))
         self.page.run_thread(self._auto_catalog_check_loop)
         self.page.run_thread(self._tip_loop)
@@ -411,6 +417,13 @@ class SuiteApp:
             self._reload_tips()
             self._finish_catalog_sync(show_notice=show_notice, automatic=automatic)
         except Exception:
+            was_button = self.check_updates_busy
+            self.check_updates_busy = False
+            if was_button:
+                try:
+                    self._render()
+                except Exception:
+                    pass
             self._release_catalog_sync()
             raise
 
@@ -419,6 +432,9 @@ class SuiteApp:
             self.preferences.set_last_auto_catalog_check(self._auto_check_day)
         self.sync_progress = None
         self.sync_status = ""
+        # A carga inicial nao anima o botao. O sync das 10:00 solta a
+        # animacao nesta pintura, ainda com o lock, para nao repetir.
+        self.check_updates_busy = False
         try:
             if show_notice:
                 # So na sidebar, debaixo do botao. Nao entra em Publicar nem Estrutura.
@@ -540,6 +556,7 @@ class SuiteApp:
             if self.sync_busy or self._exiting:
                 return False
             self.sync_busy = True
+            self.check_updates_busy = True
             self.sync_message = ""
             self.sync_notice = ""
             self._sync_notice_gen += 1
@@ -549,8 +566,23 @@ class SuiteApp:
         )
         return True
 
+    def _record_auto_check_on_open(self, now: datetime) -> None:
+        """Abertura as 10:00 ou depois marca o dia e nao sincroniza.
+
+        A abertura ja baixou o catalog.json. Antes das 10:00 o dia fica
+        em branco para a passagem do relogio sincronizar uma vez.
+        """
+        day = auto_check_day_on_open(now)
+        if not day:
+            return
+        self.preferences.set_last_auto_catalog_check(day)
+
     def _auto_catalog_check_loop(self) -> None:
-        """10:00 em America/Sao_Paulo, ou uma vez na abertura se esse horario ja passou."""
+        """10:00 em America/Sao_Paulo, so se o processo ja estava aberto antes.
+
+        O dia da abertura ja foi gravado em ``__init__``, antes desta thread.
+        Abrir as 10:00:00 ou depois nao busca de novo e nao anima o botao.
+        """
         while not self._exiting:
             action = self._consider_auto_catalog_check(sao_paulo_now())
             if action == "stop":
@@ -2340,7 +2372,7 @@ class SuiteApp:
             on_select_gerencia=self._select_gerencia,
             on_download_update=self._download_suite_update,
             on_check_updates=self._check_updates,
-            check_updates_busy=self.sync_busy,
+            check_updates_busy=self.check_updates_busy,
             check_updates_notice=self.sync_notice,
             start_with_windows=self.preferences.get_start_with_windows(),
             on_toggle_startup=self._toggle_startup,

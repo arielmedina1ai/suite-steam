@@ -284,14 +284,17 @@ A cada abertura, o SuiteApps:
 4. Em falha, usa o ultimo cache.
 
 Todo dia as **10:00** em **America/Sao_Paulo** (Brasilia, o mesmo fuso de
-Sao Paulo — nao o relogio do Windows e nao UTC), se o processo estiver aberto
-(janela, barra de tarefas ou bandeja), roda o mesmo sync do botao **Buscar
-atualizacoes**. Se o app nao estava aberto as 10:00 nesse fuso, a checagem
-daquele dia roda uma vez na proxima abertura, depois da sincronizacao normal
-de abertura, para o dia nao ficar sem consulta. O dia gravado em
-`preferences.json` (`last_auto_catalog_check`) e o calendario de Sao Paulo.
-Depois que essa checagem ja rodou, reiniciar nao dispara outra — a abertura
-continua sincronizando como sempre. Com a janela na tela, a sidebar mostra por
+Sao Paulo — nao o relogio do Windows e nao UTC), o mesmo sync do botao
+**Buscar atualizacoes** roda somente se o processo ja estava aberto antes
+das 10:00 e continua aberto quando o relogio chega nesse horario, ou passa
+dele (janela, barra de tarefas ou bandeja). Abrir a suite as 10:00:00 ou
+depois nao dispara essa sincronizacao: a abertura ja baixa o `catalog.json`,
+e o dia de hoje fica gravado em `preferences.json`
+(`last_auto_catalog_check`, calendario de Sao Paulo). Quem abriu antes das
+10:00 nao marca o dia na hora; a sincronizacao ocorre uma vez na passagem
+das 10:00 e so entao grava o dia. No maximo uma vez por dia civil. No dia
+seguinte, so roda de novo se a suite estiver aberta na passagem das 10:00.
+Com a janela na tela, a sidebar mostra por
 um instante `100% Catalogo sincronizado.` debaixo do botao e depois apaga. A
 frase nao fica em Publicar nem em Estrutura. Na barra de tarefas ou na
 bandeja a checagem roda sem essa linha. Se falhar, a mensagem e curta e o

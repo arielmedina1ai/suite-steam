@@ -21,6 +21,7 @@ from services.catalog_check import (
     ZONE_NAME,
     ZoneUnavailable,
     already_checked_today,
+    auto_check_day_on_open,
     catalog_check_is_due,
     local_day,
     next_auto_check_at,
@@ -49,13 +50,20 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(seconds_until_auto_check("", now), 1.0)
         self.assertEqual(next_auto_check_at("", now), _sp(10, 0, 0))
 
-    def test_exactly_ten_is_due(self) -> None:
+    def test_exactly_ten_is_due_for_a_process_already_open(self) -> None:
         now = _at(10, 0, 0)
         self.assertTrue(catalog_check_is_due("", now))
         self.assertEqual(seconds_until_auto_check("", now), 0.0)
+        self.assertEqual(auto_check_day_on_open(now), "2026-10-13")
 
-    def test_after_ten_without_a_check_is_the_catch_up(self) -> None:
+    def test_open_after_ten_marks_the_day_instead_of_catching_up(self) -> None:
         now = _at(15, 30)
+        marked = auto_check_day_on_open(now)
+        self.assertEqual(marked, "2026-10-13")
+        self.assertEqual(auto_check_day_on_open(_at(9, 59, 59)), "")
+        self.assertFalse(catalog_check_is_due(marked, now))
+        self.assertEqual(next_auto_check_at(marked, now), _sp(10, day=14))
+        # Dia em branco depois das 10:00 so vale para quem ja estava aberto.
         self.assertTrue(catalog_check_is_due("", now))
         self.assertTrue(catalog_check_is_due("2026-10-12", now))
 
@@ -80,10 +88,12 @@ class ScheduleTests(unittest.TestCase):
         utc_thirteen = datetime(2026, 10, 13, 13, 0, tzinfo=timezone.utc)
         self.assertTrue(catalog_check_is_due("", utc_thirteen))
         self.assertEqual(seconds_until_auto_check("", utc_thirteen), 0.0)
+        self.assertEqual(auto_check_day_on_open(utc_thirteen), "2026-10-13")
         # 10:00 no Japao (UTC+9) ainda e 22:00 do dia anterior em Sao Paulo.
         japan = timezone(timedelta(hours=9))
         morning_japan = datetime(2026, 10, 13, 10, 0, tzinfo=japan)
         self.assertEqual(local_day(morning_japan), "2026-10-12")
+        self.assertEqual(auto_check_day_on_open(morning_japan), "2026-10-12")
         self.assertTrue(catalog_check_is_due("", morning_japan))
         self.assertFalse(catalog_check_is_due("2026-10-12", morning_japan))
 
@@ -232,6 +242,7 @@ def _app(prefs: PreferencesStore) -> SuiteApp:
     app.sync_notice = ""
     app._sync_notice_gen = 0
     app.sync_busy = False
+    app.check_updates_busy = False
     app.sync_progress = None
     app.sync_status = ""
     app._catalog_sync_lock = threading.Lock()
@@ -410,6 +421,252 @@ class AutomaticSyncTests(unittest.TestCase):
             self.assertEqual(app.structure.message, "estrutura")
 
 
+def _run_auto_loop(app: SuiteApp, moments: list[datetime]):
+    """Roda o loop. Cada espera avanca o relogio e executa sync ja enfileirado."""
+    index = {"i": 0, "ran": 0}
+
+    def now() -> datetime:
+        return moments[min(index["i"], len(moments) - 1)]
+
+    def sleep(_seconds: float) -> bool:
+        while index["ran"] < len(app.page.threads):
+            fn = app.page.threads[index["ran"]]
+            index["ran"] += 1
+            fn()
+        index["i"] += 1
+        if index["i"] >= len(moments):
+            app._exiting = True
+            return False
+        return True
+
+    app._interruptible_sleep = sleep  # type: ignore[method-assign]
+    # O processo grava o dia na abertura, antes do loop.
+    SuiteApp._record_auto_check_on_open(app, moments[0])
+    with (
+        patch("main.sao_paulo_now", side_effect=now),
+        patch("main.baixar_do_sharepoint") as download,
+    ):
+        SuiteApp._auto_catalog_check_loop(app)
+    return download
+
+
+def _watch_button(app: SuiteApp) -> list[bool]:
+    seen: list[bool] = []
+    previous = app._render
+
+    def render() -> None:
+        seen.append(bool(app.check_updates_busy))
+        previous()
+
+    app._render = render  # type: ignore[method-assign]
+    return seen
+
+
+class _Favorites:
+    def list_ids(self) -> list[str]:
+        return []
+
+
+class _InstallState:
+    status = "ausente"
+    local_path = ""
+
+
+class _Storage:
+    def get_state(self, _app_id: str) -> _InstallState:
+        return _InstallState()
+
+
+def _walk(control):
+    yield control
+    content = getattr(control, "content", None)
+    if content is not None and not isinstance(content, str):
+        yield from _walk(content)
+    controls = getattr(control, "controls", None)
+    if isinstance(controls, (list, tuple)):
+        for child in controls:
+            yield from _walk(child)
+
+
+def _buscar_button(sidebar):
+    import flet as ft
+
+    button = None
+    bar = None
+    for node in _walk(sidebar):
+        if isinstance(node, ft.FilledButton) and node.content in {
+            "Buscar atualizacoes",
+            "Buscando...",
+        }:
+            button = node
+        if isinstance(node, ft.ProgressBar) and button is not None and bar is None:
+            bar = node
+    return button, bar
+
+
+class OpenAutoCheckTests(unittest.TestCase):
+    def test_open_after_ten_marks_the_day_and_does_not_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            app.preferences.set_last_auto_catalog_check("2026-10-12")
+            clicks: list[str] = []
+            app._check_updates = lambda: clicks.append("button")  # type: ignore[method-assign]
+            painted = _watch_button(app)
+            download = _run_auto_loop(app, [_at(10, 0, 0), _at(15, 30)])
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-13")
+            self.assertEqual(app.page.threads, [])
+            self.assertEqual(clicks, [])
+            self.assertEqual(painted, [])
+            self.assertFalse(app.check_updates_busy)
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_open_before_ten_does_not_mark_or_sync_yet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            app.preferences.set_last_auto_catalog_check("2026-10-12")
+            download = _run_auto_loop(app, [_at(9, 59, 59)])
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-12")
+            self.assertEqual(app.page.threads, [])
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_crossing_ten_while_open_syncs_once_and_a_later_tick_waits(self) -> None:
+        incoming = CatalogData(apps=[AppInfo(id="novo", nome="Novo", versao="2")])
+        result = CatalogSyncResult(catalog=incoming, message="", ok=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            app.page.window.minimized = True
+            painted = _watch_button(app)
+            with patch("main.SharePointCatalogProvider", return_value=_Provider(result)):
+                download = _run_auto_loop(app, [_at(9, 0), _at(10, 0), _at(10, 1), _at(18, 0)])
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-13")
+            self.assertEqual(len(app.page.threads), 1)
+            self.assertEqual(painted, [True, False])
+            self.assertFalse(app.check_updates_busy)
+            self.assertFalse(app.sync_busy)
+            self.assertIs(app.catalog, incoming)
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_open_after_ten_and_staying_open_does_not_sync_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            clicks: list[str] = []
+            app._check_updates = lambda: clicks.append("button")  # type: ignore[method-assign]
+            painted = _watch_button(app)
+            download = _run_auto_loop(app, [_at(11, 0), _at(16, 0), _at(23, 59)])
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-13")
+            self.assertEqual(app.page.threads, [])
+            self.assertEqual(clicks, [])
+            self.assertEqual(painted, [])
+            self.assertFalse(app.check_updates_busy)
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_next_day_syncs_only_when_ten_passes_while_open(self) -> None:
+        incoming = CatalogData(apps=[AppInfo(id="novo", nome="Novo")])
+        result = CatalogSyncResult(catalog=incoming, ok=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+            app.page.window.minimized = True
+            with patch("main.SharePointCatalogProvider", return_value=_Provider(result)):
+                download = _run_auto_loop(
+                    app,
+                    [_at(15, 0, day=13), _at(9, 0, day=14), _at(10, 0, day=14), _at(11, 0, day=14)],
+                )
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-14")
+            self.assertEqual(len(app.page.threads), 1)
+            self.assertIs(app.catalog, incoming)
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_initial_load_after_ten_paints_the_button_idle(self) -> None:
+        """Marcar o dia e soltar a carga inicial nao deixa Buscar atualizacoes rodando."""
+        incoming = CatalogData(apps=[AppInfo(id="novo", nome="Novo")])
+        result = CatalogSyncResult(catalog=incoming, ok=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._opening_app(tmp)
+            clicks: list[str] = []
+            app._check_updates = lambda: clicks.append("button")  # type: ignore[method-assign]
+            during: dict[str, bool] = {}
+            real_render = SuiteApp._render
+
+            def render() -> None:
+                during["sync_busy"] = app.sync_busy
+                during["button"] = app.check_updates_busy
+                real_render(app)
+
+            app._render = render  # type: ignore[method-assign]
+            app.sync_busy = True
+            SuiteApp._record_auto_check_on_open(app, _at(15, 30))
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-13")
+            self.assertEqual(SuiteApp._consider_auto_catalog_check(app, _at(15, 30)), "busy")
+            self.assertEqual(clicks, [])
+            self.assertEqual(app.page.threads, [])
+            self.assertFalse(app.check_updates_busy)
+            with (
+                patch("main.SharePointCatalogProvider", return_value=_Provider(result)),
+                patch("main.baixar_do_sharepoint") as download,
+            ):
+                SuiteApp._sync_catalog_worker(app, True)
+            self.assertTrue(during["sync_busy"])
+            self.assertFalse(during["button"])
+            button, bar = _buscar_button(app.sidebar_holder.content)
+            self.assertEqual(button.content, "Buscar atualizacoes")
+            self.assertFalse(button.disabled)
+            self.assertFalse(bar.visible)
+            self.assertFalse(app.sync_busy)
+            self.assertFalse(app.check_updates_busy)
+            self.assertEqual(SuiteApp._consider_auto_catalog_check(app, _at(18, 0)), "wait")
+            self.assertEqual(clicks, [])
+            self.assertEqual(app.page.threads, [])
+            self.assertEqual(app.downloads, [])
+            download.assert_not_called()
+
+    def test_initial_load_before_ten_does_not_paint_or_start_the_button(self) -> None:
+        result = CatalogSyncResult(catalog=CatalogData(apps=[AppInfo(id="novo", nome="Novo")]), ok=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._opening_app(tmp)
+            app.preferences.set_last_auto_catalog_check("2026-10-12")
+            clicks: list[str] = []
+            app._check_updates = lambda: clicks.append("button")  # type: ignore[method-assign]
+            app._render = lambda: SuiteApp._render(app)  # type: ignore[method-assign]
+            app.sync_busy = True
+            SuiteApp._record_auto_check_on_open(app, _at(9, 0))
+            self.assertEqual(app.preferences.get_last_auto_catalog_check(), "2026-10-12")
+            self.assertEqual(SuiteApp._consider_auto_catalog_check(app, _at(9, 0)), "busy")
+            with patch("main.SharePointCatalogProvider", return_value=_Provider(result)):
+                SuiteApp._sync_catalog_worker(app, True)
+            button, bar = _buscar_button(app.sidebar_holder.content)
+            self.assertEqual(button.content, "Buscar atualizacoes")
+            self.assertFalse(button.disabled)
+            self.assertFalse(bar.visible)
+            self.assertEqual(SuiteApp._consider_auto_catalog_check(app, _at(9, 30)), "wait")
+            self.assertEqual(clicks, [])
+            self.assertEqual(app.page.threads, [])
+            self.assertFalse(app.check_updates_busy)
+
+    def _opening_app(self, tmp: str) -> SuiteApp:
+        app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+        app.sidebar_holder = _Holder()
+        app.favorites = _Favorites()
+        app.storage = _Storage()
+        app.can_publish = False
+        app.show_publish = False
+        app.show_favorites = False
+        app.show_tutorial = False
+        app.update_busy = False
+        app.update_message = ""
+        app.update_progress = None
+        app.update_failed = False
+        app.update_done = False
+        app._running_pids = {}
+        app._running_cache_at = 0.0
+        app._current_tip = None
+        return app
+
+
 class ConsiderTests(unittest.TestCase):
     def test_due_starts_the_button_sync_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -438,6 +695,7 @@ class ConsiderTests(unittest.TestCase):
             app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
             self.assertTrue(SuiteApp._start_catalog_sync(app, automatic=True))
             self.assertTrue(app.sync_busy)
+            self.assertTrue(app.check_updates_busy)
             self.assertFalse(SuiteApp._start_catalog_sync(app, automatic=True))
             self.assertEqual(len(app.page.threads), 1)
             self.assertEqual(app.downloads, [])
