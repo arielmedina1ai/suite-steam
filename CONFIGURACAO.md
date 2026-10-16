@@ -187,7 +187,8 @@ Na abertura, em **Buscar atualizacoes** e na checagem das 10:00
 Se o download falhar, nao ha banner de erro nem balao novo. A copia anterior,
 se houver, permanece.
 
-Na tela **Inicio**, um balao solto na base mostra o titulo e o texto. A lista
+Na tela **Inicio**, um balao solto na base mostra o titulo e o texto. No texto, um `https://` solto ou `[rotulo](https://...)` abre no navegador; sem link, titulo e texto seguem puros.
+A lista
 e embaralhada sem repetir: uma dica por vez, troca a cada 1 minuto, e ao
 acabar embaralha de novo. Uma dica so volta no minuto seguinte. Lista vazia
 ou arquivo ausente: sem balao. O ciclo vale enquanto o programa esta aberto.

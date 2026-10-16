@@ -7,6 +7,7 @@ import flet as ft
 
 import config
 from models import AppInfo, Dica, GerenciaInfo, SetorInfo, group_apps_by_sub_setor
+from services.tips import tip_text_pieces
 from ui.components import app_badge, app_icon
 
 _HERO_ASPECT = 2220 / 1140
@@ -72,8 +73,47 @@ def _apps_grid(apps: list[AppInfo], on_select: Callable[[str], None], *, title: 
     return ft.Column(spacing=12, controls=[ft.Text(title, size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT), ft.Row(controls=cards, wrap=True, spacing=16, run_spacing=16)])
 
 
-def tip_balloon(dica: Dica) -> ft.Control:
-    """Balao solto na base da home. So a tela inicial o coloca na pilha."""
+def _tip_link_click(url: str, on_open_url: Callable[[str], None] | None):
+    """Mesmo caminho do tutorial: page.launch_url, sem estourar se falhar."""
+
+    def _click(_e=None) -> None:
+        if not callable(on_open_url):
+            return
+        try:
+            on_open_url(url)
+        except Exception:
+            return
+
+    return _click
+
+
+def _tip_body(texto: str, on_open_url: Callable[[str], None] | None) -> ft.Control:
+    pieces = tip_text_pieces(texto)
+    if not any(url for _text, url in pieces):
+        return ft.Text(texto or "", size=13, color=config.COLOR_TEXT)
+    spans: list[ft.TextSpan] = []
+    for visible, url in pieces:
+        if not url:
+            spans.append(ft.TextSpan(visible))
+            continue
+        spans.append(
+            ft.TextSpan(
+                visible,
+                style=ft.TextStyle(
+                    color=config.COLOR_ACCENT,
+                    decoration=ft.TextDecoration.UNDERLINE,
+                ),
+                on_click=_tip_link_click(url, on_open_url),
+            )
+        )
+    return ft.Text(spans=spans, size=13, color=config.COLOR_TEXT)
+
+
+def tip_balloon(dica: Dica, on_open_url: Callable[[str], None] | None = None) -> ft.Control:
+    """Balao solto na base da home. So a tela inicial o coloca na pilha.
+
+    O titulo e texto puro. No texto, https e link markdown abrem no navegador.
+    """
     return ft.Container(
         left=0,
         right=0,
@@ -92,13 +132,13 @@ def tip_balloon(dica: Dica) -> ft.Control:
                     weight=ft.FontWeight.BOLD,
                     color=config.COLOR_ACCENT,
                 ),
-                ft.Text(dica.texto, size=13, color=config.COLOR_TEXT),
+                _tip_body(dica.texto, on_open_url),
             ],
         ),
     )
 
 
-def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None, tip: Dica | None = None) -> ft.Control:
+def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None, tip: Dica | None = None, on_open_url: Callable[[str], None] | None = None) -> ft.Control:
     hero = ft.Container(border_radius=16, padding=20, gradient=ft.LinearGradient(begin=ft.Alignment.TOP_LEFT, end=ft.Alignment.BOTTOM_RIGHT, colors=[config.COLOR_PRIMARY_DARK, config.COLOR_PRIMARY]), content=ft.Row(spacing=24, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[_hero_banner(), ft.Column(spacing=6, expand=True, controls=[ft.Text(config.SECTOR_NAME, size=26, weight=ft.FontWeight.BOLD, color="white"), ft.Text(config.SECTOR_TAGLINE, size=14, color=config.COLOR_ACCENT), ft.Container(height=4), ft.Text(config.SECTOR_DESCRIPTION, size=14, color="#EAF3EE")])]))
     sections: list[ft.Control] = [hero]
     if gerencia is not None:
@@ -114,7 +154,7 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerenci
     column = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=sections)
     if not show_tip or tip is None:
         return column
-    return ft.Stack(expand=True, controls=[column, tip_balloon(tip)])
+    return ft.Stack(expand=True, controls=[column, tip_balloon(tip, on_open_url)])
 
 
 def build_favoritos_view(apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:

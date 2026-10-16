@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -18,6 +19,101 @@ from services.sharepoint_manager import baixar_do_sharepoint
 
 # Troca do balao na home. O ciclo em si vive na memoria do processo.
 TIP_ROTATE_SECONDS = 60
+
+# [rotulo](url) primeiro, para o https de dentro do markdown nao virar outro link.
+_TIP_MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
+_TIP_RAW_URL = re.compile(r"https://[^\s<>\]]+", re.IGNORECASE)
+_TIP_URL_TRAIL = ".,;:!?"
+
+
+def tip_https_url(value: str) -> str:
+    """URL https com host. Vazio se faltar ou for estranha — o texto segue puro."""
+    url = (value or "").strip()
+    if not url.lower().startswith("https://"):
+        return ""
+    rest = url[8:]
+    host = rest.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if not host or not any(ch.isalnum() for ch in host):
+        return ""
+    return url
+
+
+def tip_text_pieces(texto: str) -> list[tuple[str, str]]:
+    """Pedaços do texto da dica: (visivel, url).
+
+    Url vazia e texto puro. ``https://...`` solto abre esse endereco.
+    ``[rotulo](https://...)`` abre a url e mostra so o rotulo.
+    Link sem url, ou url que nao e https, permanece o texto original.
+    """
+    text = texto or ""
+    pieces: list[tuple[str, str]] = []
+    index = 0
+    while index < len(text):
+        md = _TIP_MD_LINK.search(text, index)
+        raw = _TIP_RAW_URL.search(text, index)
+        match, kind = _earliest_tip_match(md, raw)
+        if match is None:
+            pieces.append((text[index:], ""))
+            break
+        if match.start() > index:
+            pieces.append((text[index:match.start()], ""))
+        if kind == "md":
+            label = match.group(1)
+            url = tip_https_url(match.group(2))
+            if label and url:
+                pieces.append((label, url))
+            else:
+                pieces.append((match.group(0), ""))
+            index = match.end()
+            continue
+        url, trail = _split_raw_tip_url(match.group(0))
+        if url:
+            pieces.append((url, url))
+            if trail:
+                pieces.append((trail, ""))
+        else:
+            pieces.append((match.group(0), ""))
+        index = match.end()
+    return _merge_plain_tip_pieces(pieces)
+
+
+def _earliest_tip_match(md, raw):
+    found = []
+    if md is not None:
+        found.append((md.start(), 0, "md", md))
+    if raw is not None:
+        found.append((raw.start(), 1, "raw", raw))
+    if not found:
+        return None, ""
+    found.sort()
+    _start, _rank, kind, match = found[0]
+    return match, kind
+
+
+def _split_raw_tip_url(token: str) -> tuple[str, str]:
+    url = token
+    trail = ""
+    while url and url[-1] in _TIP_URL_TRAIL:
+        trail = url[-1] + trail
+        url = url[:-1]
+    if url.endswith(")") and url.count("(") < url.count(")"):
+        trail = ")" + trail
+        url = url[:-1]
+    if not tip_https_url(url):
+        return "", token
+    return url, trail
+
+
+def _merge_plain_tip_pieces(pieces: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    merged: list[tuple[str, str]] = []
+    for text, url in pieces:
+        if not text and not url:
+            continue
+        if merged and not url and not merged[-1][1]:
+            merged[-1] = (merged[-1][0] + text, "")
+            continue
+        merged.append((text, url))
+    return merged
 
 
 @dataclass

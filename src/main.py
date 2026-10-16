@@ -522,6 +522,19 @@ class SuiteApp:
             and not self.show_publish
         )
 
+    def _open_tip_link(self, url: str) -> None:
+        """Igual ao tutorial: launch_url, e um endereco vazio ou falho nao quebra."""
+        raw = (url or "").strip()
+        if not raw:
+            return
+        launch = getattr(self.page, "launch_url", None)
+        if not callable(launch):
+            return
+        try:
+            launch(raw)
+        except Exception:
+            return
+
     def _check_updates(self) -> None:
         self._start_catalog_sync(automatic=False)
 
@@ -2463,6 +2476,7 @@ class SuiteApp:
                 on_toggle_favorite=self._toggle_favorite,
                 installed_ids=installed_ids,
                 tip=tip,
+                on_open_url=self._open_tip_link,
             )
             extras: list[ft.Control] = []
             if self.sync_message:
