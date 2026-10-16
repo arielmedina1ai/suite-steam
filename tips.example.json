@@ -1,0 +1,12 @@
+{
+  "dicas": [
+    {
+      "titulo": "Atalho",
+      "texto": "Texto da dica que aparece no balão."
+    },
+    {
+      "titulo": "Outra dica",
+      "texto": "Segunda dica, separada da primeira."
+    }
+  ]
+}

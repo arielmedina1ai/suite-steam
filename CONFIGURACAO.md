@@ -10,7 +10,8 @@ abertura do programa.
 | Publico (versionado) | Local / SharePoint | Para que serve |
 | -------------------- | ------------------ | -------------- |
 | `settings.example.json` | `settings.json` | Nome/empresa/exe/pasta de dados, textos da home, cores, URL do catalog.json |
-| `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps |
+| `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps, ponteiro `dicas` |
+| `tips.example.json` | `tips.json` no SharePoint | Corpo das dicas (`titulo` e `texto`). Nao e o bloco do catalogo |
 | `assets/branding/*.example.png` | `logo.png` / `hero.png` / `window_icon.png` | Logo sidebar, banner home, icone janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
@@ -165,13 +166,10 @@ O bloco `dicas` aponta para um `tips.json` no SharePoint (o mesmo tipo de link
 PnP do catalogo). Sem `url` ou sem `versao`, o Suite segue igual: sem balao e
 sem aviso. Catalogo antigo, sem o bloco, continua valendo.
 
-```json
-{
-  "dicas": [
-    { "titulo": "Atalho", "texto": "Texto da dica." }
-  ]
-}
-```
+O corpo desse arquivo — a lista de pares, nao o ponteiro `dicas` do
+`catalog.json` — esta em [`tips.example.json`](tips.example.json), na raiz,
+ao lado de `catalog.example.json`. No SharePoint o arquivo continua se
+chamando `tips.json`.
 
 A copia local fica em `%LOCALAPPDATA%/<app.data_dir>/catalog/tips.json`, e a
 versao ja salva ao lado, em `tips.versao`. Essa versao so muda depois de um
