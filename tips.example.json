@@ -1,0 +1,12 @@
+{
+  "dicas": [
+    {
+      "titulo": "Atalho",
+      "texto": "Texto da dica que aparece no balão."
+    },
+    {
+      "titulo": "Manual",
+      "texto": "Abra o [manual](https://exemplo.com/manual) para ver o passo a passo."
+    }
+  ]
+}
