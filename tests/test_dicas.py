@@ -1,6 +1,7 @@
 """Versao das dicas, falha silenciosa, ciclo do balao e o save."""
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import tempfile
@@ -18,7 +19,9 @@ from catalog.provider import SharePointCatalogProvider
 from models import CatalogData, Dica, DicasInfo, parse_catalog_dict
 from services.catalog_publish import PublishOutcome, _upload_tips_document, save_dicas
 from services.sharepoint_manager import SharePointResult
+from main import SuiteApp
 from services.tips import (
+    TIP_ROTATE_SECONDS,
     DicasFormState,
     TipCycle,
     publish_dicas_block,
@@ -26,7 +29,7 @@ from services.tips import (
     sync_tips,
     tip_text_pieces,
 )
-from ui.home_view import build_home, tip_balloon
+from ui.home_view import apply_tip, build_home, tip_balloon
 from ui.dicas_view import bind_dicas_form
 
 
@@ -425,6 +428,175 @@ class UniqueIdTipsUrlTests(unittest.TestCase):
             upload.call_args.kwargs["unique_id"],
             "11111111-2222-3333-4444-555555555555",
         )
+
+
+class TipLineTests(unittest.TestCase):
+    def test_dica_and_title_share_one_line_with_matching_icons(self) -> None:
+        balloon = tip_balloon(Dica("Titulo da dica", "Corpo da dica"))
+        labels = _texts(balloon)
+        self.assertLess(labels.index("Dica!"), labels.index("Titulo da dica"))
+        self.assertLess(labels.index("Titulo da dica"), labels.index("Corpo da dica"))
+
+        kicker = next(node for node in _walk(balloon) if getattr(node, "value", None) == "Dica!")
+        title = next(node for node in _walk(balloon) if getattr(node, "value", None) == "Titulo da dica")
+        body = next(node for node in _walk(balloon) if getattr(node, "value", None) == "Corpo da dica")
+        self.assertEqual(title.size, 14)
+        self.assertEqual(title.weight, ft.FontWeight.BOLD)
+        self.assertEqual(title.color, config.COLOR_ACCENT)
+        self.assertEqual(body.size, 13)
+        self.assertEqual(body.color, config.COLOR_TEXT)
+        self.assertEqual(balloon.left, 0)
+        self.assertEqual(balloon.right, 0)
+        self.assertEqual(balloon.bottom, 0)
+
+        column = balloon.content
+        self.assertIsInstance(column, ft.Column)
+        self.assertEqual(len(column.controls), 2)
+        self.assertIs(column.controls[1], body)
+        row = column.controls[0]
+        self.assertIsInstance(row, ft.Row)
+        self.assertEqual(
+            [type(child) for child in row.controls],
+            [ft.Icon, ft.Text, ft.Icon, ft.Text],
+        )
+        self.assertEqual(row.controls[0].icon, ft.Icons.LIGHTBULB)
+        self.assertIs(row.controls[1], kicker)
+        self.assertEqual(row.controls[2].icon, ft.Icons.ARROW_FORWARD)
+        self.assertIs(row.controls[3], title)
+        for icon in (row.controls[0], row.controls[2]):
+            self.assertEqual(icon.size, kicker.size)
+            self.assertEqual(icon.color, kicker.color)
+
+        home = build_home(
+            [],
+            lambda _app: None,
+            gerencia=None,
+            favorite_ids=set(),
+            on_toggle_favorite=lambda _app: None,
+            tip=Dica("Titulo da dica", "Corpo da dica"),
+        )
+        gaps = [getattr(node, "height", None) for node in _walk(home)]
+        self.assertIn(88, gaps)
+        self.assertNotIn(112, gaps)
+
+    def test_apply_tip_keeps_the_line_and_the_title_style(self) -> None:
+        opened: list[str] = []
+        balloon = tip_balloon(Dica("Um", "corpo um"), on_open_url=opened.append)
+        title = next(node for node in _walk(balloon) if getattr(node, "value", None) == "Um")
+        apply_tip(balloon, Dica("Dois", "Abra [o guia](https://exemplo.com/g)"), opened.append)
+        self.assertIs(title, balloon._tip_title)
+        self.assertEqual(title.value, "Dois")
+        self.assertEqual(title.size, 14)
+        self.assertEqual(title.weight, ft.FontWeight.BOLD)
+        self.assertEqual(title.color, config.COLOR_ACCENT)
+        self.assertIn("Dica!", _texts(balloon))
+        spans = []
+        for node in _walk(balloon):
+            for span in getattr(node, "spans", None) or []:
+                spans.append(span)
+        guide = next(span for span in spans if getattr(span, "text", None) == "o guia")
+        guide.on_click(None)
+        self.assertEqual(opened, ["https://exemplo.com/g"])
+
+
+class _TipPage:
+    def __init__(self) -> None:
+        self.handler = None
+        self.updates: list[str] = []
+
+    def run_task(self, handler, *args, **kwargs) -> None:
+        self.handler = handler
+
+    def update(self) -> None:
+        self.updates.append("page")
+
+
+class TipRefreshTests(unittest.TestCase):
+    def _app(self, balloon, tip) -> tuple[SuiteApp, _TipPage, list[str]]:
+        app = SuiteApp.__new__(SuiteApp)
+        app._exiting = False
+        app.selected_id = None
+        app.selected_setor = None
+        app.show_favorites = False
+        app.show_publish = False
+        app._sync_screen_visible = False
+        app.renders = 0
+        app._render = lambda: setattr(app, "renders", app.renders + 1)
+        app._home_tip_balloon = balloon
+        app._current_tip = tip
+        app._open_tip_link = lambda _url: None
+        page = _TipPage()
+        app.page = page
+        control_updates: list[str] = []
+        balloon.update = lambda: control_updates.append("control")
+        return app, page, control_updates
+
+    def test_rotation_refreshes_the_balloon_on_the_page_task(self) -> None:
+        self.assertEqual(TIP_ROTATE_SECONDS, 60)
+        first = Dica("Primeira", "texto um")
+        second = Dica("Segunda", "texto dois")
+        balloon = tip_balloon(first)
+        app, page, control_updates = self._app(balloon, first)
+
+        class Cycle:
+            def advance(self):
+                return second
+
+        app._tip_cycle = Cycle()
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> bool:
+            sleeps.append(seconds)
+            return len(sleeps) == 1
+
+        app._interruptible_sleep = sleep
+        SuiteApp._tip_loop(app)
+
+        self.assertEqual(sleeps[0], 60)
+        self.assertEqual(app.renders, 0)
+        self.assertEqual(page.updates, [])
+        self.assertEqual(control_updates, [])
+        self.assertIn("Primeira", _texts(balloon))
+        self.assertNotIn("Segunda", _texts(balloon))
+        self.assertIsNotNone(page.handler)
+
+        asyncio.run(page.handler())
+
+        self.assertIn("Segunda", _texts(balloon))
+        self.assertIn("texto dois", _texts(balloon))
+        self.assertIn("Dica!", _texts(balloon))
+        self.assertEqual(control_updates, ["control"])
+        self.assertEqual(page.updates, [])
+        self.assertEqual(app.renders, 0)
+        title = next(node for node in _walk(balloon) if getattr(node, "value", None) == "Segunda")
+        self.assertEqual(title.size, 14)
+        self.assertEqual(title.weight, ft.FontWeight.BOLD)
+        self.assertEqual(title.color, config.COLOR_ACCENT)
+
+    def test_rotation_away_from_home_does_not_paint(self) -> None:
+        first = Dica("Primeira", "texto um")
+        balloon = tip_balloon(first)
+        app, page, control_updates = self._app(balloon, first)
+        app.selected_id = "algum-app"
+
+        class Cycle:
+            def advance(self):
+                return Dica("Segunda", "texto dois")
+
+        app._tip_cycle = Cycle()
+        sleeps: list[float] = []
+
+        def sleep(_seconds: float) -> bool:
+            sleeps.append(1)
+            return len(sleeps) == 1
+
+        app._interruptible_sleep = sleep
+        SuiteApp._tip_loop(app)
+        self.assertIsNone(page.handler)
+        self.assertEqual(control_updates, [])
+        self.assertIn("Primeira", _texts(balloon))
+        self.assertNotIn("Segunda", _texts(balloon))
+        self.assertEqual(app.renders, 0)
 
 
 class DicasUiTests(unittest.TestCase):
