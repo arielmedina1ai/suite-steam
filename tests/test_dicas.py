@@ -24,9 +24,10 @@ from services.tips import (
     publish_dicas_block,
     should_download_tips,
     sync_tips,
+    tip_text_pieces,
 )
+from ui.home_view import build_home, tip_balloon
 from ui.dicas_view import bind_dicas_form
-from ui.home_view import build_home
 
 
 def _walk(control):
@@ -355,6 +356,46 @@ class SaveVersionTests(unittest.TestCase):
             },
         )
         self.assertEqual(catalog["dicas"]["versao"], "3")
+
+
+class TipLinkTests(unittest.TestCase):
+    def test_detects_https_and_markdown_link(self) -> None:
+        pieces = tip_text_pieces(
+            "Veja https://exemplo.com/a e [o guia](https://exemplo.com/b)."
+        )
+        linked = [(text, url) for text, url in pieces if url]
+        self.assertEqual(
+            linked,
+            [
+                ("https://exemplo.com/a", "https://exemplo.com/a"),
+                ("o guia", "https://exemplo.com/b"),
+            ],
+        )
+        plain = tip_text_pieces("So texto, sem endereco.")
+        self.assertEqual(plain, [("So texto, sem endereco.", "")])
+        odd = "".join(text for text, url in tip_text_pieces("veja [x](nao-e-url) e [y]()"))
+        self.assertIn("[x](nao-e-url)", odd)
+        self.assertIn("[y]()", odd)
+        self.assertFalse(any(url for _text, url in tip_text_pieces("veja [x](nao-e-url) e [y]()")))
+
+        opened: list[str] = []
+        balloon = tip_balloon(
+            Dica("Titulo puro https://nao.abre", "Abra [o guia](https://exemplo.com/guia)"),
+            on_open_url=opened.append,
+        )
+        title = next(node for node in _walk(balloon) if getattr(node, "value", None) == "Titulo puro https://nao.abre")
+        self.assertFalse(getattr(title, "spans", None))
+        spans = []
+        for node in _walk(balloon):
+            for span in getattr(node, "spans", None) or []:
+                spans.append(span)
+        guide = next(span for span in spans if getattr(span, "text", None) == "o guia")
+        guide.on_click(None)
+        self.assertEqual(opened, ["https://exemplo.com/guia"])
+
+        quiet = tip_balloon(Dica("T", "veja [x]() e texto"), on_open_url=opened.append)
+        self.assertIn("veja [x]() e texto", _texts(quiet))
+        self.assertEqual(opened, ["https://exemplo.com/guia"])
 
 
 class DicasUiTests(unittest.TestCase):
