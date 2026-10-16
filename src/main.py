@@ -77,6 +77,7 @@ from services.self_update import (
 from services.sharepoint_manager import baixar_do_sharepoint
 from services.storage import Storage
 from services.tutorial import form_videos_from_catalog, video_row, with_video_part
+from services.url_launch import open_https_url
 from services.tray import TrayController
 from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
@@ -523,17 +524,8 @@ class SuiteApp:
         )
 
     def _open_tip_link(self, url: str) -> None:
-        """Igual ao tutorial: launch_url, e um endereco vazio ou falho nao quebra."""
-        raw = (url or "").strip()
-        if not raw:
-            return
-        launch = getattr(self.page, "launch_url", None)
-        if not callable(launch):
-            return
-        try:
-            launch(raw)
-        except Exception:
-            return
+        """Igual ao tutorial: so https, UrlLauncher awaited, falha nao quebra."""
+        open_https_url(self.page, url)
 
     def _check_updates(self) -> None:
         self._start_catalog_sync(automatic=False)

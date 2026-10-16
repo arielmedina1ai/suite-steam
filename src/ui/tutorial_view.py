@@ -16,6 +16,7 @@ from services.tutorial import (
     prepare_markdown_for_display,
     split_markdown_sections,
 )
+from services.url_launch import open_https_url
 from ui.progress_util import bar_value, label as progress_label
 
 _PLAYER_WIDTH = 480
@@ -329,15 +330,7 @@ class TutorialView:
 
     def _open_link(self, e) -> None:
         url = str(getattr(e, "data", "") or "").strip()
-        if not url:
-            return
-        launch = getattr(self.page, "launch_url", None)
-        if not callable(launch):
-            return
-        try:
-            launch(url)
-        except Exception:
-            pass
+        open_https_url(self.page, url)
 
     def _on_markdown_progress(self, pct: float, msg: str) -> None:
         if not self.markdown_host.controls:
