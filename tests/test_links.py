@@ -1281,11 +1281,16 @@ class FavoriteOrderTests(unittest.TestCase):
         self.assertTrue(section.armed)
         gap = next(node for node in _walk(section.control()) if getattr(node, "data", None) == "reorder-gap")
         self.assertEqual(gap.border.top.color, config.COLOR_ACCENT)
-        self.assertEqual(gap._hold_face.opacity, 0)
+        self.assertIsNone(gap.content)
         self.assertEqual(gap.height, 84)
-        self.assertIn(gap, section.flow.controls)
-        self.assertNotIn(gap, section.stack.controls)
-        self.assertIsInstance(gap.content, ft.GestureDetector)
+        self.assertIn(gap, section.visual.controls)
+        self.assertNotIn(gap, section.flow.controls)
+        self.assertTrue(section.visual_host.ignore_interactions)
+        self.assertEqual(section.flow.opacity, 0)
+        detector = section.cards["ponto"].content
+        self.assertIsInstance(detector, ft.GestureDetector)
+        mounted = list(section.flow.controls)
+        self.assertEqual(mounted, [section.cards[key] for key in ("guia", "ponto", "norma")])
         floater = next(node for node in _walk(section.control()) if getattr(node, "data", None) == "reorder-float")
         self.assertTrue(floater.visible)
         self.assertEqual(floater.scale, 1.04)
@@ -1295,10 +1300,32 @@ class FavoriteOrderTests(unittest.TestCase):
             layout_slots(section.keys, "ponto", section.index)[0],
             ("gap", "ponto"),
         )
+        self.assertEqual(
+            [getattr(node, "data", None) for node in section.visual.controls],
+            ["reorder-gap", None, None],
+        )
+        self.assertIs(section.cards["ponto"].content, detector)
+        self.assertEqual(list(section.flow.controls), mounted)
+        self.assertTrue(section.armed)
+        self.assertEqual(floater.top, -40 - 84 / 2)
+        self.assertEqual(dropped, [])
+        self.assertEqual(section.move(10, 900), 2)
+        self.assertEqual(
+            [getattr(node, "data", None) for node in section.visual.controls],
+            [None, None, "reorder-gap"],
+        )
+        self.assertIs(section.cards["ponto"].content, detector)
+        self.assertEqual(list(section.flow.controls), mounted)
+        self.assertTrue(section.armed)
+        self.assertTrue(floater.visible)
+        self.assertEqual(floater.top, 900 - 84 / 2)
+        self.assertEqual(dropped, [])
         self.assertEqual(section.release(12.0, x=10, y=900), "drop")
         self.assertEqual(dropped, [("ponto", 2)])
         self.assertFalse(section.armed)
         self.assertFalse(floater.visible)
+        self.assertEqual(section.flow.opacity, 1)
+        self.assertFalse(section.visual_host.visible)
         self.assertEqual(section.cards["ponto"]._hold_face.opacity, 1)
         self.assertFalse(any(getattr(node, "data", None) == "reorder-gap" for node in _walk(section.control())))
         self.assertEqual(section.release(13.0), "cancel")

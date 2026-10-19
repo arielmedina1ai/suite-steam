@@ -59,14 +59,7 @@ class HoldSection:
         self._gen = 0
         self._timer: threading.Timer | None = None
         self._settled = True
-        self.flow: ft.Control
-        if axis == "grid":
-            self.flow = ft.Row(wrap=True, spacing=spacing_x, run_spacing=spacing_y)
-        else:
-            self.flow = ft.Column(
-                spacing=spacing_y,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            )
+        self.flow = self._make_flow()
         self.floater = ft.Container(
             visible=False,
             data=_FLOAT,
@@ -88,11 +81,30 @@ class HoldSection:
         self._anchor_y = 0.0
         self._global_x = 0.0
         self._global_y = 0.0
+        self.flow.controls = [self.cards[key] for key in self.keys]
+        # Copia so do vao. Remontar isto nao mexe no detector do arraste.
+        self.visual = self._make_flow()
+        self.visual_host = ft.Container(
+            visible=False,
+            ignore_interactions=True,
+            left=0,
+            right=0,
+            top=0,
+            content=self.visual,
+        )
         self.stack = ft.Stack(
-            controls=[self.flow, self.floater],
+            controls=[self.flow, self.visual_host, self.floater],
             clip_behavior=ft.ClipBehavior.NONE,
         )
         self._show_idle()
+
+    def _make_flow(self) -> ft.Control:
+        if self.axis == "grid":
+            return ft.Row(wrap=True, spacing=self.spacing_x, run_spacing=self.spacing_y)
+        return ft.Column(
+            spacing=self.spacing_y,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
 
     def control(self) -> ft.Control:
         """A secao nao e um detector. Cada cartao tem o seu, do tamanho dele."""
@@ -192,10 +204,16 @@ class HoldSection:
         self.y = float(y)
         if not self.armed:
             return None
-        self.index = self.index_at(self.x, self.y)
+        index = self.index_at(self.x, self.y)
         self._place_floater()
-        self._fill(dragging=self.key, index=self.index)
-        self._paint()
+        # So a copia do vao muda. O flow dos detectores fica quieto.
+        if index != self.index or not self.visual_host.visible:
+            self.index = index
+            self._show_visual()
+            self._paint(self.visual, self.visual_host, self.floater)
+        else:
+            self.index = index
+            self._paint(self.floater)
         return self.index
 
     def release(self, now: float, x: float | None = None, y: float | None = None) -> str:
@@ -264,8 +282,8 @@ class HoldSection:
         self.floater.visible = True
         self.floater.scale = 1.04
         self._place_floater()
-        self._fill(dragging=self.key, index=self.index)
-        self._paint()
+        self._show_visual()
+        self._paint(self.flow, self.visual, self.visual_host, self.floater)
 
     def _place_floater(self) -> None:
         self.floater.left = self.x - self.card_w / 2.0
@@ -274,58 +292,51 @@ class HoldSection:
     def _show_idle(self) -> None:
         self.floater.visible = False
         self.floater.content = None
-        self._fill(dragging=None, index=None)
-        self._paint()
+        self.flow.opacity = 1
+        self.visual.controls = []
+        self.visual_host.visible = False
+        self._paint(self.flow, self.visual, self.visual_host, self.floater)
 
-    def _fill(self, *, dragging: str | None, index: int | None) -> None:
-        """O cartao arrastado continua no flow.
-
-        Mover o detector para a pilha desmonta o gesto: o soltar nao chega
-        e o cartao fica flutuando. Aqui ele so troca de lugar no mesmo pai
-        e o desenho some, deixando o vao.
-        """
+    def _show_visual(self) -> None:
+        """Abre o vao numa copia. O flow dos detectores nao muda de ordem."""
         controls: list[ft.Control] = []
-        for kind, key in layout_slots(self.keys, dragging, index):
-            card = self.cards[key]
+        for kind, key in layout_slots(self.keys, self.key, self.index):
             if kind == "gap":
-                self._show_gap(card)
-            else:
-                self._show_card(card)
-            controls.append(card)
-        self.flow.controls = controls
-        self.stack.controls = [self.flow, self.floater]
+                controls.append(self._gap())
+                continue
+            controls.append(self._visual_card(key))
+        self.visual.controls = controls
+        self.visual_host.visible = True
+        self.flow.opacity = 0
 
-    def _show_card(self, card: ft.Container) -> None:
-        card.width = self.card_w if self.axis == "grid" else None
-        card.height = self.card_h
-        card.opacity = 1
-        card.visible = True
-        card.data = None
-        card.border = None
-        face = getattr(card, "_hold_face", None)
-        if face is not None:
-            face.opacity = 1
+    def _visual_card(self, key: str) -> ft.Control:
+        return ft.Container(
+            width=self.card_w if self.axis == "grid" else None,
+            height=self.card_h,
+            border_radius=12,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=self.build_card(key),
+        )
 
-    def _show_gap(self, card: ft.Container) -> None:
-        card.width = self.card_w if self.axis == "grid" else None
-        card.height = self.card_h
-        card.opacity = 1
-        card.visible = True
-        card.data = _GAP
-        card.border = ft.Border.all(2, config.COLOR_ACCENT)
-        face = getattr(card, "_hold_face", None)
-        if face is not None:
-            face.opacity = 0
+    def _gap(self) -> ft.Control:
+        return ft.Container(
+            width=self.card_w if self.axis == "grid" else None,
+            height=self.card_h,
+            bgcolor=config.COLOR_BG,
+            border=ft.Border.all(2, config.COLOR_ACCENT),
+            border_radius=12,
+            data=_GAP,
+        )
 
-    def _paint(self) -> None:
-        for control in (self.flow, self.floater, self.stack):
+    def _paint(self, *controls: ft.Control) -> None:
+        for control in controls:
             update = getattr(control, "update", None)
             if not callable(update):
                 continue
             try:
                 update()
             except Exception:
-                return
+                continue
 
     def _clear_press(self) -> None:
         self.key = None
