@@ -65,6 +65,7 @@ from services.tips import (
 )
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.favorites import FavoritesStore
+from services.link_favorites import LinkFavoritesStore
 from services.preferences import PreferencesStore
 from services.process_guard import running_catalog_map, snapshot_processes, terminate_pids
 from services.runner import RunError, launch_file
@@ -98,6 +99,7 @@ class SuiteApp:
         self.page = page
         self.storage = Storage()
         self.favorites = FavoritesStore()
+        self.link_favorites = LinkFavoritesStore()
         self.preferences = PreferencesStore()
         self.manager = DownloadManager(self.storage)
         self.catalog = CatalogData()
@@ -1025,6 +1027,22 @@ class SuiteApp:
         self.favorites.toggle(app_id)
         if self.show_favorites and not self._has_visible_favorites():
             self.show_favorites = False
+        self._render()
+
+    def _link_favorite_urls(self) -> list[str]:
+        store = getattr(self, "link_favorites", None)
+        if store is None:
+            return []
+        try:
+            return list(store.list_urls())
+        except Exception:
+            return []
+
+    def _toggle_link_favorite(self, url: str) -> None:
+        store = getattr(self, "link_favorites", None)
+        if store is None:
+            return
+        store.toggle(url)
         self._render()
 
     def _publish_select(self, app_id: str) -> None:
@@ -2553,7 +2571,12 @@ class SuiteApp:
                 groups = load_local_links()
             except Exception:
                 groups = []
-            self.content_holder.content = build_links_view(groups, self.page)
+            self.content_holder.content = build_links_view(
+                groups,
+                self.page,
+                favorite_urls=self._link_favorite_urls(),
+                on_toggle_favorite=self._toggle_link_favorite,
+            )
         elif self.show_favorites:
             self.content_holder.content = build_favoritos_view(
                 self._visible_favorite_apps(),

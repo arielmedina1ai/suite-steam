@@ -256,9 +256,18 @@ anterior, se houver, permanece, e o item **Links** nao aparece no menu.
 
 Com arquivo valido, o menu mostra **Links** entre **Favoritos** e **Catalogo**.
 A pagina lista os grupos na ordem do JSON. Cada item e um botao com o titulo e
-a descricao; o clique abre a `url` https no navegador. Arquivo valido sem nenhum
+a descricao; o clique abre a `url` https no navegador. A estrela, no mesmo
+cartao, alterna o favorito e nao abre o link. Arquivo valido sem nenhum
 link: a pagina abre com a linha "Nenhum link.". Se a pessoa estiver nessa pagina
 e um sync seguinte falhar, o item some e a tela volta para Inicio.
+
+A estrela grava só neste computador, em
+`%LOCALAPPDATA%/<app.data_dir>/link_favorites.json`, ao lado de
+`favorites.json` e sem misturar com o favorito de aplicativo. Nao altera o
+`links.json` nem o SharePoint. Os escolhidos aparecem num grupo **Favoritos**
+acima dos grupos do arquivo, na ordem em que foram marcados, e continuam no
+grupo original. A mesma url conta uma vez. Se a url sair do `links.json`
+valido, ela deixa de aparecer nesse grupo.
 
 ### Gerencias
 

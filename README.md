@@ -87,7 +87,8 @@ Pasta sob `%LOCALAPPDATA%` definida por `app.data_dir` (padrao `SuiteApps`):
     images_manifest.json
     tutorials/             # cache do markdown e dos mp4 do tutorial
   installed.json           # manifesto de instalacao
-  favorites.json           # favoritos do usuario
+  favorites.json           # favoritos de aplicativos
+  link_favorites.json      # favoritos de links, so neste computador
   preferences.json         # gerencia, iniciar com o Windows, dia da checagem automatica
   updates/                 # staging da nova versao do proprio SuiteApps
 ```

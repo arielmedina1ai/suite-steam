@@ -22,6 +22,12 @@ from models import (
     parse_catalog_dict,
     parse_links_payload,
 )
+from services.link_favorites import (
+    FAVORITE_GROUP_TITLE,
+    LinkFavoritesStore,
+    favorite_link_group,
+    groups_with_favorites,
+)
 from services.links import (
     links_menu_visible,
     load_local_links,
@@ -668,6 +674,248 @@ class ScreenTests(unittest.TestCase):
                 if text in {"Inicio", "Favoritos", "Links", "Catalogo"}
             ]
             self.assertEqual(sidebar, ["Inicio", "Links"])
+
+
+def _rows_with_url(control, url: str) -> list:
+    found = []
+    for node in _walk(control):
+        controls = getattr(node, "controls", None)
+        if not isinstance(controls, list):
+            continue
+        if any(getattr(child, "data", None) == url for child in controls):
+            found.append(node)
+    return found
+
+
+def _star_in(row) -> ft.Control:
+    for child in row.controls:
+        icon = getattr(child, "icon", None)
+        if icon in (ft.Icons.STAR, ft.Icons.STAR_BORDER):
+            return child
+    raise AssertionError("estrela ausente")
+
+
+class LinkFavoriteTests(unittest.TestCase):
+    def test_file_sits_beside_app_favorites_and_keeps_favorite_order(self) -> None:
+        self.assertEqual(config.LINK_FAVORITES_FILE.parent, config.USER_DATA_DIR)
+        self.assertEqual(config.LINK_FAVORITES_FILE.parent, config.FAVORITES_FILE.parent)
+        self.assertNotEqual(config.LINK_FAVORITES_FILE.name, config.FAVORITES_FILE.name)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = LinkFavoritesStore(root / "link_favorites.json")
+            links = root / "links.json"
+            links.write_text(_valid_body(), encoding="utf-8")
+            original = links.read_text(encoding="utf-8")
+            self.assertFalse(store.toggle("  "))
+            self.assertTrue(store.toggle(" https://exemplo.com/guia "))
+            self.assertTrue(store.toggle("https://exemplo.com/ponto"))
+            self.assertEqual(
+                store.list_urls(),
+                ["https://exemplo.com/guia", "https://exemplo.com/ponto"],
+            )
+            self.assertFalse(store.toggle("https://exemplo.com/guia"))
+            self.assertTrue(store.toggle("https://exemplo.com/guia"))
+            self.assertEqual(
+                store.list_urls(),
+                ["https://exemplo.com/ponto", "https://exemplo.com/guia"],
+            )
+            self.assertEqual(links.read_text(encoding="utf-8"), original)
+            self.assertFalse((root / "favorites.json").exists())
+            again = LinkFavoritesStore(store.path)
+            self.assertEqual(again.list_urls(), store.list_urls())
+            store.path.write_text("{nao e json", encoding="utf-8")
+            self.assertEqual(LinkFavoritesStore(store.path).list_urls(), [])
+
+    def test_favorite_group_uses_url_order_and_skips_missing(self) -> None:
+        groups = parse_links_payload(
+            {
+                "grupos": [
+                    {
+                        "titulo": "Portais",
+                        "links": [
+                            {
+                                "titulo": "Ponto",
+                                "descricao": "Registro de ponto",
+                                "url": "https://exemplo.com/ponto",
+                            }
+                        ],
+                    },
+                    {
+                        "titulo": "Manuais",
+                        "links": [
+                            {
+                                "titulo": "Ponto de novo",
+                                "descricao": "Outra ficha",
+                                "url": "https://exemplo.com/ponto",
+                            },
+                            {
+                                "titulo": "Guia",
+                                "descricao": "Passo a passo",
+                                "url": "https://exemplo.com/guia",
+                            },
+                        ],
+                    },
+                ]
+            }
+        )
+        self.assertIsNone(favorite_link_group(groups, []))
+        self.assertIsNone(
+            favorite_link_group(groups, ["https://exemplo.com/sumiu", "  "])
+        )
+        favorite = favorite_link_group(
+            groups,
+            [
+                "https://exemplo.com/sumiu",
+                "https://exemplo.com/guia",
+                "https://exemplo.com/ponto",
+                "https://exemplo.com/guia",
+            ],
+        )
+        self.assertIsNotNone(favorite)
+        assert favorite is not None
+        self.assertEqual(favorite.titulo, FAVORITE_GROUP_TITLE)
+        self.assertEqual(
+            [(item.titulo, item.url) for item in favorite.links],
+            [
+                ("Guia", "https://exemplo.com/guia"),
+                ("Ponto", "https://exemplo.com/ponto"),
+            ],
+        )
+        shown = groups_with_favorites(groups, ["https://exemplo.com/guia"])
+        self.assertEqual([group.titulo for group in shown], ["Favoritos", "Portais", "Manuais"])
+        self.assertEqual(shown[0].links[0].url, "https://exemplo.com/guia")
+        self.assertEqual(groups[1].links[0].titulo, "Ponto de novo")
+
+    def test_star_toggles_without_opening_and_favorites_stay_on_top(self) -> None:
+        groups = parse_links_payload(
+            {
+                "grupos": [
+                    {
+                        "titulo": "Portais",
+                        "links": [
+                            {
+                                "titulo": "Ponto",
+                                "descricao": "Registro de ponto",
+                                "url": "https://exemplo.com/ponto",
+                            }
+                        ],
+                    },
+                    {
+                        "titulo": "Manuais",
+                        "links": [
+                            {
+                                "titulo": "Guia",
+                                "descricao": "Passo a passo",
+                                "url": "https://exemplo.com/guia",
+                            }
+                        ],
+                    },
+                ]
+            }
+        )
+        page = _Page()
+        toggled: list[str] = []
+        view = build_links_view(
+            groups,
+            page,
+            favorite_urls=["https://exemplo.com/guia", "https://exemplo.com/ponto"],
+            on_toggle_favorite=toggled.append,
+        )
+        texts = _texts(view)
+        self.assertLess(texts.index("Favoritos"), texts.index("Portais"))
+        self.assertLess(texts.index("Portais"), texts.index("Manuais"))
+        self.assertEqual(texts.count("Ponto"), 2)
+        self.assertEqual(texts.count("Guia"), 2)
+        self.assertEqual(
+            [button.data for button in _buttons(view)],
+            [
+                "https://exemplo.com/guia",
+                "https://exemplo.com/ponto",
+                "https://exemplo.com/ponto",
+                "https://exemplo.com/guia",
+            ],
+        )
+        ponto_rows = _rows_with_url(view, "https://exemplo.com/ponto")
+        self.assertEqual(len(ponto_rows), 2)
+        for row in ponto_rows:
+            self.assertEqual(_star_in(row).icon, ft.Icons.STAR)
+            self.assertEqual(_star_in(row).tooltip, "Remover dos favoritos")
+        guia = _rows_with_url(view, "https://exemplo.com/guia")[0]
+        _star_in(guia).on_click(None)
+        self.assertEqual(toggled, ["https://exemplo.com/guia"])
+        self.assertEqual(page.ran, [])
+        opener = next(child for child in guia.controls if getattr(child, "data", None))
+        opener.on_click(None)
+        self.assertEqual(page.ran, [(page, "https://exemplo.com/guia")])
+        self.assertEqual(toggled, ["https://exemplo.com/guia"])
+
+        plain = build_links_view(groups, page, favorite_urls=["https://exemplo.com/sumiu"])
+        self.assertNotIn("Favoritos", _texts(plain))
+        self.assertEqual(_star_in(_rows_with_url(plain, "https://exemplo.com/ponto")[0]).icon, ft.Icons.STAR_BORDER)
+
+    def test_render_keeps_links_json_and_drops_only_the_favorite_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            links = root / "links.json"
+            version = root / "links.versao"
+            body = json.dumps(
+                {
+                    "grupos": [
+                        {
+                            "titulo": "Portais",
+                            "links": [
+                                {
+                                    "titulo": "Ponto",
+                                    "descricao": "Registro de ponto",
+                                    "url": "https://exemplo.com/ponto",
+                                }
+                            ],
+                        },
+                        {
+                            "titulo": "Manuais",
+                            "links": [
+                                {
+                                    "titulo": "Guia",
+                                    "descricao": "Passo a passo",
+                                    "url": "https://exemplo.com/guia",
+                                }
+                            ],
+                        },
+                    ]
+                }
+            )
+            links.write_text(body, encoding="utf-8")
+            version.write_text("1", encoding="utf-8")
+            catalog = CatalogData(links=LinksInfo(url="https://sp/links.json", versao="1"))
+            app = ScreenTests()._app(catalog)
+            app.show_links = True
+            app.link_favorites = LinkFavoritesStore(root / "link_favorites.json")
+            app.link_favorites.toggle("https://exemplo.com/guia")
+            app.link_favorites.toggle("https://exemplo.com/sumiu")
+            app.link_favorites.toggle("https://exemplo.com/ponto")
+            with (
+                patch.object(config, "LINKS_FILE", links),
+                patch.object(config, "LINKS_VERSION_FILE", version),
+            ):
+                SuiteApp._render(app)
+                shown = _texts(app.content_holder.content)
+                self.assertEqual(shown[1], "Favoritos")
+                self.assertLess(shown.index("Guia"), shown.index("Ponto"))
+                self.assertLess(shown.index("Favoritos"), shown.index("Portais"))
+                self.assertNotIn("sumiu", "".join(shown))
+                self.assertEqual(shown.count("Ponto"), 2)
+                self.assertEqual(links.read_text(encoding="utf-8"), body)
+                SuiteApp._toggle_link_favorite(app, "https://exemplo.com/guia")
+                SuiteApp._toggle_link_favorite(app, "https://exemplo.com/ponto")
+                after = _texts(app.content_holder.content)
+            self.assertNotIn("Favoritos", after)
+            self.assertEqual(after.count("Ponto"), 1)
+            self.assertEqual(after.count("Guia"), 1)
+            self.assertIn("Portais", after)
+            self.assertEqual(links.read_text(encoding="utf-8"), body)
+            saved = json.loads((root / "link_favorites.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["urls"], ["https://exemplo.com/sumiu"])
+            self.assertNotIn("apps", saved)
 
 
 if __name__ == "__main__":

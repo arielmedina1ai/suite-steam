@@ -199,6 +199,8 @@ USER_DATA_DIR = _user_data_dir()
 DOWNLOADS_DIR = USER_DATA_DIR / "apps"
 INSTALLED_MANIFEST = USER_DATA_DIR / "installed.json"
 FAVORITES_FILE = USER_DATA_DIR / "favorites.json"
+# Estrelas da pagina Links. Nao mistura com o favorito de aplicativo.
+LINK_FAVORITES_FILE = USER_DATA_DIR / "link_favorites.json"
 CATALOG_CACHE_DIR = USER_DATA_DIR / "catalog"
 CATALOG_CACHE_FILE = CATALOG_CACHE_DIR / "catalog.json"
 CATALOG_IMAGES_DIR = CATALOG_CACHE_DIR / "images"

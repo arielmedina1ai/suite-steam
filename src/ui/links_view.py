@@ -1,21 +1,30 @@
 """Pagina Links: grupos do links.json e um botao por item."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import flet as ft
 
 import config
 from models import LinkGroup, LinkItem
+from services.link_favorites import groups_with_favorites
 from services.url_launch import open_https_url
 
 _EMPTY = "Nenhum link."
 
 
-def _link_button(item: LinkItem, page: Any) -> ft.Control:
-    """O botao inteiro mostra titulo e descricao e guarda a url do item.
+def _link_button(
+    item: LinkItem,
+    page: Any,
+    *,
+    is_favorite: bool,
+    on_toggle_favorite: Callable[[str], None] | None,
+) -> ft.Control:
+    """Cartao do link: a estrela alterna o favorito; o resto abre o https.
 
-    O clique abre so https, pelo mesmo caminho da dica.
+    A url fica no botao. A estrela e irma do botao, no mesmo fundo, para o
+    clique dela nao abrir o navegador.
     """
     url = item.url
     lines: list[ft.Control] = [
@@ -29,7 +38,7 @@ def _link_button(item: LinkItem, page: Any) -> ft.Control:
     if item.descricao:
         lines.append(ft.Text(item.descricao, size=13, color="#B9CEC3"))
 
-    def _click(e=None, target: str = url) -> None:
+    def _open(e=None, target: str = url) -> None:
         stored = target
         control = getattr(e, "control", None)
         data = getattr(control, "data", None) if control is not None else None
@@ -40,9 +49,18 @@ def _link_button(item: LinkItem, page: Any) -> ft.Control:
         except Exception:
             return
 
-    return ft.Button(
+    def _toggle(e=None, target: str = url) -> None:
+        if not callable(on_toggle_favorite):
+            return
+        try:
+            on_toggle_favorite(target)
+        except Exception:
+            return
+
+    opener = ft.Button(
         content=ft.Column(spacing=4, tight=True, controls=lines),
         data=url,
+        expand=True,
         bgcolor=config.COLOR_SURFACE,
         elevation=0,
         style=ft.ButtonStyle(
@@ -52,25 +70,61 @@ def _link_button(item: LinkItem, page: Any) -> ft.Control:
             padding=ft.Padding.symmetric(horizontal=12, vertical=12),
             shape=ft.RoundedRectangleBorder(radius=12),
         ),
-        on_click=_click,
+        on_click=_open,
+    )
+    star = ft.IconButton(
+        icon=ft.Icons.STAR if is_favorite else ft.Icons.STAR_BORDER,
+        icon_color=config.COLOR_ACCENT if is_favorite else "#8AA797",
+        icon_size=22,
+        tooltip="Remover dos favoritos" if is_favorite else "Adicionar aos favoritos",
+        on_click=_toggle,
+    )
+    return ft.Container(
+        bgcolor=config.COLOR_SURFACE,
+        border_radius=12,
+        padding=ft.Padding.only(right=4),
+        content=ft.Row(
+            spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            controls=[opener, star],
+        ),
     )
 
 
-def build_links_view(groups: list[LinkGroup], page: Any) -> ft.Control:
-    """Grupos na ordem do JSON. Arquivo valido sem itens: uma linha curta."""
+def build_links_view(
+    groups: list[LinkGroup],
+    page: Any,
+    *,
+    favorite_urls: list[str] | None = None,
+    on_toggle_favorite: Callable[[str], None] | None = None,
+) -> ft.Control:
+    """Grupos na ordem do JSON. Favoritos, se houver, fica acima de todos.
+
+    Arquivo valido sem itens e sem favorito visivel: uma linha curta.
+    """
+    urls = list(favorite_urls or [])
+    favorite_keys = {(url or "").strip() for url in urls if (url or "").strip()}
+    shown = groups_with_favorites(groups, urls)
     sections: list[ft.Control] = [
         ft.Text("Links", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
     ]
-    if not groups:
+    if not shown:
         sections.append(ft.Text(_EMPTY, size=14, color="#8AA797"))
         return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=16, controls=sections)
 
-    for group in groups:
+    for group in shown:
         block: list[ft.Control] = [
             ft.Text(group.titulo, size=18, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
         ]
         for item in group.links:
-            block.append(_link_button(item, page))
+            block.append(
+                _link_button(
+                    item,
+                    page,
+                    is_favorite=(item.url or "").strip() in favorite_keys,
+                    on_toggle_favorite=on_toggle_favorite,
+                )
+            )
         sections.append(
             ft.Column(
                 spacing=8,
