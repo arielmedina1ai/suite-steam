@@ -56,6 +56,10 @@ def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bo
         ink=True,
         expand=True,
         on_click=(lambda e, aid=app.id: on_select(aid)) if opens else None,
+        # Favoritos nao abre neste clique: o gesto da secao abre ou solta.
+        # on_tap_down liga o mesmo InkWell do Inicio (ink + toque), sem
+        # um segundo abrir. O detector fica fora desta superficie.
+        on_tap_down=None if opens else (lambda _e: None),
         content=ft.Column(
             spacing=8,
             expand=True,
@@ -218,21 +222,17 @@ def _favorites_summary(app_count: int, link_count: int) -> str:
     return ""
 
 
-def _same_hover(card: ft.Container) -> ft.Container:
-    """Mesmo ink dos cartoes do Inicio e do botao da pagina Links.
-
-    Sem on_click: o GestureDetector da secao continua vendo o segurar,
-    e o mouse por cima chega no cartao.
-    """
-    card.ink = True
-    card.on_hover = lambda _e: None
-    return card
-
-
 def _favorite_link_card(item: LinkItem, on_toggle_link: Callable[[str], None] | None) -> ft.Control:
-    """Mesmo cartao da pagina Links, sem botao: o gesto da secao abre o https."""
+    """Titulo e descricao com o mesmo ink do cartao do Inicio. A estrela e irma."""
     star = _star_button(item.url, True, on_toggle_link or (lambda _url: None))
-    return _same_hover(ft.Container(
+    text = ft.Container(
+        expand=True,
+        data=item.url,
+        ink=True,
+        on_tap_down=lambda _e: None,
+        content=link_face(item),
+    )
+    return ft.Container(
         height=_LINK_ROW_H,
         bgcolor=config.COLOR_SURFACE,
         border_radius=12,
@@ -240,12 +240,9 @@ def _favorite_link_card(item: LinkItem, on_toggle_link: Callable[[str], None] | 
         content=ft.Row(
             spacing=0,
             vertical_alignment=ft.CrossAxisAlignment.START,
-            controls=[
-                ft.Container(expand=True, data=item.url, content=link_face(item)),
-                star,
-            ],
+            controls=[text, star],
         ),
-    ))
+    )
 
 
 def build_favoritos_view(
@@ -286,14 +283,14 @@ def build_favoritos_view(
                 app_bridge["cancel"]()
                 on_toggle_favorite(_id)
 
-            return _same_hover(_app_card(
+            return _app_card(
                 app,
                 on_select,
                 is_favorite=app.id in favorite_ids,
                 on_toggle_favorite=_star,
                 installed=app.id in installed,
                 opens=False,
-            ))
+            )
 
         hold_apps = HoldSection(
             [app.id for app in apps],

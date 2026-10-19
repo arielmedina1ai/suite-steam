@@ -56,6 +56,31 @@ def _walk(control):
             yield from _walk(child)
 
 
+def _parents(root):
+    parents = {}
+
+    def visit(node, parent):
+        parents[id(node)] = parent
+        content = getattr(node, "content", None)
+        if content is not None and not isinstance(content, str):
+            visit(content, node)
+        controls = getattr(node, "controls", None)
+        if isinstance(controls, (list, tuple)):
+            for child in controls:
+                visit(child, node)
+
+    visit(root, None)
+    return parents
+
+
+def _up(parents, node):
+    chain = []
+    while node is not None:
+        chain.append(node)
+        node = parents.get(id(node))
+    return chain
+
+
 def _texts(control) -> list[str]:
     found = []
     for node in _walk(control):
@@ -904,14 +929,29 @@ class LinkFavoriteTests(unittest.TestCase):
         self.assertNotIn("sumiu", "".join(texts))
         self.assertFalse(any(getattr(node, "content", None) == "Ordenar favoritos" for node in _walk(both)))
         self.assertFalse(any(isinstance(node, ft.DragTarget) or isinstance(node, ft.Draggable) for node in _walk(both)))
-        hovered = [
-            node
-            for node in _walk(both)
-            if getattr(node, "ink", False) and getattr(node, "on_hover", None) is not None
-        ]
-        self.assertGreaterEqual(len(hovered), 2)
         self.assertNotIsInstance(both._hold_links.control(), ft.GestureDetector)
         self.assertNotIsInstance(both._hold_apps.control(), ft.GestureDetector)
+        self.assertFalse(any(isinstance(child, ft.GestureDetector) for child in both._hold_apps.control().controls))
+        self.assertFalse(any(isinstance(child, ft.GestureDetector) for child in both._hold_links.control().controls))
+        parents = _parents(both)
+        for label in ("Relatorio", "Guia", "Ponto"):
+            text = next(node for node in _walk(both) if getattr(node, "value", None) == label)
+            chain = _up(parents, text)
+            surface = next(
+                node
+                for node in chain
+                if getattr(node, "ink", False) and getattr(node, "on_tap_down", None) is not None
+            )
+            between = chain[: chain.index(surface)]
+            self.assertFalse(any(isinstance(node, ft.GestureDetector) for node in between))
+            above = chain[chain.index(surface) + 1 :]
+            self.assertTrue(any(isinstance(node, ft.GestureDetector) for node in above))
+            self.assertFalse(
+                any(
+                    getattr(node, "icon", None) in (ft.Icons.STAR, ft.Icons.STAR_BORDER)
+                    for node in _walk(surface)
+                )
+            )
         self.assertIn("1 aplicativo(s) e 2 link(s) favorito(s)", texts)
         guia = _rows_with_url(both, "https://exemplo.com/guia")[0]
         self.assertEqual(_star_in(guia).icon, ft.Icons.STAR)
@@ -1241,8 +1281,11 @@ class FavoriteOrderTests(unittest.TestCase):
         self.assertTrue(section.armed)
         gap = next(node for node in _walk(section.control()) if getattr(node, "data", None) == "reorder-gap")
         self.assertEqual(gap.border.top.color, config.COLOR_ACCENT)
-        self.assertIsNone(gap.content)
+        self.assertEqual(gap._hold_face.opacity, 0)
         self.assertEqual(gap.height, 84)
+        self.assertIn(gap, section.flow.controls)
+        self.assertNotIn(gap, section.stack.controls)
+        self.assertIsInstance(gap.content, ft.GestureDetector)
         floater = next(node for node in _walk(section.control()) if getattr(node, "data", None) == "reorder-float")
         self.assertTrue(floater.visible)
         self.assertEqual(floater.scale, 1.04)
@@ -1256,8 +1299,20 @@ class FavoriteOrderTests(unittest.TestCase):
         self.assertEqual(dropped, [("ponto", 2)])
         self.assertFalse(section.armed)
         self.assertFalse(floater.visible)
+        self.assertEqual(section.cards["ponto"]._hold_face.opacity, 1)
         self.assertFalse(any(getattr(node, "data", None) == "reorder-gap" for node in _walk(section.control())))
         self.assertEqual(section.release(13.0), "cancel")
+
+        section.press("guia", 30.0, x=10, y=10)
+        self.assertTrue(section.advance(30.5))
+        self.assertTrue(floater.visible)
+        self.assertIn(section.cards["guia"], section.flow.controls)
+        section._card_pan_cancel("guia")
+        self.assertEqual(dropped[-1], ("guia", 0))
+        self.assertFalse(section.armed)
+        self.assertFalse(floater.visible)
+        self.assertEqual(section.cards["guia"]._hold_face.opacity, 1)
+        self.assertFalse(any(getattr(node, "data", None) == "reorder-gap" for node in _walk(section.control())))
 
         alone = HoldSection(
             ["so"],
@@ -1274,7 +1329,7 @@ class FavoriteOrderTests(unittest.TestCase):
         alone.press("so", 0.0, y=10)
         self.assertFalse(alone.advance(2.0))
         self.assertEqual(alone.release(2.1), "cancel")
-        self.assertEqual(dropped, [("ponto", 2)])
+        self.assertEqual(dropped, [("ponto", 2), ("guia", 0)])
 
     def test_release_on_the_favorites_screen_saves_and_clears_the_gesture(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

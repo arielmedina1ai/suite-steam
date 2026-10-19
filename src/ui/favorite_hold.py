@@ -2,7 +2,8 @@
 
 O Flet 0.85 nao espera no Draggable nem abre um vao na secao.
 O gesto fica no ponteiro: timer no pressionar, arraste depois.
-O mouse por cima fica no cartao, nao neste detector.
+O detector e pai do cartao e continua montado ate soltar.
+O ink do titulo fica no filho, na frente do detector.
 """
 from __future__ import annotations
 
@@ -74,6 +75,7 @@ class HoldSection:
             width=self.card_w,
             height=self.card_h,
             scale=1.04,
+            ignore_interactions=True,
             border_radius=12,
             shadow=ft.BoxShadow(
                 blur_radius=18,
@@ -93,31 +95,35 @@ class HoldSection:
         self._show_idle()
 
     def control(self) -> ft.Control:
-        """A secao nao e um detector. O hit e o ink de cada cartao."""
+        """A secao nao e um detector. Cada cartao tem o seu, do tamanho dele."""
         return self.stack
 
     def _make_card(self, key: str) -> ft.Container:
-        """Cartao com ink/hover por fora. O detector fica dentro, do tamanho do cartao."""
+        """Detector do tamanho do cartao, pai do desenho.
+
+        O ink do titulo e filho desse detector, nao o contrario: assim o
+        mouse chega no texto. O detector nao cobre a linha inteira.
+        """
         face = self.build_card(key)
         detector = ft.GestureDetector(
-            on_tap_down=lambda e, item=key: self._card_down(item, e),
-            on_tap_up=lambda e, item=key: self._card_up(item, e),
-            on_tap_cancel=lambda e, item=key: self._card_cancel(item),
-            on_tap_move=lambda e, item=key: self._card_pan(item, e),
+            on_pan_down=lambda e, item=key: self._card_down(item, e),
             on_pan_update=lambda e, item=key: self._card_pan(item, e),
             on_pan_end=lambda e, item=key: self._card_up(item, e),
-            on_pan_cancel=lambda e, item=key: self._card_cancel(item),
+            on_pan_cancel=lambda e, item=key: self._card_pan_cancel(item),
+            on_tap_down=lambda e, item=key: self._card_down(item, e),
+            on_tap_up=lambda e, item=key: self._card_up(item, e),
+            on_tap_move=lambda e, item=key: self._card_pan(item, e),
             content=face,
         )
-        return ft.Container(
+        shell = ft.Container(
             width=self.card_w if self.axis == "grid" else None,
             height=self.card_h,
-            ink=True,
-            on_hover=lambda _e: None,
             border_radius=12,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             content=detector,
         )
+        shell._hold_face = face
+        return shell
 
     def cancel_press(self) -> None:
         """A estrela levou o clique: nao abre e nao continua o arraste."""
@@ -272,31 +278,44 @@ class HoldSection:
         self._paint()
 
     def _fill(self, *, dragging: str | None, index: int | None) -> None:
-        controls: list[ft.Control] = []
-        parked: ft.Control | None = None
-        for kind, key in layout_slots(self.keys, dragging, index):
-            if kind == "gap":
-                controls.append(self._gap())
-                continue
-            card = self.cards[key]
-            card.opacity = 1
-            card.visible = True
-            controls.append(card)
-        if dragging and dragging in self.cards:
-            parked = self.cards[dragging]
-            parked.opacity = 0
-            parked.visible = True
-        self.flow.controls = controls
-        self.stack.controls = [self.flow, self.floater] if parked is None else [self.flow, parked, self.floater]
+        """O cartao arrastado continua no flow.
 
-    def _gap(self) -> ft.Control:
-        return ft.Container(
-            width=self.card_w,
-            height=self.card_h,
-            border=ft.Border.all(2, config.COLOR_ACCENT),
-            border_radius=12,
-            data=_GAP,
-        )
+        Mover o detector para a pilha desmonta o gesto: o soltar nao chega
+        e o cartao fica flutuando. Aqui ele so troca de lugar no mesmo pai
+        e o desenho some, deixando o vao.
+        """
+        controls: list[ft.Control] = []
+        for kind, key in layout_slots(self.keys, dragging, index):
+            card = self.cards[key]
+            if kind == "gap":
+                self._show_gap(card)
+            else:
+                self._show_card(card)
+            controls.append(card)
+        self.flow.controls = controls
+        self.stack.controls = [self.flow, self.floater]
+
+    def _show_card(self, card: ft.Container) -> None:
+        card.width = self.card_w if self.axis == "grid" else None
+        card.height = self.card_h
+        card.opacity = 1
+        card.visible = True
+        card.data = None
+        card.border = None
+        face = getattr(card, "_hold_face", None)
+        if face is not None:
+            face.opacity = 1
+
+    def _show_gap(self, card: ft.Container) -> None:
+        card.width = self.card_w if self.axis == "grid" else None
+        card.height = self.card_h
+        card.opacity = 1
+        card.visible = True
+        card.data = _GAP
+        card.border = ft.Border.all(2, config.COLOR_ACCENT)
+        face = getattr(card, "_hold_face", None)
+        if face is not None:
+            face.opacity = 0
 
     def _paint(self) -> None:
         for control in (self.flow, self.floater, self.stack):
@@ -367,11 +386,11 @@ class HoldSection:
         self._card_pan(key, e)
         self.release(time.monotonic(), self.x, self.y)
 
-    def _card_cancel(self, key: str) -> None:
-        if self.armed or self.key != key:
+    def _card_pan_cancel(self, key: str) -> None:
+        """O ponteiro soltou sem pan, ou o gesto caiu. Nao deixa o cartao no ar."""
+        if self.key != key:
             return
-        self._cancel_timer()
-        self._gen += 1
+        self.release(time.monotonic(), self.x, self.y)
 
     def _origin_of(self, key: str) -> tuple[float, float]:
         index = self.keys.index(key) if key in self.keys else 0
