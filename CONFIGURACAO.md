@@ -10,8 +10,9 @@ abertura do programa.
 | Publico (versionado) | Local / SharePoint | Para que serve |
 | -------------------- | ------------------ | -------------- |
 | `settings.example.json` | `settings.json` | Nome/empresa/exe/pasta de dados, textos da home, cores, URL do catalog.json |
-| `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps, ponteiro `dicas` |
+| `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps, ponteiros `dicas` e `links` |
 | `tips.example.json` | `tips.json` no SharePoint | Corpo das dicas (`titulo` e `texto`). Nao e o bloco do catalogo |
+| `links.example.json` | `links.json` no SharePoint | Corpo dos links (grupos com `titulo`, `descricao` e `url`). Nao e o bloco do catalogo |
 | `assets/branding/*.example.png` | `logo.png` / `hero.png` / `window_icon.png` | Logo sidebar, banner home, icone janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
@@ -88,6 +89,10 @@ Estrutura completa (veja `catalog.example.json`):
     "download_url": "https://empresa.sharepoint.com/.../SuiteApps.exe"
   },
   "dicas": {
+    "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
+    "versao": "1"
+  },
+  "links": {
     "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
     "versao": "1"
   },
@@ -203,6 +208,57 @@ e **Dica**, quantos quiser, com uma linha entre cada par. Salvar envia o
 `:u:`. Se o envio do `tips.json` falhar, a versao nao muda. Um WebLogin so,
 PowerShell sem janela,
 como o restante do Catalogo.
+
+### Links (opcional)
+
+O bloco `links` aponta para o `links.json` no SharePoint, no mesmo formato de
+`dicas`: `url` com `download.aspx?UniqueId=` e `versao`. Sem `url` ou sem
+`versao`, a Suite nao busca o arquivo. Catalogo antigo, sem o bloco, continua
+valendo.
+
+O corpo — os grupos, nao o ponteiro `links` do `catalog.json` — esta em
+[`links.example.json`](links.example.json), na raiz, ao lado de
+`tips.example.json`. No SharePoint o arquivo continua se chamando `links.json`.
+
+```json
+{
+  "grupos": [
+    {
+      "titulo": "Portais",
+      "links": [
+        {
+          "titulo": "Ponto",
+          "descricao": "Registro de ponto",
+          "url": "https://exemplo.com/ponto"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Grupo sem titulo ou sem nenhum item valido e ignorado. Item sem titulo ou sem
+`url` e ignorado. A descricao pode ficar vazia.
+
+A copia local fica em `%LOCALAPPDATA%/<app.data_dir>/catalog/links.json`, e a
+versao ja salva ao lado, em `links.versao`. Essa versao so muda depois de um
+download que deu certo.
+
+Na abertura, em **Buscar atualizacoes** e na checagem das 10:00
+(America/Sao_Paulo), depois de ler o `catalog.json`, no mesmo ponto das dicas:
+
+- sem `links.url` ou sem `links.versao`: nao baixa;
+- versao remota igual a salva e o arquivo local existe: nao baixa de novo;
+- versao diferente, ou ainda sem copia: baixa o `links.json`.
+
+Se o download falhar, vier HTML ou o JSON for invalido, nao ha aviso. A copia
+anterior, se houver, permanece, e o item **Links** nao aparece no menu.
+
+Com arquivo valido, o menu mostra **Links** entre **Favoritos** e **Catalogo**.
+A pagina lista os grupos na ordem do JSON. Cada item e um botao com o titulo e
+a descricao; o clique abre a `url` https no navegador. Arquivo valido sem nenhum
+link: a pagina abre com a linha "Nenhum link.". Se a pessoa estiver nessa pagina
+e um sync seguinte falhar, o item some e a tela volta para Inicio.
 
 ### Gerencias
 

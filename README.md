@@ -15,7 +15,7 @@ aparecem; sem selecao, o SuiteApps mostra todos.
 - Checagem automatica do catalogo todo dia as **10:00** em **America/Sao_Paulo** (Brasilia, o mesmo fuso de Sao Paulo — nao o fuso do Windows nem UTC). So roda se o processo ja estava aberto antes das 10:00 e continua aberto quando o relogio chega nesse horario (janela, barra de tarefas ou bandeja): e o mesmo sync do botao **Buscar atualizacoes**. Abrir as 10:00 ou depois nao dispara essa sincronizacao — a abertura ja baixa o catalogo — e grava o dia em `preferences.json` > `last_auto_catalog_check`. Quem abriu antes das 10:00 nao marca o dia na hora; a sincronizacao ocorre uma vez na passagem das 10:00. No maximo uma vez por dia civil de Sao Paulo. No dia seguinte, so de novo se a suite estiver aberta na passagem das 10:00. Nao baixa o instalador do Suite — isso continua no clique **Baixar Atualizacao**.
 - Filtro por **gerencia** na sidebar (persistido em `preferences.json`).
 - Home: banner com textos do `settings.sector`; com gerencia selecionada, nome/descricao acima de "Todos os aplicativos".
-- Sidebar: Inicio, Favoritos (se houver), seletor de gerencia, setores.
+- Sidebar: Inicio, Favoritos (se houver), Links (se o arquivo valer), seletor de gerencia, setores.
 - Sub-setores com descricoes e divisores na tela de cada setor.
 - Favoritos locais (estrela) em `%LOCALAPPDATA%/<app.data_dir>/favorites.json`.
 - Atualizacao do proprio SuiteApps: o banner aparece no sync; **Baixar Atualizacao** baixa, substitui o `.exe` e relanca (Windows empacotado). Arquivo com o nome padrao do exe, sem sufixo de versao. `settings.json` ao lado e preservado.

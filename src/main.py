@@ -55,6 +55,7 @@ from services.catalog_publish import (
     save_dicas,
     structure_from_catalog,
 )
+from services.links import links_menu_visible, load_local_links
 from services.tips import (
     TIP_ROTATE_SECONDS,
     DicasFormState,
@@ -87,6 +88,7 @@ from ui.components import build_sidebar
 from ui.tutorial_view import TutorialView
 from ui.catalog_view import bind_catalog_view, session_holder
 from ui.home_view import apply_tip, build_favoritos_view, build_home, build_setor_view
+from ui.links_view import build_links_view
 from ui.progress_util import bar_value, label as progress_label
 from ui.publish_view import GERAL_KEY, NEW_APP_KEY
 
@@ -107,6 +109,7 @@ class SuiteApp:
         self.show_tutorial = False
         self.selected_setor: str | None = None
         self.show_favorites = False
+        self.show_links = False
         self.show_publish = False
         self.catalog_tab = "publish"
         self.can_publish = user_can_publish(current_windows_login(), config.PUBLISH_USERS)
@@ -412,6 +415,7 @@ class SuiteApp:
                 self.selected_id = None
                 self.selected_setor = None
                 self.show_favorites = False
+                self.show_links = False
             show_notice = (not initial) and result.ok
             if show_notice and automatic and not self._window_shows_sync_notice():
                 show_notice = False
@@ -583,6 +587,7 @@ class SuiteApp:
             and self.selected_setor is None
             and not self.show_favorites
             and not self.show_publish
+            and not getattr(self, "show_links", False)
         )
 
     def _open_tip_link(self, url: str) -> None:
@@ -763,6 +768,7 @@ class SuiteApp:
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
+        self.show_links = False
         self.show_publish = False
         self._render()
 
@@ -771,8 +777,28 @@ class SuiteApp:
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = True
+        self.show_links = False
         self.show_publish = False
         self._render()
+
+    def _go_links(self) -> None:
+        if not self._links_menu_visible():
+            self.show_links = False
+            self._render()
+            return
+        self._leave_app_screen()
+        self.selected_id = None
+        self.selected_setor = None
+        self.show_favorites = False
+        self.show_links = True
+        self.show_publish = False
+        self._render()
+
+    def _links_menu_visible(self) -> bool:
+        try:
+            return links_menu_visible(self.catalog)
+        except Exception:
+            return False
 
     def _go_publish(self) -> None:
         if not self.can_publish:
@@ -781,6 +807,7 @@ class SuiteApp:
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
+        self.show_links = False
         self.show_publish = True
         fp = fingerprint_cache_file()
         if not self.publish_form.fingerprint:
@@ -949,6 +976,7 @@ class SuiteApp:
         self.selected_setor = setor_id
         self.selected_id = None
         self.show_favorites = False
+        self.show_links = False
         self.show_publish = False
         self._render()
 
@@ -976,6 +1004,7 @@ class SuiteApp:
         if app is not None and app.setor:
             self.selected_setor = app.setor
         self.show_favorites = False
+        self.show_links = False
         self.show_publish = False
         self._render()
 
@@ -988,6 +1017,7 @@ class SuiteApp:
         self.selected_id = None
         self.selected_setor = None
         self.show_favorites = False
+        self.show_links = False
         self.show_publish = False
         self._render()
 
@@ -2379,6 +2409,8 @@ class SuiteApp:
         has_favs = self._has_visible_favorites()
         if self.show_favorites and not has_favs:
             self.show_favorites = False
+        if getattr(self, "show_links", False) and not self._links_menu_visible():
+            self.show_links = False
 
         if self.selected_setor is not None:
             visible_ids = {s.id for s in setores_visiveis(self.view_catalog)}
@@ -2388,13 +2420,16 @@ class SuiteApp:
         if self.selected_id is not None and self.selected_id not in self.apps_by_id:
             self.selected_id = None
 
+        links_on = getattr(self, "show_links", False)
         home_selected = (
             self.selected_id is None
             and self.selected_setor is None
             and not self.show_favorites
             and not self.show_publish
+            and not links_on
         )
         favorites_selected = self.show_favorites and self.selected_id is None
+        links_selected = links_on and self.selected_id is None and not self.show_publish
         running_name = self._running_app_names()
         self._home_tip_balloon = None
 
@@ -2406,6 +2441,9 @@ class SuiteApp:
             selected_setor_id=self.selected_setor,
             selected_gerencia_id=self.selected_gerencia_id,
             show_favorites=has_favs,
+            show_links=self._links_menu_visible(),
+            links_selected=links_selected,
+            on_links=self._go_links,
             suite_update=self.catalog.suite,
             update_available=self._update_available() or self.update_busy or self.update_failed,
             update_busy=self.update_busy,
@@ -2510,6 +2548,12 @@ class SuiteApp:
                     work_progress=self.app_job_progress if self.app_job_app_id == app.id else None,
                     work_message=self._detail_work_message(app.id),
                 ).build()
+        elif getattr(self, "show_links", False):
+            try:
+                groups = load_local_links()
+            except Exception:
+                groups = []
+            self.content_holder.content = build_links_view(groups, self.page)
         elif self.show_favorites:
             self.content_holder.content = build_favoritos_view(
                 self._visible_favorite_apps(),

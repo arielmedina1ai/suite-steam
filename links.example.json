@@ -1,0 +1,24 @@
+{
+  "grupos": [
+    {
+      "titulo": "Portais",
+      "links": [
+        {
+          "titulo": "Ponto",
+          "descricao": "Registro de ponto",
+          "url": "https://exemplo.com/ponto"
+        }
+      ]
+    },
+    {
+      "titulo": "Manuais",
+      "links": [
+        {
+          "titulo": "Guia do setor",
+          "descricao": "Passo a passo das rotinas",
+          "url": "https://exemplo.com/guia"
+        }
+      ]
+    }
+  ]
+}
