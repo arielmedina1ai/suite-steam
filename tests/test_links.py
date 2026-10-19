@@ -903,6 +903,14 @@ class LinkFavoriteTests(unittest.TestCase):
         self.assertNotIn("sumiu", "".join(texts))
         self.assertFalse(any(getattr(node, "content", None) == "Ordenar favoritos" for node in _walk(both)))
         self.assertFalse(any(isinstance(node, ft.DragTarget) or isinstance(node, ft.Draggable) for node in _walk(both)))
+        hovered = [
+            node
+            for node in _walk(both)
+            if getattr(node, "ink", False) and getattr(node, "on_hover", None) is not None
+        ]
+        self.assertGreaterEqual(len(hovered), 2)
+        self.assertIsNone(both._hold_links.gesture.on_hover)
+        self.assertIsNone(both._hold_apps.gesture.on_hover)
         guia = _rows_with_url(both, "https://exemplo.com/guia")[0]
         self.assertEqual(_star_in(guia).icon, ft.Icons.STAR)
         _star_in(guia).on_click(None)
@@ -1075,7 +1083,7 @@ class LinkFavoriteTests(unittest.TestCase):
 
 class FavoriteOrderTests(unittest.TestCase):
     def test_insertion_index_picks_the_nearest_slot(self) -> None:
-        self.assertEqual(HOLD_SECONDS, 1.0)
+        self.assertEqual(HOLD_SECONDS, 0.5)
         size, spacing = 84.0, 8.0
         self.assertEqual(insertion_index(42, count=3, size=size, spacing=spacing), 0)
         self.assertEqual(insertion_index(134, count=3, size=size, spacing=spacing), 1)
@@ -1190,8 +1198,8 @@ class FavoriteOrderTests(unittest.TestCase):
         self.assertFalse(any(getattr(node, "data", None) == "reorder-gap" for node in _walk(section.control())))
 
         section.press("ponto", 10.0, x=10, y=134)
-        self.assertFalse(section.advance(10.5))
-        self.assertTrue(section.advance(11.0))
+        self.assertFalse(section.advance(10.4))
+        self.assertTrue(section.advance(10.5))
         self.assertTrue(section.armed)
         gap = next(node for node in _walk(section.control()) if getattr(node, "data", None) == "reorder-gap")
         self.assertEqual(gap.border.top.color, config.COLOR_ACCENT)

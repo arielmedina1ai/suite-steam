@@ -205,10 +205,21 @@ _LINK_GAP = 8.0
 _APP_GAP = 16.0
 
 
+def _same_hover(card: ft.Container) -> ft.Container:
+    """Mesmo ink dos cartoes do Inicio e do botao da pagina Links.
+
+    Sem on_click: o GestureDetector da secao continua vendo o segurar,
+    e o mouse por cima chega no cartao.
+    """
+    card.ink = True
+    card.on_hover = lambda _e: None
+    return card
+
+
 def _favorite_link_card(item: LinkItem, on_toggle_link: Callable[[str], None] | None) -> ft.Control:
     """Mesmo cartao da pagina Links, sem botao: o gesto da secao abre o https."""
     star = _star_button(item.url, True, on_toggle_link or (lambda _url: None))
-    return ft.Container(
+    return _same_hover(ft.Container(
         height=_LINK_ROW_H,
         bgcolor=config.COLOR_SURFACE,
         border_radius=12,
@@ -221,7 +232,7 @@ def _favorite_link_card(item: LinkItem, on_toggle_link: Callable[[str], None] | 
                 star,
             ],
         ),
-    )
+    ))
 
 
 def build_favoritos_view(
@@ -239,7 +250,7 @@ def build_favoritos_view(
 ) -> ft.Control:
     """Aplicativos favoritos na secao Aplicativos; links marcados abaixo, na secao Links.
 
-    Secao vazia nao aparece. Segurar um cartao por mais de 1s ordena so essa secao.
+    Secao vazia nao aparece. Segurar um cartao por mais de 0,5s ordena so essa secao.
     """
     links = list(link_items or [])
     installed = installed_ids or set()
@@ -263,14 +274,14 @@ def build_favoritos_view(
                 app_bridge["cancel"]()
                 on_toggle_favorite(_id)
 
-            return _app_card(
+            return _same_hover(_app_card(
                 app,
                 on_select,
                 is_favorite=app.id in favorite_ids,
                 on_toggle_favorite=_star,
                 installed=app.id in installed,
                 opens=False,
-            )
+            ))
 
         hold_apps = HoldSection(
             [app.id for app in apps],

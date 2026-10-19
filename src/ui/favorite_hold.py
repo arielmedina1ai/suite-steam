@@ -1,7 +1,8 @@
-"""Segurar o cartao por 1s e arrastar, sem o fantasma do Draggable.
+"""Segurar o cartao e arrastar, sem o fantasma do Draggable.
 
-O Flet 0.85 nao espera 1 segundo no Draggable nem abre um vao na secao.
+O Flet 0.85 nao espera no Draggable nem abre um vao na secao.
 O gesto fica no ponteiro: timer no pressionar, arraste depois.
+O mouse por cima fica no cartao, nao neste detector.
 """
 from __future__ import annotations
 

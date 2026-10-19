@@ -75,7 +75,7 @@ class FavoritesStore:
         return True
 
 
-HOLD_SECONDS = 1.0
+HOLD_SECONDS = 0.5
 
 
 def insertion_index(
