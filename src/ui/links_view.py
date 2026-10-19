@@ -19,6 +19,7 @@ def link_card(
     *,
     is_favorite: bool,
     on_toggle_favorite: Callable[[str], None] | None,
+    opens: bool = True,
 ) -> ft.Control:
     """Cartao do link: a estrela alterna o favorito; o resto abre o https.
 
@@ -38,6 +39,8 @@ def link_card(
         lines.append(ft.Text(item.descricao, size=13, color="#B9CEC3"))
 
     def _open(e=None, target: str = url) -> None:
+        if not opens:
+            return
         stored = target
         control = getattr(e, "control", None)
         data = getattr(control, "data", None) if control is not None else None

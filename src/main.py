@@ -100,6 +100,7 @@ class SuiteApp:
         self.storage = Storage()
         self.favorites = FavoritesStore()
         self.link_favorites = LinkFavoritesStore()
+        self.ordering_favorites = False
         self.preferences = PreferencesStore()
         self.manager = DownloadManager(self.storage)
         self.catalog = CatalogData()
@@ -687,8 +688,16 @@ class SuiteApp:
         return set(self.favorites.list_ids())
 
     def _visible_favorite_apps(self) -> list[AppInfo]:
-        favs = self._favorite_ids()
-        return [a for a in self.apps if a.id in favs]
+        """Apps favoritos visiveis, na ordem gravada em favorites.json."""
+        by_id = {app.id: app for app in self.apps}
+        store = getattr(self, "favorites", None)
+        if store is None:
+            return []
+        try:
+            ids = store.list_ids()
+        except Exception:
+            return []
+        return [by_id[aid] for aid in ids if aid in by_id]
 
     def _has_visible_favorites(self) -> bool:
         return bool(self._visible_favorite_apps())
@@ -1062,6 +1071,34 @@ class SuiteApp:
         store.toggle(url)
         if getattr(self, "show_favorites", False) and not self._favorites_menu_visible():
             self.show_favorites = False
+        self._render()
+
+    def _toggle_favorites_order(self) -> None:
+        self.ordering_favorites = not bool(getattr(self, "ordering_favorites", False))
+        self._render()
+
+    def _reorder_favorite_app(self, src: str, dst: str) -> None:
+        if not getattr(self, "ordering_favorites", False):
+            return
+        store = getattr(self, "favorites", None)
+        move = getattr(store, "move_visible", None)
+        if not callable(move):
+            return
+        visible = [app.id for app in self._visible_favorite_apps()]
+        if not move(src, dst, visible):
+            return
+        self._render()
+
+    def _reorder_favorite_link(self, src: str, dst: str) -> None:
+        if not getattr(self, "ordering_favorites", False):
+            return
+        store = getattr(self, "link_favorites", None)
+        move = getattr(store, "move_visible", None)
+        if not callable(move):
+            return
+        visible = [item.url for item in self._visible_favorite_links()]
+        if not move(src, dst, visible):
+            return
         self._render()
 
     def _publish_select(self, app_id: str) -> None:
@@ -2447,6 +2484,8 @@ class SuiteApp:
         has_favs = self._has_visible_favorites() or bool(favorite_links)
         if self.show_favorites and not has_favs:
             self.show_favorites = False
+        if not self.show_favorites and getattr(self, "ordering_favorites", False):
+            self.ordering_favorites = False
         if getattr(self, "show_links", False) and not self._links_menu_visible():
             self.show_links = False
 
@@ -2607,6 +2646,10 @@ class SuiteApp:
                 link_items=favorite_links,
                 page=self.page,
                 on_toggle_link=self._toggle_link_favorite,
+                ordering=bool(getattr(self, "ordering_favorites", False)),
+                on_toggle_ordering=self._toggle_favorites_order,
+                on_reorder_app=self._reorder_favorite_app,
+                on_reorder_link=self._reorder_favorite_link,
             )
         elif self.selected_setor is not None:
             filtrados = apps_do_setor(self.apps, self.selected_setor)

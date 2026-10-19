@@ -23,6 +23,7 @@ from models import (
     parse_catalog_dict,
     parse_links_payload,
 )
+from services.favorites import FavoritesStore, move_before
 from services.link_favorites import LinkFavoritesStore, visible_favorite_links
 from ui.home_view import build_favoritos_view
 from services.links import (
@@ -1064,6 +1065,210 @@ class LinkFavoriteTests(unittest.TestCase):
                         if text in {"Inicio", "Favoritos", "Links", "Catalogo"}
                     ],
                 )
+
+
+def _order_button(control):
+    for node in _walk(control):
+        if getattr(node, "content", None) == "Ordenar favoritos":
+            return node
+    raise AssertionError("botao Ordenar favoritos ausente")
+
+
+def _drag_targets(control, group: str | None = None) -> list:
+    found = []
+    for node in _walk(control):
+        if not isinstance(node, ft.DragTarget):
+            continue
+        if group is not None and node.group != group:
+            continue
+        found.append(node)
+    return found
+
+
+def _drop_on(control, group: str, src: str, dst: str) -> None:
+    for target in _drag_targets(control, group):
+        if getattr(getattr(target, "content", None), "data", None) != dst:
+            continue
+        source = type("Src", (), {"data": src})()
+        target.on_accept(type("Event", (), {"src": source})())
+        return
+    raise AssertionError(f"alvo {dst} ausente em {group}")
+
+
+class FavoriteOrderTests(unittest.TestCase):
+    def test_move_keeps_each_list_and_ignores_a_short_section(self) -> None:
+        self.assertIsNone(move_before(["so"], "so", "so"))
+        self.assertIsNone(move_before(["a", "b"], "a", "a"))
+        self.assertIsNone(move_before(["a", "b"], "link", "a"))
+        self.assertEqual(move_before(["a", "b", "c"], "c", "a"), ["c", "a", "b"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            apps = FavoritesStore(root / "favorites.json")
+            links = LinkFavoritesStore(root / "link_favorites.json")
+            apps.toggle("oculto")
+            apps.toggle("beta")
+            apps.toggle("alfa")
+            before = apps.path.read_text(encoding="utf-8")
+            self.assertFalse(apps.move_visible("beta", "alfa", ["beta"]))
+            self.assertEqual(apps.path.read_text(encoding="utf-8"), before)
+            self.assertFalse(apps.move_visible("https://exemplo.com/guia", "beta", ["oculto", "beta", "alfa"]))
+            self.assertTrue(apps.move_visible("alfa", "beta", ["beta", "alfa"]))
+            self.assertEqual(apps.list_ids(), ["oculto", "alfa", "beta"])
+            apps.toggle("gama")
+            self.assertEqual(apps.list_ids(), ["oculto", "alfa", "beta", "gama"])
+            apps.toggle("beta")
+            self.assertEqual(apps.list_ids(), ["oculto", "alfa", "gama"])
+
+            links.toggle("https://exemplo.com/sumiu")
+            links.toggle("https://exemplo.com/guia")
+            links.toggle("https://exemplo.com/ponto")
+            self.assertTrue(
+                links.move_visible(
+                    "https://exemplo.com/ponto",
+                    "https://exemplo.com/guia",
+                    ["https://exemplo.com/guia", "https://exemplo.com/ponto"],
+                )
+            )
+            self.assertEqual(
+                links.list_urls(),
+                [
+                    "https://exemplo.com/sumiu",
+                    "https://exemplo.com/ponto",
+                    "https://exemplo.com/guia",
+                ],
+            )
+            self.assertFalse((root / "links.json").exists())
+
+    def test_order_mode_drags_inside_the_section_and_saves(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            links = root / "links.json"
+            version = root / "links.versao"
+            links.write_text(
+                json.dumps(
+                    {
+                        "grupos": [
+                            {
+                                "titulo": "Portais",
+                                "links": [
+                                    {
+                                        "titulo": "Ponto",
+                                        "descricao": "Registro de ponto",
+                                        "url": "https://exemplo.com/ponto",
+                                    },
+                                    {
+                                        "titulo": "Guia",
+                                        "descricao": "Passo a passo",
+                                        "url": "https://exemplo.com/guia",
+                                    },
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            version.write_text("1", encoding="utf-8")
+            catalog = CatalogData(
+                apps=[
+                    AppInfo(id="alfa", nome="Alfa"),
+                    AppInfo(id="beta", nome="Beta"),
+                ],
+                links=LinksInfo(url="https://sp/links.json", versao="1"),
+            )
+            app = ScreenTests()._app(catalog)
+            app.apps = list(catalog.apps)
+            app.apps_by_id = {item.id: item for item in app.apps}
+            app.view_catalog = catalog
+            app.favorites = FavoritesStore(root / "favorites.json")
+            app.favorites.toggle("beta")
+            app.favorites.toggle("alfa")
+            app.link_favorites = LinkFavoritesStore(root / "link_favorites.json")
+            app.link_favorites.toggle("https://exemplo.com/sumiu")
+            app.link_favorites.toggle("https://exemplo.com/guia")
+            app.link_favorites.toggle("https://exemplo.com/ponto")
+            app.show_favorites = True
+            with (
+                patch.object(config, "LINKS_FILE", links),
+                patch.object(config, "LINKS_VERSION_FILE", version),
+            ):
+                SuiteApp._render(app)
+                button = _order_button(app.content_holder.content)
+                self.assertEqual(button.data, "idle")
+                self.assertEqual(_drag_targets(app.content_holder.content), [])
+                texts = _texts(app.content_holder.content)
+                self.assertLess(texts.index("Aplicativos"), texts.index("Links"))
+                self.assertLess(texts.index("Beta"), texts.index("Alfa"))
+                self.assertLess(texts.index("Guia"), texts.index("Ponto"))
+
+                button.on_click(None)
+                self.assertTrue(app.ordering_favorites)
+                active = _order_button(app.content_holder.content)
+                self.assertEqual(active.data, "active")
+                self.assertEqual(active.style.bgcolor, config.COLOR_ACCENT)
+                self.assertEqual(
+                    {node.group for node in _drag_targets(app.content_holder.content)},
+                    {"favorite-apps", "favorite-links"},
+                )
+                self.assertEqual(len(_drag_targets(app.content_holder.content, "favorite-apps")), 2)
+                self.assertEqual(len(_drag_targets(app.content_holder.content, "favorite-links")), 2)
+                guia = next(button for button in _buttons(app.content_holder.content) if button.data == "https://exemplo.com/guia")
+                guia.on_click(None)
+                self.assertEqual(app.page.ran, [])
+
+                _drop_on(app.content_holder.content, "favorite-links", "https://exemplo.com/ponto", "https://exemplo.com/guia")
+                self.assertTrue(app.ordering_favorites)
+                ordered = _texts(app.content_holder.content)
+                self.assertLess(ordered.index("Ponto"), ordered.index("Guia"))
+                self.assertNotIn("sumiu", "".join(ordered))
+                self.assertEqual(
+                    app.link_favorites.list_urls(),
+                    [
+                        "https://exemplo.com/sumiu",
+                        "https://exemplo.com/ponto",
+                        "https://exemplo.com/guia",
+                    ],
+                )
+                _drop_on(app.content_holder.content, "favorite-apps", "alfa", "beta")
+                self.assertEqual(app.favorites.list_ids(), ["alfa", "beta"])
+                self.assertLess(_texts(app.content_holder.content).index("Alfa"), _texts(app.content_holder.content).index("Beta"))
+                self.assertTrue(app.ordering_favorites)
+
+                SuiteApp._reorder_favorite_app(app, "https://exemplo.com/ponto", "alfa")
+                self.assertEqual(app.favorites.list_ids(), ["alfa", "beta"])
+                self.assertEqual(
+                    app.link_favorites.list_urls()[0],
+                    "https://exemplo.com/sumiu",
+                )
+
+                _order_button(app.content_holder.content).on_click(None)
+                self.assertFalse(app.ordering_favorites)
+                idle = _order_button(app.content_holder.content)
+                self.assertEqual(idle.data, "idle")
+                self.assertEqual(_drag_targets(app.content_holder.content), [])
+                self.assertEqual(app.favorites.list_ids(), ["alfa", "beta"])
+                self.assertEqual(
+                    app.link_favorites.list_urls(),
+                    [
+                        "https://exemplo.com/sumiu",
+                        "https://exemplo.com/ponto",
+                        "https://exemplo.com/guia",
+                    ],
+                )
+                opener = next(button for button in _buttons(app.content_holder.content) if button.data == "https://exemplo.com/ponto")
+                opener.on_click(None)
+                self.assertEqual(app.page.ran, [(app.page, "https://exemplo.com/ponto")])
+
+                page_links = build_links_view(
+                    load_local_links(),
+                    app.page,
+                    favorite_urls=app.link_favorites.list_urls(),
+                    on_toggle_favorite=app._toggle_link_favorite,
+                )
+                self.assertFalse(any(getattr(node, "content", None) == "Ordenar favoritos" for node in _walk(page_links)))
+                self.assertEqual(_drag_targets(page_links), [])
+                self.assertEqual(_texts(page_links)[:2], ["Links", "Portais"])
 
 
 class _AppFavorites:

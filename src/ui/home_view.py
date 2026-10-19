@@ -39,7 +39,7 @@ def _tutorial_badge() -> ft.Control:
     )
 
 
-def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bool, on_toggle_favorite: Callable[[str], None], installed: bool) -> ft.Control:
+def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bool, on_toggle_favorite: Callable[[str], None], installed: bool, opens: bool = True) -> ft.Control:
     meta: list[ft.Control] = [
         ft.Container(
             bgcolor=config.COLOR_PRIMARY_DARK,
@@ -54,7 +54,7 @@ def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bo
     body = ft.Container(
         ink=True,
         expand=True,
-        on_click=lambda e, aid=app.id: on_select(aid),
+        on_click=(lambda e, aid=app.id: on_select(aid)) if opens else None,
         content=ft.Column(
             spacing=8,
             expand=True,
@@ -199,6 +199,59 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerenci
     return stack
 
 
+_FAV_APP_GROUP = "favorite-apps"
+_FAV_LINK_GROUP = "favorite-links"
+
+
+def _order_button(active: bool, on_toggle: Callable[[], None] | None) -> ft.Control:
+    """Liga e desliga o arraste. Ativo fica com o fundo de destaque."""
+    return ft.OutlinedButton(
+        content="Ordenar favoritos",
+        icon=ft.Icons.DRAG_INDICATOR,
+        data="active" if active else "idle",
+        style=ft.ButtonStyle(
+            bgcolor=config.COLOR_ACCENT if active else config.COLOR_SURFACE,
+            color="#14201A" if active else config.COLOR_TEXT,
+        ),
+        on_click=lambda e: on_toggle() if callable(on_toggle) else None,
+    )
+
+
+def _drag_reorder(
+    content: ft.Control,
+    *,
+    group: str,
+    data: str,
+    on_drop: Callable[[str, str], None] | None,
+) -> ft.Control:
+    """Draggable dentro de DragTarget, no grupo da secao. Flet 0.85."""
+    drag = ft.Draggable(
+        group=group,
+        content=content,
+        data=data,
+        max_simultaneous_drags=1,
+        content_feedback=ft.Container(
+            width=28,
+            height=28,
+            bgcolor=config.COLOR_ACCENT,
+            border_radius=6,
+        ),
+    )
+
+    def _accept(e, target: str = data) -> None:
+        if not callable(on_drop):
+            return
+        src = getattr(getattr(e, "src", None), "data", None)
+        if not isinstance(src, str) or not src:
+            return
+        try:
+            on_drop(src, target)
+        except Exception:
+            return
+
+    return ft.DragTarget(group=group, content=drag, on_accept=_accept)
+
+
 def build_favoritos_view(
     apps: list[AppInfo],
     on_select: Callable[[str], None],
@@ -209,12 +262,18 @@ def build_favoritos_view(
     link_items: list[LinkItem] | None = None,
     page: Any = None,
     on_toggle_link: Callable[[str], None] | None = None,
+    ordering: bool = False,
+    on_toggle_ordering: Callable[[], None] | None = None,
+    on_reorder_app: Callable[[str, str], None] | None = None,
+    on_reorder_link: Callable[[str, str], None] | None = None,
 ) -> ft.Control:
     """Aplicativos favoritos na secao Aplicativos; links marcados abaixo, na secao Links.
 
     Secao vazia nao aparece. So links: a tela mostra a secao Links.
+    No modo ordenar, o arraste vale so dentro da secao.
     """
     links = list(link_items or [])
+    installed = installed_ids or set()
     header_controls: list[ft.Control] = [
         ft.Text("Favoritos", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
     ]
@@ -222,37 +281,61 @@ def build_favoritos_view(
         header_controls.append(
             ft.Text(f"{len(apps)} aplicativo(s) favorito(s)", size=13, color="#8AA797")
         )
+    header_controls.append(_order_button(ordering, on_toggle_ordering))
     sections: list[ft.Control] = [ft.Column(spacing=4, controls=header_controls)]
     if apps:
-        sections.append(
-            _apps_grid(
-                apps,
+        cards: list[ft.Control] = []
+        for app in apps:
+            card: ft.Control = _app_card(
+                app,
                 on_select,
-                title="Aplicativos",
-                empty_message="Nenhum favorito. Clique na estrela de um app para adicionar.",
-                favorite_ids=favorite_ids,
+                is_favorite=app.id in favorite_ids,
                 on_toggle_favorite=on_toggle_favorite,
-                installed_ids=installed_ids or set(),
+                installed=app.id in installed,
+                opens=not ordering,
+            )
+            if ordering:
+                card = _drag_reorder(
+                    card,
+                    group=_FAV_APP_GROUP,
+                    data=app.id,
+                    on_drop=on_reorder_app,
+                )
+            cards.append(card)
+        sections.append(
+            ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Text("Aplicativos", size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+                    ft.Row(controls=cards, wrap=True, spacing=16, run_spacing=16),
+                ],
             )
         )
     if links:
-        block: list[ft.Control] = [
+        rows: list[ft.Control] = [
             ft.Text("Links", size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
         ]
         for item in links:
-            block.append(
-                link_card(
-                    item,
-                    page,
-                    is_favorite=True,
-                    on_toggle_favorite=on_toggle_link,
-                )
+            row: ft.Control = link_card(
+                item,
+                page,
+                is_favorite=True,
+                on_toggle_favorite=on_toggle_link,
+                opens=not ordering,
             )
+            if ordering:
+                row = _drag_reorder(
+                    row,
+                    group=_FAV_LINK_GROUP,
+                    data=item.url,
+                    on_drop=on_reorder_link,
+                )
+            rows.append(row)
         sections.append(
             ft.Column(
                 spacing=8,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                controls=block,
+                controls=rows,
             )
         )
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=sections)
