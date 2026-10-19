@@ -23,7 +23,14 @@ from models import (
     parse_catalog_dict,
     parse_links_payload,
 )
-from services.favorites import FavoritesStore, move_before
+from services.favorites import (
+    HOLD_SECONDS,
+    FavoritesStore,
+    grid_insertion_index,
+    insertion_index,
+    layout_slots,
+    order_after_drop,
+)
 from services.link_favorites import LinkFavoritesStore, visible_favorite_links
 from ui.home_view import build_favoritos_view
 from services.links import (
@@ -894,18 +901,17 @@ class LinkFavoriteTests(unittest.TestCase):
         self.assertLess(texts.index("Relatorio"), texts.index("Guia"))
         self.assertLess(texts.index("Guia"), texts.index("Ponto"))
         self.assertNotIn("sumiu", "".join(texts))
-        self.assertEqual(
-            [button.data for button in _buttons(both)],
-            ["https://exemplo.com/guia", "https://exemplo.com/ponto"],
-        )
+        self.assertFalse(any(getattr(node, "content", None) == "Ordenar favoritos" for node in _walk(both)))
+        self.assertFalse(any(isinstance(node, ft.DragTarget) or isinstance(node, ft.Draggable) for node in _walk(both)))
         guia = _rows_with_url(both, "https://exemplo.com/guia")[0]
         self.assertEqual(_star_in(guia).icon, ft.Icons.STAR)
         _star_in(guia).on_click(None)
         self.assertEqual(toggled, ["https://exemplo.com/guia"])
         self.assertEqual(page.ran, [])
-        opener = next(child for child in guia.controls if getattr(child, "data", None))
-        opener.on_click(None)
+        both._hold_links.press("https://exemplo.com/guia", 0.0, x=8, y=20)
+        self.assertEqual(both._hold_links.release(0.4), "click")
         self.assertEqual(page.ran, [(page, "https://exemplo.com/guia")])
+        self.assertFalse(both._hold_links.armed)
 
         only_links = build_favoritos_view(
             [],
@@ -1067,40 +1073,59 @@ class LinkFavoriteTests(unittest.TestCase):
                 )
 
 
-def _order_button(control):
-    for node in _walk(control):
-        if getattr(node, "content", None) == "Ordenar favoritos":
-            return node
-    raise AssertionError("botao Ordenar favoritos ausente")
-
-
-def _drag_targets(control, group: str | None = None) -> list:
-    found = []
-    for node in _walk(control):
-        if not isinstance(node, ft.DragTarget):
-            continue
-        if group is not None and node.group != group:
-            continue
-        found.append(node)
-    return found
-
-
-def _drop_on(control, group: str, src: str, dst: str) -> None:
-    for target in _drag_targets(control, group):
-        if getattr(getattr(target, "content", None), "data", None) != dst:
-            continue
-        source = type("Src", (), {"data": src})()
-        target.on_accept(type("Event", (), {"src": source})())
-        return
-    raise AssertionError(f"alvo {dst} ausente em {group}")
-
-
 class FavoriteOrderTests(unittest.TestCase):
-    def test_move_keeps_each_list_and_ignores_a_short_section(self) -> None:
-        self.assertIsNone(move_before(["so"], "so", "so"))
-        self.assertIsNone(move_before(["a", "b"], "a", "a"))
-        self.assertIsNone(move_before(["a", "b"], "link", "a"))
-        self.assertEqual(move_before(["a", "b", "c"], "c", "a"), ["c", "a", "b"])
+    def test_insertion_index_picks_the_nearest_slot(self) -> None:
+        self.assertEqual(HOLD_SECONDS, 1.0)
+        size, spacing = 84.0, 8.0
+        self.assertEqual(insertion_index(42, count=3, size=size, spacing=spacing), 0)
+        self.assertEqual(insertion_index(134, count=3, size=size, spacing=spacing), 1)
+        self.assertEqual(insertion_index(226, count=3, size=size, spacing=spacing), 2)
+        self.assertEqual(insertion_index(-80, count=3, size=size, spacing=spacing), 0)
+        self.assertEqual(insertion_index(900, count=3, size=size, spacing=spacing), 2)
+        self.assertEqual(insertion_index(70, count=3, size=size, spacing=spacing), 0)
+        self.assertEqual(insertion_index(110, count=3, size=size, spacing=spacing), 1)
+        self.assertEqual(
+            grid_insertion_index(
+                130, 115, count=3, columns=2, card_w=260, card_h=230, spacing_x=16, spacing_y=16
+            ),
+            0,
+        )
+        self.assertEqual(
+            grid_insertion_index(
+                406, 115, count=3, columns=2, card_w=260, card_h=230, spacing_x=16, spacing_y=16
+            ),
+            1,
+        )
+        self.assertEqual(
+            grid_insertion_index(
+                130, 361, count=3, columns=2, card_w=260, card_h=230, spacing_x=16, spacing_y=16
+            ),
+            2,
+        )
+        self.assertEqual(
+            grid_insertion_index(
+                -40, -40, count=3, columns=2, card_w=260, card_h=230, spacing_x=16, spacing_y=16
+            ),
+            0,
+        )
+        self.assertEqual(
+            grid_insertion_index(
+                2000, 2000, count=3, columns=2, card_w=260, card_h=230, spacing_x=16, spacing_y=16
+            ),
+            2,
+        )
+
+    def test_drop_saves_the_section_order_and_keeps_the_other_list(self) -> None:
+        self.assertIsNone(order_after_drop(["so"], "so", 0))
+        self.assertIsNone(order_after_drop(["a", "b"], "link", 0))
+        self.assertIsNone(order_after_drop(["a", "b", "c"], "b", 1))
+        self.assertEqual(order_after_drop(["a", "b", "c"], "c", 0), ["c", "a", "b"])
+        self.assertEqual(order_after_drop(["a", "b", "c"], "a", 2), ["b", "c", "a"])
+        self.assertEqual(
+            layout_slots(["a", "b", "c"], "c", 0),
+            [("gap", "c"), ("card", "a"), ("card", "b")],
+        )
+        self.assertEqual(layout_slots(["a", "b", "c"], None, None), [("card", "a"), ("card", "b"), ("card", "c")])
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1110,10 +1135,10 @@ class FavoriteOrderTests(unittest.TestCase):
             apps.toggle("beta")
             apps.toggle("alfa")
             before = apps.path.read_text(encoding="utf-8")
-            self.assertFalse(apps.move_visible("beta", "alfa", ["beta"]))
+            self.assertFalse(apps.move_to_index("beta", 0, ["beta"]))
             self.assertEqual(apps.path.read_text(encoding="utf-8"), before)
-            self.assertFalse(apps.move_visible("https://exemplo.com/guia", "beta", ["oculto", "beta", "alfa"]))
-            self.assertTrue(apps.move_visible("alfa", "beta", ["beta", "alfa"]))
+            self.assertFalse(apps.move_to_index("https://exemplo.com/guia", 0, ["beta", "alfa"]))
+            self.assertTrue(apps.move_to_index("alfa", 0, ["beta", "alfa"]))
             self.assertEqual(apps.list_ids(), ["oculto", "alfa", "beta"])
             apps.toggle("gama")
             self.assertEqual(apps.list_ids(), ["oculto", "alfa", "beta", "gama"])
@@ -1124,9 +1149,9 @@ class FavoriteOrderTests(unittest.TestCase):
             links.toggle("https://exemplo.com/guia")
             links.toggle("https://exemplo.com/ponto")
             self.assertTrue(
-                links.move_visible(
+                links.move_to_index(
                     "https://exemplo.com/ponto",
-                    "https://exemplo.com/guia",
+                    0,
                     ["https://exemplo.com/guia", "https://exemplo.com/ponto"],
                 )
             )
@@ -1140,7 +1165,72 @@ class FavoriteOrderTests(unittest.TestCase):
             )
             self.assertFalse((root / "links.json").exists())
 
-    def test_order_mode_drags_inside_the_section_and_saves(self) -> None:
+    def test_hold_opens_a_gap_and_saves_when_released(self) -> None:
+        from ui.favorite_hold import HoldSection
+
+        dropped: list[tuple[str, int]] = []
+        opened: list[str] = []
+        section = HoldSection(
+            ["guia", "ponto", "norma"],
+            axis="line",
+            card_w=640,
+            card_h=84,
+            spacing_x=0,
+            spacing_y=8,
+            columns=1,
+            build_card=lambda key: ft.Text(key),
+            on_open=opened.append,
+            on_drop=lambda key, index: dropped.append((key, index)),
+        )
+        section.press("ponto", 0.0, x=10, y=134)
+        self.assertEqual(section.release(0.4), "click")
+        self.assertEqual(opened, ["ponto"])
+        self.assertEqual(dropped, [])
+        self.assertFalse(section.armed)
+        self.assertFalse(any(getattr(node, "data", None) == "reorder-gap" for node in _walk(section.control())))
+
+        section.press("ponto", 10.0, x=10, y=134)
+        self.assertFalse(section.advance(10.5))
+        self.assertTrue(section.advance(11.0))
+        self.assertTrue(section.armed)
+        gap = next(node for node in _walk(section.control()) if getattr(node, "data", None) == "reorder-gap")
+        self.assertEqual(gap.border.top.color, config.COLOR_ACCENT)
+        self.assertIsNone(gap.content)
+        self.assertEqual(gap.height, 84)
+        floater = next(node for node in _walk(section.control()) if getattr(node, "data", None) == "reorder-float")
+        self.assertTrue(floater.visible)
+        self.assertEqual(floater.scale, 1.04)
+        self.assertIsNotNone(floater.shadow)
+        self.assertEqual(section.move(10, -40), 0)
+        self.assertEqual(
+            layout_slots(section.keys, "ponto", section.index)[0],
+            ("gap", "ponto"),
+        )
+        self.assertEqual(section.release(12.0, x=10, y=900), "drop")
+        self.assertEqual(dropped, [("ponto", 2)])
+        self.assertFalse(section.armed)
+        self.assertFalse(floater.visible)
+        self.assertFalse(any(getattr(node, "data", None) == "reorder-gap" for node in _walk(section.control())))
+        self.assertEqual(section.release(13.0), "cancel")
+
+        alone = HoldSection(
+            ["so"],
+            axis="line",
+            card_w=100,
+            card_h=40,
+            spacing_x=0,
+            spacing_y=8,
+            columns=1,
+            build_card=lambda key: ft.Text(key),
+            on_open=opened.append,
+            on_drop=lambda key, index: dropped.append((key, index)),
+        )
+        alone.press("so", 0.0, y=10)
+        self.assertFalse(alone.advance(2.0))
+        self.assertEqual(alone.release(2.1), "cancel")
+        self.assertEqual(dropped, [("ponto", 2)])
+
+    def test_release_on_the_favorites_screen_saves_and_clears_the_gesture(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             links = root / "links.json"
@@ -1194,71 +1284,54 @@ class FavoriteOrderTests(unittest.TestCase):
                 patch.object(config, "LINKS_VERSION_FILE", version),
             ):
                 SuiteApp._render(app)
-                button = _order_button(app.content_holder.content)
-                self.assertEqual(button.data, "idle")
-                self.assertEqual(_drag_targets(app.content_holder.content), [])
-                texts = _texts(app.content_holder.content)
+                view = app.content_holder.content
+                self.assertFalse(any(getattr(node, "content", None) == "Ordenar favoritos" for node in _walk(view)))
+                self.assertFalse(any(isinstance(node, (ft.DragTarget, ft.Draggable)) for node in _walk(view)))
+                texts = _texts(view)
                 self.assertLess(texts.index("Aplicativos"), texts.index("Links"))
                 self.assertLess(texts.index("Beta"), texts.index("Alfa"))
                 self.assertLess(texts.index("Guia"), texts.index("Ponto"))
 
-                button.on_click(None)
-                self.assertTrue(app.ordering_favorites)
-                active = _order_button(app.content_holder.content)
-                self.assertEqual(active.data, "active")
-                self.assertEqual(active.style.bgcolor, config.COLOR_ACCENT)
-                self.assertEqual(
-                    {node.group for node in _drag_targets(app.content_holder.content)},
-                    {"favorite-apps", "favorite-links"},
-                )
-                self.assertEqual(len(_drag_targets(app.content_holder.content, "favorite-apps")), 2)
-                self.assertEqual(len(_drag_targets(app.content_holder.content, "favorite-links")), 2)
-                guia = next(button for button in _buttons(app.content_holder.content) if button.data == "https://exemplo.com/guia")
-                guia.on_click(None)
-                self.assertEqual(app.page.ran, [])
-
-                _drop_on(app.content_holder.content, "favorite-links", "https://exemplo.com/ponto", "https://exemplo.com/guia")
-                self.assertTrue(app.ordering_favorites)
-                ordered = _texts(app.content_holder.content)
-                self.assertLess(ordered.index("Ponto"), ordered.index("Guia"))
-                self.assertNotIn("sumiu", "".join(ordered))
-                self.assertEqual(
-                    app.link_favorites.list_urls(),
-                    [
-                        "https://exemplo.com/sumiu",
-                        "https://exemplo.com/ponto",
-                        "https://exemplo.com/guia",
-                    ],
-                )
-                _drop_on(app.content_holder.content, "favorite-apps", "alfa", "beta")
-                self.assertEqual(app.favorites.list_ids(), ["alfa", "beta"])
-                self.assertLess(_texts(app.content_holder.content).index("Alfa"), _texts(app.content_holder.content).index("Beta"))
-                self.assertTrue(app.ordering_favorites)
-
-                SuiteApp._reorder_favorite_app(app, "https://exemplo.com/ponto", "alfa")
-                self.assertEqual(app.favorites.list_ids(), ["alfa", "beta"])
-                self.assertEqual(
-                    app.link_favorites.list_urls()[0],
-                    "https://exemplo.com/sumiu",
-                )
-
-                _order_button(app.content_holder.content).on_click(None)
-                self.assertFalse(app.ordering_favorites)
-                idle = _order_button(app.content_holder.content)
-                self.assertEqual(idle.data, "idle")
-                self.assertEqual(_drag_targets(app.content_holder.content), [])
-                self.assertEqual(app.favorites.list_ids(), ["alfa", "beta"])
-                self.assertEqual(
-                    app.link_favorites.list_urls(),
-                    [
-                        "https://exemplo.com/sumiu",
-                        "https://exemplo.com/ponto",
-                        "https://exemplo.com/guia",
-                    ],
-                )
-                opener = next(button for button in _buttons(app.content_holder.content) if button.data == "https://exemplo.com/ponto")
-                opener.on_click(None)
+                links_hold = view._hold_links
+                self.assertEqual(links_hold.release(0.2), "cancel")
+                links_hold.press("https://exemplo.com/ponto", 0.0, x=8, y=134)
+                self.assertEqual(links_hold.release(0.3), "click")
                 self.assertEqual(app.page.ran, [(app.page, "https://exemplo.com/ponto")])
+                self.assertEqual(
+                    app.link_favorites.list_urls(),
+                    [
+                        "https://exemplo.com/sumiu",
+                        "https://exemplo.com/guia",
+                        "https://exemplo.com/ponto",
+                    ],
+                )
+
+                links_hold.press("https://exemplo.com/ponto", 5.0, x=8, y=134)
+                self.assertTrue(links_hold.advance(6.0))
+                self.assertEqual(links_hold.move(8, -20), 0)
+                self.assertEqual(links_hold.release(6.4, x=8, y=-20), "drop")
+                self.assertFalse(links_hold.armed)
+                self.assertEqual(
+                    app.link_favorites.list_urls(),
+                    [
+                        "https://exemplo.com/sumiu",
+                        "https://exemplo.com/ponto",
+                        "https://exemplo.com/guia",
+                    ],
+                )
+                self.assertLess(_texts(app.content_holder.content).index("Ponto"), _texts(app.content_holder.content).index("Guia"))
+                self.assertEqual(app.favorites.list_ids(), ["beta", "alfa"])
+
+                apps_hold = app.content_holder.content._hold_apps
+                apps_hold.press("alfa", 20.0, x=406, y=115)
+                self.assertTrue(apps_hold.advance(21.0))
+                self.assertEqual(apps_hold.move(130, 115), 0)
+                self.assertEqual(apps_hold.release(21.2), "drop")
+                self.assertEqual(app.favorites.list_ids(), ["alfa", "beta"])
+                self.assertFalse(apps_hold.armed)
+                SuiteApp._reorder_favorite_app_to(app, "https://exemplo.com/ponto", 0)
+                self.assertEqual(app.favorites.list_ids(), ["alfa", "beta"])
+                self.assertEqual(app.link_favorites.list_urls()[0], "https://exemplo.com/sumiu")
 
                 page_links = build_links_view(
                     load_local_links(),
@@ -1267,7 +1340,7 @@ class FavoriteOrderTests(unittest.TestCase):
                     on_toggle_favorite=app._toggle_link_favorite,
                 )
                 self.assertFalse(any(getattr(node, "content", None) == "Ordenar favoritos" for node in _walk(page_links)))
-                self.assertEqual(_drag_targets(page_links), [])
+                self.assertFalse(any(isinstance(node, (ft.DragTarget, ft.Draggable)) for node in _walk(page_links)))
                 self.assertEqual(_texts(page_links)[:2], ["Links", "Portais"])
 
 

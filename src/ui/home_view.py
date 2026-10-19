@@ -9,7 +9,8 @@ import config
 from models import AppInfo, Dica, GerenciaInfo, LinkItem, SetorInfo, group_apps_by_sub_setor
 from services.tips import tip_text_pieces
 from ui.components import app_badge, app_icon
-from ui.links_view import link_card
+from ui.favorite_hold import HoldSection
+from ui.links_view import link_face
 
 _HERO_ASPECT = 2220 / 1140
 _HERO_DISPLAY_WIDTH = 240
@@ -199,57 +200,28 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerenci
     return stack
 
 
-_FAV_APP_GROUP = "favorite-apps"
-_FAV_LINK_GROUP = "favorite-links"
+_LINK_ROW_H = 84.0
+_LINK_GAP = 8.0
+_APP_GAP = 16.0
 
 
-def _order_button(active: bool, on_toggle: Callable[[], None] | None) -> ft.Control:
-    """Liga e desliga o arraste. Ativo fica com o fundo de destaque."""
-    return ft.OutlinedButton(
-        content="Ordenar favoritos",
-        icon=ft.Icons.DRAG_INDICATOR,
-        data="active" if active else "idle",
-        style=ft.ButtonStyle(
-            bgcolor=config.COLOR_ACCENT if active else config.COLOR_SURFACE,
-            color="#14201A" if active else config.COLOR_TEXT,
-        ),
-        on_click=lambda e: on_toggle() if callable(on_toggle) else None,
-    )
-
-
-def _drag_reorder(
-    content: ft.Control,
-    *,
-    group: str,
-    data: str,
-    on_drop: Callable[[str, str], None] | None,
-) -> ft.Control:
-    """Draggable dentro de DragTarget, no grupo da secao. Flet 0.85."""
-    drag = ft.Draggable(
-        group=group,
-        content=content,
-        data=data,
-        max_simultaneous_drags=1,
-        content_feedback=ft.Container(
-            width=28,
-            height=28,
-            bgcolor=config.COLOR_ACCENT,
-            border_radius=6,
+def _favorite_link_card(item: LinkItem, on_toggle_link: Callable[[str], None] | None) -> ft.Control:
+    """Mesmo cartao da pagina Links, sem botao: o gesto da secao abre o https."""
+    star = _star_button(item.url, True, on_toggle_link or (lambda _url: None))
+    return ft.Container(
+        height=_LINK_ROW_H,
+        bgcolor=config.COLOR_SURFACE,
+        border_radius=12,
+        padding=ft.Padding.only(left=12, right=4, top=8, bottom=8),
+        content=ft.Row(
+            spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            controls=[
+                ft.Container(expand=True, data=item.url, content=link_face(item)),
+                star,
+            ],
         ),
     )
-
-    def _accept(e, target: str = data) -> None:
-        if not callable(on_drop):
-            return
-        src = getattr(getattr(e, "src", None), "data", None)
-        if not isinstance(src, str) or not src:
-            return
-        try:
-            on_drop(src, target)
-        except Exception:
-            return
-
-    return ft.DragTarget(group=group, content=drag, on_accept=_accept)
 
 
 def build_favoritos_view(
@@ -262,15 +234,12 @@ def build_favoritos_view(
     link_items: list[LinkItem] | None = None,
     page: Any = None,
     on_toggle_link: Callable[[str], None] | None = None,
-    ordering: bool = False,
-    on_toggle_ordering: Callable[[], None] | None = None,
-    on_reorder_app: Callable[[str, str], None] | None = None,
-    on_reorder_link: Callable[[str, str], None] | None = None,
+    on_reorder_app: Callable[[str, int], None] | None = None,
+    on_reorder_link: Callable[[str, int], None] | None = None,
 ) -> ft.Control:
     """Aplicativos favoritos na secao Aplicativos; links marcados abaixo, na secao Links.
 
-    Secao vazia nao aparece. So links: a tela mostra a secao Links.
-    No modo ordenar, o arraste vale so dentro da secao.
+    Secao vazia nao aparece. Segurar um cartao por mais de 1s ordena so essa secao.
     """
     links = list(link_items or [])
     installed = installed_ids or set()
@@ -281,64 +250,96 @@ def build_favoritos_view(
         header_controls.append(
             ft.Text(f"{len(apps)} aplicativo(s) favorito(s)", size=13, color="#8AA797")
         )
-    header_controls.append(_order_button(ordering, on_toggle_ordering))
     sections: list[ft.Control] = [ft.Column(spacing=4, controls=header_controls)]
+    hold_apps = None
+    hold_links = None
     if apps:
-        cards: list[ft.Control] = []
-        for app in apps:
-            card: ft.Control = _app_card(
+        app_bridge = {"cancel": lambda: None}
+
+        def _app_face(app_id: str) -> ft.Control:
+            app = next(item for item in apps if item.id == app_id)
+
+            def _star(_id: str = app_id) -> None:
+                app_bridge["cancel"]()
+                on_toggle_favorite(_id)
+
+            return _app_card(
                 app,
                 on_select,
                 is_favorite=app.id in favorite_ids,
-                on_toggle_favorite=on_toggle_favorite,
+                on_toggle_favorite=_star,
                 installed=app.id in installed,
-                opens=not ordering,
+                opens=False,
             )
-            if ordering:
-                card = _drag_reorder(
-                    card,
-                    group=_FAV_APP_GROUP,
-                    data=app.id,
-                    on_drop=on_reorder_app,
-                )
-            cards.append(card)
+
+        hold_apps = HoldSection(
+            [app.id for app in apps],
+            axis="grid",
+            card_w=_CARD_WIDTH,
+            card_h=_CARD_HEIGHT,
+            spacing_x=_APP_GAP,
+            spacing_y=_APP_GAP,
+            columns=3,
+            build_card=_app_face,
+            on_open=on_select,
+            on_drop=on_reorder_app or (lambda _key, _index: None),
+            page=page,
+        )
+        app_bridge["cancel"] = hold_apps.cancel_press
         sections.append(
             ft.Column(
                 spacing=12,
                 controls=[
                     ft.Text("Aplicativos", size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
-                    ft.Row(controls=cards, wrap=True, spacing=16, run_spacing=16),
+                    hold_apps.control(),
                 ],
             )
         )
     if links:
-        rows: list[ft.Control] = [
-            ft.Text("Links", size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
-        ]
-        for item in links:
-            row: ft.Control = link_card(
-                item,
-                page,
-                is_favorite=True,
-                on_toggle_favorite=on_toggle_link,
-                opens=not ordering,
-            )
-            if ordering:
-                row = _drag_reorder(
-                    row,
-                    group=_FAV_LINK_GROUP,
-                    data=item.url,
-                    on_drop=on_reorder_link,
-                )
-            rows.append(row)
+        link_bridge = {"cancel": lambda: None}
+
+        def _link_face(url: str) -> ft.Control:
+            item = next(link for link in links if link.url == url)
+
+            def _star(_id: str = url) -> None:
+                link_bridge["cancel"]()
+                if callable(on_toggle_link):
+                    on_toggle_link(_id)
+
+            return _favorite_link_card(item, _star)
+
+        def _open_link(url: str) -> None:
+            from services.url_launch import open_https_url
+
+            open_https_url(page, url)
+
+        hold_links = HoldSection(
+            [item.url for item in links],
+            axis="line",
+            card_w=640,
+            card_h=_LINK_ROW_H,
+            spacing_x=0,
+            spacing_y=_LINK_GAP,
+            columns=1,
+            build_card=_link_face,
+            on_open=_open_link,
+            on_drop=on_reorder_link or (lambda _key, _index: None),
+            page=page,
+        )
+        link_bridge["cancel"] = hold_links.cancel_press
         sections.append(
             ft.Column(
                 spacing=8,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                controls=rows,
+                controls=[
+                    ft.Text("Links", size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+                    hold_links.control(),
+                ],
             )
         )
-    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=sections)
+    column = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=sections)
+    column._hold_apps = hold_apps
+    column._hold_links = hold_links
+    return column
 
 
 def build_setor_view(setor: SetorInfo, apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:

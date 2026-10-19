@@ -349,12 +349,15 @@ Estrela nos cards e no detalhe. Persistidos em
 filtro atual, ou 1 link marcado que ainda esteja no `links.json`, o item
 **Favoritos** aparece na sidebar (apos Inicio).
 
-Nessa tela, **Ordenar favoritos** liga e desliga o modo de arrastar. Fora do
-modo, o clique abre o app ou o link e a estrela alterna o favorito. No modo,
-o item vai para outra posicao da mesma secao e a ordem grava na hora em
-`favorites.json` ou `link_favorites.json`. Um link nao entra no meio dos
-aplicativos. Favorito novo entra no fim da secao. Tirar a estrela nao muda a
-ordem dos outros. Com menos de dois itens na secao, arrastar nao altera nada.
+Nessa tela, um clique curto abre o app ou o link. A estrela alterna o favorito
+e nao abre nem arrasta. Segurar o cartao por mais de 1 segundo levanta esse
+item (sombra, leve aumento) e a secao abre um vao vazio, do tamanho do cartao,
+com a borda na cor de destaque. O vao acompanha o ponteiro e os outros cartoes
+da mesma secao se afastam. Ao soltar, o item entra nesse vao e a ordem grava
+na hora em `favorites.json` ou `link_favorites.json`. Soltar fora usa o vao
+mais proximo da propria secao e nao deixa nada preso. Um link nao entra no
+meio dos aplicativos. Favorito novo entra no fim. Tirar a estrela nao muda a
+ordem dos outros. Com menos de dois itens na secao, segurar nao reordena.
 
 A cada abertura, o SuiteApps:
 1. Baixa o `catalog.json` via PnP/WebLogin.

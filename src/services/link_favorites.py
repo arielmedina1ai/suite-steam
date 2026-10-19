@@ -11,7 +11,7 @@ from pathlib import Path
 
 import config
 from models import LinkGroup, LinkItem
-from services.favorites import apply_visible_order, move_before
+from services.favorites import apply_visible_order, order_after_drop
 
 
 class LinkFavoritesStore:
@@ -65,13 +65,12 @@ class LinkFavoritesStore:
         self._save()
         return True
 
-    def move_visible(self, src: str, dst: str, visible: list[str]) -> bool:
-        """Move um link visivel para a posicao de outro, na mesma secao.
+    def move_to_index(self, src: str, index: int, visible: list[str]) -> bool:
+        """Grava o link visivel no indice da secao. Fora da secao, nao grava.
 
-        Menos de dois links visiveis, ou uma url de fora da secao, nao grava.
-        Url que ja nao esta no arquivo valido permanece no json local, fora da secao.
+        Url que ja nao esta no arquivo valido permanece no json local.
         """
-        new_visible = move_before(visible, src, dst)
+        new_visible = order_after_drop(visible, src, index)
         if new_visible is None:
             return False
         updated = apply_visible_order(self._urls, new_visible)

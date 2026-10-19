@@ -58,13 +58,13 @@ class FavoritesStore:
         self._save()
         return True
 
-    def move_visible(self, src: str, dst: str, visible: list[str]) -> bool:
-        """Move um app visivel para a posicao de outro, na mesma secao.
+    def move_to_index(self, src: str, index: int, visible: list[str]) -> bool:
+        """Grava o item visivel no indice da secao. Fora da secao, nao grava.
 
-        Menos de dois itens visiveis, ou um id de fora da secao, nao grava.
-        Favoritos que nao estao na lista visivel ficam no lugar.
+        Menos de dois itens visiveis nao muda o arquivo. Itens ocultos ficam
+        nas mesmas vagas.
         """
-        new_visible = move_before(visible, src, dst)
+        new_visible = order_after_drop(visible, src, index)
         if new_visible is None:
             return False
         updated = apply_visible_order(self._ids, new_visible)
@@ -75,21 +75,82 @@ class FavoritesStore:
         return True
 
 
-def move_before(items: list[str], src: str, dst: str) -> list[str] | None:
-    """Coloca src na posicao de dst. Sem dois itens distintos, devolve None."""
-    if len(items) < 2:
+HOLD_SECONDS = 1.0
+
+
+def insertion_index(
+    pointer: float,
+    *,
+    count: int,
+    origin: float = 0.0,
+    size: float,
+    spacing: float = 0.0,
+) -> int:
+    """Indice 0..count-1 do vao mais proximo do ponteiro.
+
+    Fora da secao, cai no extremo mais perto. Com menos de dois itens, fica em 0.
+    """
+    if count <= 1:
+        return 0
+    stride = float(size) + float(spacing)
+    if stride <= 0:
+        return 0
+    raw = (float(pointer) - float(origin) - float(size) / 2.0) / stride
+    index = int(round(raw))
+    if index < 0:
+        return 0
+    if index > count - 1:
+        return count - 1
+    return index
+
+
+def grid_insertion_index(
+    x: float,
+    y: float,
+    *,
+    count: int,
+    columns: int,
+    card_w: float,
+    card_h: float,
+    spacing_x: float,
+    spacing_y: float,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+) -> int:
+    """Indice de leitura numa grade. O ponteiro fora da grade usa o canto mais perto."""
+    if count <= 0:
+        return 0
+    columns = max(1, int(columns))
+    rows = max(1, (int(count) + columns - 1) // columns)
+    col = insertion_index(x, count=columns, origin=origin_x, size=card_w, spacing=spacing_x)
+    row = insertion_index(y, count=rows, origin=origin_y, size=card_h, spacing=spacing_y)
+    return max(0, min(int(count) - 1, row * columns + col))
+
+
+def order_after_drop(keys: list[str], src: str, index: int) -> list[str] | None:
+    """Lista da secao com src no indice. Sem dois itens, ou src de fora, None."""
+    if len(keys) < 2:
         return None
     src_key = (src or "").strip()
-    dst_key = (dst or "").strip()
-    if not src_key or not dst_key or src_key == dst_key:
+    if src_key not in keys:
         return None
-    if src_key not in items or dst_key not in items:
+    rest = [item for item in keys if item != src_key]
+    slot = max(0, min(int(index), len(rest)))
+    rest.insert(slot, src_key)
+    if rest == list(keys):
         return None
-    moved = [item for item in items if item != src_key]
-    moved.insert(moved.index(dst_key), src_key)
-    if moved == list(items):
-        return None
-    return moved
+    return rest
+
+
+def layout_slots(keys: list[str], dragging: str | None, index: int | None) -> list[tuple[str, str]]:
+    """Sequencia da secao: cartoes e, no arraste, um vao no indice de queda."""
+    if not dragging or dragging not in keys or index is None:
+        return [("card", key) for key in keys]
+    rest = [key for key in keys if key != dragging]
+    slot = max(0, min(int(index), len(rest)))
+    rows = [("card", key) for key in rest]
+    rows.insert(slot, ("gap", dragging))
+    return rows
 
 
 def apply_visible_order(full: list[str], new_visible: list[str]) -> list[str]:
