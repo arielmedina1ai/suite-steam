@@ -205,6 +205,19 @@ _LINK_GAP = 8.0
 _APP_GAP = 16.0
 
 
+def _favorites_summary(app_count: int, link_count: int) -> str:
+    """Frase sob o titulo. Nao escreve zero."""
+    apps = int(app_count)
+    links = int(link_count)
+    if apps and links:
+        return f"{apps} aplicativo(s) e {links} link(s) favorito(s)"
+    if apps:
+        return f"{apps} aplicativo(s) favorito(s)"
+    if links:
+        return f"{links} link(s) favorito(s)"
+    return ""
+
+
 def _same_hover(card: ft.Container) -> ft.Container:
     """Mesmo ink dos cartoes do Inicio e do botao da pagina Links.
 
@@ -257,10 +270,9 @@ def build_favoritos_view(
     header_controls: list[ft.Control] = [
         ft.Text("Favoritos", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
     ]
-    if apps:
-        header_controls.append(
-            ft.Text(f"{len(apps)} aplicativo(s) favorito(s)", size=13, color="#8AA797")
-        )
+    summary = _favorites_summary(len(apps), len(links))
+    if summary:
+        header_controls.append(ft.Text(summary, size=13, color="#8AA797"))
     sections: list[ft.Control] = [ft.Column(spacing=4, controls=header_controls)]
     hold_apps = None
     hold_links = None

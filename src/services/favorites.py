@@ -104,6 +104,45 @@ def insertion_index(
     return index
 
 
+def card_hit_index(
+    x: float,
+    y: float,
+    *,
+    count: int,
+    columns: int,
+    card_w: float,
+    card_h: float,
+    spacing_x: float,
+    spacing_y: float,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+) -> int | None:
+    """Indice se o ponto esta dentro de um cartao. Vao e fim de linha: None."""
+    if count <= 0:
+        return None
+    columns = max(1, int(columns))
+    local_x = float(x) - float(origin_x)
+    local_y = float(y) - float(origin_y)
+    if local_x < 0 or local_y < 0:
+        return None
+    stride_x = float(card_w) + float(spacing_x)
+    stride_y = float(card_h) + float(spacing_y)
+    if stride_x <= 0 or stride_y <= 0:
+        return None
+    col = int(local_x // stride_x)
+    row = int(local_y // stride_y)
+    if col < 0 or col >= columns:
+        return None
+    inside_x = local_x - col * stride_x
+    inside_y = local_y - row * stride_y
+    if inside_x >= float(card_w) or inside_y >= float(card_h):
+        return None
+    index = row * columns + col
+    if index < 0 or index >= int(count):
+        return None
+    return index
+
+
 def grid_insertion_index(
     x: float,
     y: float,

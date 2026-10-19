@@ -349,9 +349,11 @@ Estrela nos cards e no detalhe. Persistidos em
 filtro atual, ou 1 link marcado que ainda esteja no `links.json`, o item
 **Favoritos** aparece na sidebar (apos Inicio).
 
-Nessa tela, um clique curto abre o app ou o link. A estrela alterna o favorito
-e nao abre nem arrasta. Passar o mouse destaca o cartao como no Inicio e na
-pagina Links. Segurar o cartao por mais de 0,5 segundo levanta esse
+Nessa tela, a frase sob o titulo conta aplicativos e links favoritados, sem
+escrever zero. Um clique curto no cartao abre o app ou o link; o espaco vazio
+da linha nao abre nada. A estrela alterna o favorito e nao abre nem arrasta.
+Passar o mouse destaca o proprio cartao, como no Inicio e na pagina Links.
+Segurar o cartao por mais de 0,5 segundo levanta esse
 item (sombra, leve aumento) e a secao abre um vao vazio, do tamanho do cartao,
 com a borda na cor de destaque. O vao acompanha o ponteiro e os outros cartoes
 da mesma secao se afastam. Ao soltar, o item entra nesse vao e a ordem grava

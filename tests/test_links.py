@@ -26,6 +26,7 @@ from models import (
 from services.favorites import (
     HOLD_SECONDS,
     FavoritesStore,
+    card_hit_index,
     grid_insertion_index,
     insertion_index,
     layout_slots,
@@ -909,8 +910,9 @@ class LinkFavoriteTests(unittest.TestCase):
             if getattr(node, "ink", False) and getattr(node, "on_hover", None) is not None
         ]
         self.assertGreaterEqual(len(hovered), 2)
-        self.assertIsNone(both._hold_links.gesture.on_hover)
-        self.assertIsNone(both._hold_apps.gesture.on_hover)
+        self.assertNotIsInstance(both._hold_links.control(), ft.GestureDetector)
+        self.assertNotIsInstance(both._hold_apps.control(), ft.GestureDetector)
+        self.assertIn("1 aplicativo(s) e 2 link(s) favorito(s)", texts)
         guia = _rows_with_url(both, "https://exemplo.com/guia")[0]
         self.assertEqual(_star_in(guia).icon, ft.Icons.STAR)
         _star_in(guia).on_click(None)
@@ -934,6 +936,8 @@ class LinkFavoriteTests(unittest.TestCase):
         self.assertIn("Favoritos", only_texts)
         self.assertIn("Links", only_texts)
         self.assertNotIn("Aplicativos", only_texts)
+        self.assertIn("2 link(s) favorito(s)", only_texts)
+        self.assertNotIn("aplicativo(s)", "".join(only_texts))
         self.assertIn("Guia", only_texts)
 
         only_apps = build_favoritos_view(
@@ -942,9 +946,12 @@ class LinkFavoriteTests(unittest.TestCase):
             favorite_ids={"relatorio"},
             on_toggle_favorite=lambda _app_id: None,
         )
-        self.assertIn("Aplicativos", _texts(only_apps))
-        self.assertNotIn("Links", _texts(only_apps))
-        self.assertNotIn("Guia", _texts(only_apps))
+        app_texts = _texts(only_apps)
+        self.assertIn("Aplicativos", app_texts)
+        self.assertIn("1 aplicativo(s) favorito(s)", app_texts)
+        self.assertNotIn("link(s)", "".join(app_texts))
+        self.assertNotIn("Links", app_texts)
+        self.assertNotIn("Guia", app_texts)
 
     def test_render_keeps_links_json_and_returns_home_without_favorites(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1122,6 +1129,37 @@ class FavoriteOrderTests(unittest.TestCase):
             ),
             2,
         )
+
+    def test_click_on_the_empty_end_of_the_row_selects_nothing(self) -> None:
+        from ui.favorite_hold import HoldSection
+
+        common = dict(count=5, columns=3, card_w=260, card_h=230, spacing_x=16, spacing_y=16)
+        self.assertEqual(card_hit_index(10, 10, **common), 0)
+        self.assertEqual(card_hit_index(10, 230 + 16 + 10, **common), 3)
+        self.assertEqual(card_hit_index(260 + 16 + 10, 230 + 16 + 10, **common), 4)
+        self.assertIsNone(card_hit_index(2 * (260 + 16) + 10, 230 + 16 + 10, **common))
+        self.assertIsNone(card_hit_index(260 + 4, 20, **common))
+
+        opened: list[str] = []
+        section = HoldSection(
+            ["a", "b", "c", "d", "e"],
+            axis="grid",
+            card_w=260,
+            card_h=230,
+            spacing_x=16,
+            spacing_y=16,
+            columns=3,
+            build_card=lambda key: ft.Text(key),
+            on_open=opened.append,
+            on_drop=lambda _key, _index: None,
+        )
+        self.assertIsNone(section.pointer_down_at(2 * (260 + 16) + 10, 230 + 16 + 10, 0.0))
+        self.assertIsNone(section.key)
+        self.assertEqual(section.release(0.2), "cancel")
+        self.assertEqual(opened, [])
+        self.assertEqual(section.pointer_down_at(10, 230 + 16 + 8, 1.0), "d")
+        self.assertEqual(section.release(1.2), "click")
+        self.assertEqual(opened, ["d"])
 
     def test_drop_saves_the_section_order_and_keeps_the_other_list(self) -> None:
         self.assertIsNone(order_after_drop(["so"], "so", 0))

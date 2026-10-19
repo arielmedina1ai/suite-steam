@@ -14,7 +14,7 @@ from typing import Any
 import flet as ft
 
 import config
-from services.favorites import HOLD_SECONDS, grid_insertion_index, layout_slots
+from services.favorites import HOLD_SECONDS, card_hit_index, grid_insertion_index, layout_slots
 
 _GAP = "reorder-gap"
 _FLOAT = "reorder-float"
@@ -81,25 +81,43 @@ class HoldSection:
                 offset=ft.Offset(0, 8),
             ),
         )
+        self.cards: dict[str, ft.Container] = {key: self._make_card(key) for key in self.keys}
+        self._anchor_x = 0.0
+        self._anchor_y = 0.0
+        self._global_x = 0.0
+        self._global_y = 0.0
         self.stack = ft.Stack(
             controls=[self.flow, self.floater],
             clip_behavior=ft.ClipBehavior.NONE,
         )
-        self.gesture = ft.GestureDetector(
-            content=self.stack,
-            on_tap_down=self._tap_down,
-            on_tap_up=self._tap_up,
-            on_tap_cancel=self._tap_cancel,
-            on_tap_move=self._tap_move,
-            on_pan_update=self._pan_update,
-            on_pan_end=self._pan_end,
-            on_pan_cancel=self._tap_cancel,
-            on_size_change=self._resized,
-        )
         self._show_idle()
 
     def control(self) -> ft.Control:
-        return self.gesture
+        """A secao nao e um detector. O hit e o ink de cada cartao."""
+        return self.stack
+
+    def _make_card(self, key: str) -> ft.Container:
+        """Cartao com ink/hover por fora. O detector fica dentro, do tamanho do cartao."""
+        face = self.build_card(key)
+        detector = ft.GestureDetector(
+            on_tap_down=lambda e, item=key: self._card_down(item, e),
+            on_tap_up=lambda e, item=key: self._card_up(item, e),
+            on_tap_cancel=lambda e, item=key: self._card_cancel(item),
+            on_tap_move=lambda e, item=key: self._card_pan(item, e),
+            on_pan_update=lambda e, item=key: self._card_pan(item, e),
+            on_pan_end=lambda e, item=key: self._card_up(item, e),
+            on_pan_cancel=lambda e, item=key: self._card_cancel(item),
+            content=face,
+        )
+        return ft.Container(
+            width=self.card_w if self.axis == "grid" else None,
+            height=self.card_h,
+            ink=True,
+            on_hover=lambda _e: None,
+            border_radius=12,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=detector,
+        )
 
     def cancel_press(self) -> None:
         """A estrela levou o clique: nao abre e nao continua o arraste."""
@@ -109,6 +127,29 @@ class HoldSection:
         if self.armed:
             self._show_idle()
         self._clear_press()
+
+    def pointer_down_at(self, x: float, y: float, now: float) -> str | None:
+        """So a area do cartao. Vao da linha e espaco entre cartoes nao abrem nada."""
+        index = self.hit_index(x, y)
+        if index is None:
+            return None
+        self.press(self.keys[index], now, x, y)
+        return self.keys[index]
+
+    def hit_index(self, x: float, y: float) -> int | None:
+        columns = self.columns if self.axis == "grid" else 1
+        spacing_x = self.spacing_x if self.axis == "grid" else 0.0
+        width = self.card_w if self.axis == "grid" else max(self.card_w, 1.0)
+        return card_hit_index(
+            x,
+            y,
+            count=len(self.keys),
+            columns=columns,
+            card_w=width,
+            card_h=self.card_h,
+            spacing_x=spacing_x,
+            spacing_y=self.spacing_y,
+        )
 
     def press(self, key: str, now: float, x: float = 0.0, y: float = 0.0) -> None:
         """Teste e ponteiro: comeca a contar o segundo. Nao abre e nao ordena."""
@@ -232,12 +273,21 @@ class HoldSection:
 
     def _fill(self, *, dragging: str | None, index: int | None) -> None:
         controls: list[ft.Control] = []
+        parked: ft.Control | None = None
         for kind, key in layout_slots(self.keys, dragging, index):
             if kind == "gap":
                 controls.append(self._gap())
-            else:
-                controls.append(self.build_card(key))
+                continue
+            card = self.cards[key]
+            card.opacity = 1
+            card.visible = True
+            controls.append(card)
+        if dragging and dragging in self.cards:
+            parked = self.cards[dragging]
+            parked.opacity = 0
+            parked.visible = True
         self.flow.controls = controls
+        self.stack.controls = [self.flow, self.floater] if parked is None else [self.flow, parked, self.floater]
 
     def _gap(self) -> ft.Control:
         return ft.Container(
@@ -292,31 +342,44 @@ class HoldSection:
             return
         self.advance(self.down_at + HOLD_SECONDS)
 
-    def _tap_down(self, e) -> None:
-        x, y = _xy(e, self.x, self.y)
-        index = self.index_at(x, y)
-        if index < 0 or index >= len(self.keys):
+    def _card_down(self, key: str, e) -> None:
+        local_x, local_y = _xy(e, 0.0, 0.0)
+        origin_x, origin_y = self._origin_of(key)
+        global_x, global_y = _global(e, local_x, local_y)
+        self._anchor_x = origin_x + local_x
+        self._anchor_y = origin_y + local_y
+        self._global_x = global_x
+        self._global_y = global_y
+        self.press(key, time.monotonic(), self._anchor_x, self._anchor_y)
+
+    def _card_pan(self, key: str, e) -> None:
+        if self.key != key:
             return
-        self.press(self.keys[index], time.monotonic(), x, y)
+        global_x, global_y = _global(e, self._global_x, self._global_y)
+        self.move(
+            self._anchor_x + (global_x - self._global_x),
+            self._anchor_y + (global_y - self._global_y),
+        )
 
-    def _tap_move(self, e) -> None:
-        self.move(*_xy(e, self.x, self.y))
+    def _card_up(self, key: str, e) -> None:
+        if self.key != key and self.key is not None:
+            return
+        self._card_pan(key, e)
+        self.release(time.monotonic(), self.x, self.y)
 
-    def _pan_update(self, e) -> None:
-        self.move(*_xy(e, self.x, self.y))
-
-    def _tap_up(self, e) -> None:
-        x, y = _xy(e, self.x, self.y)
-        self.release(time.monotonic(), x, y)
-
-    def _pan_end(self, e) -> None:
-        self.release(time.monotonic())
-
-    def _tap_cancel(self, _e=None) -> None:
-        if self.armed:
+    def _card_cancel(self, key: str) -> None:
+        if self.armed or self.key != key:
             return
         self._cancel_timer()
         self._gen += 1
+
+    def _origin_of(self, key: str) -> tuple[float, float]:
+        index = self.keys.index(key) if key in self.keys else 0
+        if self.axis == "grid":
+            col = index % self.columns
+            row = index // self.columns
+            return col * (self.card_w + self.spacing_x), row * (self.card_h + self.spacing_y)
+        return 0.0, index * (self.card_h + self.spacing_y)
 
     def _resized(self, e) -> None:
         if self.axis != "grid":
@@ -338,3 +401,10 @@ def _xy(event: Any, fallback_x: float, fallback_y: float) -> tuple[float, float]
     if local is None:
         return fallback_x, fallback_y
     return float(getattr(local, "x", fallback_x)), float(getattr(local, "y", fallback_y))
+
+
+def _global(event: Any, fallback_x: float, fallback_y: float) -> tuple[float, float]:
+    point = getattr(event, "global_position", None)
+    if point is None:
+        return fallback_x, fallback_y
+    return float(getattr(point, "x", fallback_x)), float(getattr(point, "y", fallback_y))
