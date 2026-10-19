@@ -264,10 +264,14 @@ e um sync seguinte falhar, o item some e a tela volta para Inicio.
 A estrela grava só neste computador, em
 `%LOCALAPPDATA%/<app.data_dir>/link_favorites.json`, ao lado de
 `favorites.json` e sem misturar com o favorito de aplicativo. Nao altera o
-`links.json` nem o SharePoint. Os escolhidos aparecem num grupo **Favoritos**
-acima dos grupos do arquivo, na ordem em que foram marcados, e continuam no
-grupo original. A mesma url conta uma vez. Se a url sair do `links.json`
-valido, ela deixa de aparecer nesse grupo.
+`links.json` nem o SharePoint. A pagina **Links** continua só com os grupos
+do arquivo. Os escolhidos aparecem na tela **Favoritos** da sidebar, na secao
+**Links**, abaixo da secao **Aplicativos**, na ordem em que foram marcados.
+Sem links marcados, essa secao nao aparece. Sem aplicativos favoritos, o item
+**Favoritos** continua se houver link marcado e mostra so **Links**. Sem
+nenhum dos dois, o item some. Se a pessoa estiver nessa tela e desmarcar o
+ultimo, volta para Inicio. A mesma url conta uma vez. Se a url sair do
+`links.json` valido, ela deixa de aparecer.
 
 ### Gerencias
 
@@ -339,8 +343,11 @@ Capas/icones em `%LOCALAPPDATA%/<app.data_dir>/catalog/images/`, com
 ### Favoritos
 
 Estrela nos cards e no detalhe. Persistidos em
-`%LOCALAPPDATA%/<app.data_dir>/favorites.json`. Se houver ao menos 1 favorito
-visivel no filtro atual, o item **Favoritos** aparece na sidebar (apos Inicio).
+`%LOCALAPPDATA%/<app.data_dir>/favorites.json`. Os links marcados na pagina
+**Links** entram na mesma tela, secao **Links**, a partir de
+`link_favorites.json`. Se houver ao menos 1 aplicativo favorito visivel no
+filtro atual, ou 1 link marcado que ainda esteja no `links.json`, o item
+**Favoritos** aparece na sidebar (apos Inicio).
 
 A cada abertura, o SuiteApps:
 1. Baixa o `catalog.json` via PnP/WebLogin.

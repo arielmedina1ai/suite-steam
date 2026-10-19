@@ -17,17 +17,14 @@ import config
 from catalog.provider import SharePointCatalogProvider
 from main import SuiteApp
 from models import (
+    AppInfo,
     CatalogData,
     LinksInfo,
     parse_catalog_dict,
     parse_links_payload,
 )
-from services.link_favorites import (
-    FAVORITE_GROUP_TITLE,
-    LinkFavoritesStore,
-    favorite_link_group,
-    groups_with_favorites,
-)
+from services.link_favorites import LinkFavoritesStore, visible_favorite_links
+from ui.home_view import build_favoritos_view
 from services.links import (
     links_menu_visible,
     load_local_links,
@@ -726,7 +723,7 @@ class LinkFavoriteTests(unittest.TestCase):
             store.path.write_text("{nao e json", encoding="utf-8")
             self.assertEqual(LinkFavoritesStore(store.path).list_urls(), [])
 
-    def test_favorite_group_uses_url_order_and_skips_missing(self) -> None:
+    def test_visible_favorites_follow_mark_order_and_skip_missing(self) -> None:
         groups = parse_links_payload(
             {
                 "grupos": [
@@ -758,11 +755,12 @@ class LinkFavoriteTests(unittest.TestCase):
                 ]
             }
         )
-        self.assertIsNone(favorite_link_group(groups, []))
-        self.assertIsNone(
-            favorite_link_group(groups, ["https://exemplo.com/sumiu", "  "])
+        self.assertEqual(visible_favorite_links(groups, []), [])
+        self.assertEqual(
+            visible_favorite_links(groups, ["https://exemplo.com/sumiu", "  "]),
+            [],
         )
-        favorite = favorite_link_group(
+        favorite = visible_favorite_links(
             groups,
             [
                 "https://exemplo.com/sumiu",
@@ -771,22 +769,17 @@ class LinkFavoriteTests(unittest.TestCase):
                 "https://exemplo.com/guia",
             ],
         )
-        self.assertIsNotNone(favorite)
-        assert favorite is not None
-        self.assertEqual(favorite.titulo, FAVORITE_GROUP_TITLE)
         self.assertEqual(
-            [(item.titulo, item.url) for item in favorite.links],
+            [(item.titulo, item.url) for item in favorite],
             [
                 ("Guia", "https://exemplo.com/guia"),
                 ("Ponto", "https://exemplo.com/ponto"),
             ],
         )
-        shown = groups_with_favorites(groups, ["https://exemplo.com/guia"])
-        self.assertEqual([group.titulo for group in shown], ["Favoritos", "Portais", "Manuais"])
-        self.assertEqual(shown[0].links[0].url, "https://exemplo.com/guia")
+        self.assertEqual([group.titulo for group in groups], ["Portais", "Manuais"])
         self.assertEqual(groups[1].links[0].titulo, "Ponto de novo")
 
-    def test_star_toggles_without_opening_and_favorites_stay_on_top(self) -> None:
+    def test_star_toggles_without_opening_and_page_keeps_json_groups(self) -> None:
         groups = parse_links_payload(
             {
                 "grupos": [
@@ -822,21 +815,20 @@ class LinkFavoriteTests(unittest.TestCase):
             on_toggle_favorite=toggled.append,
         )
         texts = _texts(view)
-        self.assertLess(texts.index("Favoritos"), texts.index("Portais"))
+        self.assertEqual(texts[:3], ["Links", "Portais", "Ponto"])
+        self.assertNotIn("Favoritos", texts)
         self.assertLess(texts.index("Portais"), texts.index("Manuais"))
-        self.assertEqual(texts.count("Ponto"), 2)
-        self.assertEqual(texts.count("Guia"), 2)
+        self.assertEqual(texts.count("Ponto"), 1)
+        self.assertEqual(texts.count("Guia"), 1)
         self.assertEqual(
             [button.data for button in _buttons(view)],
             [
-                "https://exemplo.com/guia",
-                "https://exemplo.com/ponto",
                 "https://exemplo.com/ponto",
                 "https://exemplo.com/guia",
             ],
         )
         ponto_rows = _rows_with_url(view, "https://exemplo.com/ponto")
-        self.assertEqual(len(ponto_rows), 2)
+        self.assertEqual(len(ponto_rows), 1)
         for row in ponto_rows:
             self.assertEqual(_star_in(row).icon, ft.Icons.STAR)
             self.assertEqual(_star_in(row).tooltip, "Remover dos favoritos")
@@ -850,10 +842,96 @@ class LinkFavoriteTests(unittest.TestCase):
         self.assertEqual(toggled, ["https://exemplo.com/guia"])
 
         plain = build_links_view(groups, page, favorite_urls=["https://exemplo.com/sumiu"])
-        self.assertNotIn("Favoritos", _texts(plain))
+        self.assertEqual([text for text in _texts(plain) if text in {"Portais", "Manuais", "Favoritos"}], ["Portais", "Manuais"])
         self.assertEqual(_star_in(_rows_with_url(plain, "https://exemplo.com/ponto")[0]).icon, ft.Icons.STAR_BORDER)
 
-    def test_render_keeps_links_json_and_drops_only_the_favorite_group(self) -> None:
+    def test_favorites_screen_lists_links_under_apps(self) -> None:
+        groups = parse_links_payload(
+            {
+                "grupos": [
+                    {
+                        "titulo": "Portais",
+                        "links": [
+                            {
+                                "titulo": "Ponto",
+                                "descricao": "Registro de ponto",
+                                "url": "https://exemplo.com/ponto",
+                            }
+                        ],
+                    },
+                    {
+                        "titulo": "Manuais",
+                        "links": [
+                            {
+                                "titulo": "Guia",
+                                "descricao": "Passo a passo",
+                                "url": "https://exemplo.com/guia",
+                            }
+                        ],
+                    },
+                ]
+            }
+        )
+        page = _Page()
+        toggled: list[str] = []
+        links = visible_favorite_links(
+            groups,
+            ["https://exemplo.com/sumiu", "https://exemplo.com/guia", "https://exemplo.com/ponto"],
+        )
+        apps = [AppInfo(id="relatorio", nome="Relatorio")]
+        both = build_favoritos_view(
+            apps,
+            lambda _app_id: None,
+            favorite_ids={"relatorio"},
+            on_toggle_favorite=lambda _app_id: None,
+            link_items=links,
+            page=page,
+            on_toggle_link=toggled.append,
+        )
+        texts = _texts(both)
+        self.assertLess(texts.index("Aplicativos"), texts.index("Links"))
+        self.assertLess(texts.index("Relatorio"), texts.index("Guia"))
+        self.assertLess(texts.index("Guia"), texts.index("Ponto"))
+        self.assertNotIn("sumiu", "".join(texts))
+        self.assertEqual(
+            [button.data for button in _buttons(both)],
+            ["https://exemplo.com/guia", "https://exemplo.com/ponto"],
+        )
+        guia = _rows_with_url(both, "https://exemplo.com/guia")[0]
+        self.assertEqual(_star_in(guia).icon, ft.Icons.STAR)
+        _star_in(guia).on_click(None)
+        self.assertEqual(toggled, ["https://exemplo.com/guia"])
+        self.assertEqual(page.ran, [])
+        opener = next(child for child in guia.controls if getattr(child, "data", None))
+        opener.on_click(None)
+        self.assertEqual(page.ran, [(page, "https://exemplo.com/guia")])
+
+        only_links = build_favoritos_view(
+            [],
+            lambda _app_id: None,
+            favorite_ids=set(),
+            on_toggle_favorite=lambda _app_id: None,
+            link_items=links,
+            page=page,
+            on_toggle_link=toggled.append,
+        )
+        only_texts = _texts(only_links)
+        self.assertIn("Favoritos", only_texts)
+        self.assertIn("Links", only_texts)
+        self.assertNotIn("Aplicativos", only_texts)
+        self.assertIn("Guia", only_texts)
+
+        only_apps = build_favoritos_view(
+            apps,
+            lambda _app_id: None,
+            favorite_ids={"relatorio"},
+            on_toggle_favorite=lambda _app_id: None,
+        )
+        self.assertIn("Aplicativos", _texts(only_apps))
+        self.assertNotIn("Links", _texts(only_apps))
+        self.assertNotIn("Guia", _texts(only_apps))
+
+    def test_render_keeps_links_json_and_returns_home_without_favorites(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             links = root / "links.json"
@@ -893,29 +971,114 @@ class LinkFavoriteTests(unittest.TestCase):
             app.link_favorites.toggle("https://exemplo.com/guia")
             app.link_favorites.toggle("https://exemplo.com/sumiu")
             app.link_favorites.toggle("https://exemplo.com/ponto")
+            def sidebar_labels() -> list[str]:
+                return [
+                    text
+                    for text in _texts(app.sidebar_holder.content)
+                    if text in {"Inicio", "Favoritos", "Links", "Catalogo"}
+                ]
+
             with (
                 patch.object(config, "LINKS_FILE", links),
                 patch.object(config, "LINKS_VERSION_FILE", version),
             ):
                 SuiteApp._render(app)
                 shown = _texts(app.content_holder.content)
-                self.assertEqual(shown[1], "Favoritos")
-                self.assertLess(shown.index("Guia"), shown.index("Ponto"))
-                self.assertLess(shown.index("Favoritos"), shown.index("Portais"))
-                self.assertNotIn("sumiu", "".join(shown))
-                self.assertEqual(shown.count("Ponto"), 2)
+                self.assertEqual(shown[:3], ["Links", "Portais", "Ponto"])
+                self.assertNotIn("Favoritos", shown)
+                self.assertEqual(shown.count("Ponto"), 1)
+                self.assertEqual(shown.count("Guia"), 1)
+                self.assertEqual(_star_in(_rows_with_url(app.content_holder.content, "https://exemplo.com/ponto")[0]).icon, ft.Icons.STAR)
                 self.assertEqual(links.read_text(encoding="utf-8"), body)
+
+                app.show_links = False
+                app.show_favorites = True
+                SuiteApp._render(app)
+                fav = _texts(app.content_holder.content)
+                self.assertIn("Favoritos", fav)
+                self.assertNotIn("Aplicativos", fav)
+                self.assertLess(fav.index("Links"), fav.index("Guia"))
+                self.assertLess(fav.index("Guia"), fav.index("Ponto"))
+                self.assertNotIn("sumiu", "".join(fav))
+                self.assertIn("Favoritos", sidebar_labels())
+                self.assertTrue(app.show_favorites)
+
                 SuiteApp._toggle_link_favorite(app, "https://exemplo.com/guia")
+                self.assertTrue(app.show_favorites)
+                mid = _texts(app.content_holder.content)
+                self.assertIn("Ponto", mid)
+                self.assertNotIn("Guia", mid)
+
                 SuiteApp._toggle_link_favorite(app, "https://exemplo.com/ponto")
-                after = _texts(app.content_holder.content)
-            self.assertNotIn("Favoritos", after)
-            self.assertEqual(after.count("Ponto"), 1)
-            self.assertEqual(after.count("Guia"), 1)
-            self.assertIn("Portais", after)
+                self.assertFalse(app.show_favorites)
+                home = _texts(app.content_holder.content)
+                self.assertNotIn("Registro de ponto", home)
+                self.assertNotIn("Favoritos", sidebar_labels())
             self.assertEqual(links.read_text(encoding="utf-8"), body)
             saved = json.loads((root / "link_favorites.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["urls"], ["https://exemplo.com/sumiu"])
             self.assertNotIn("apps", saved)
+
+    def test_favorites_stay_while_either_apps_or_links_remain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            links = root / "links.json"
+            version = root / "links.versao"
+            links.write_text(_valid_body(), encoding="utf-8")
+            version.write_text("1", encoding="utf-8")
+            app_info = AppInfo(id="relatorio", nome="Relatorio")
+            catalog = CatalogData(
+                apps=[app_info],
+                links=LinksInfo(url="https://sp/links.json", versao="1"),
+            )
+            app = ScreenTests()._app(catalog)
+            app.apps = [app_info]
+            app.apps_by_id = {app_info.id: app_info}
+            app.view_catalog = catalog
+            app.favorites = _AppFavorites(["relatorio"])
+            app.link_favorites = LinkFavoritesStore(root / "link_favorites.json")
+            app.link_favorites.toggle("https://exemplo.com/ponto")
+            app.show_favorites = True
+            with (
+                patch.object(config, "LINKS_FILE", links),
+                patch.object(config, "LINKS_VERSION_FILE", version),
+            ):
+                SuiteApp._render(app)
+                texts = _texts(app.content_holder.content)
+                self.assertLess(texts.index("Aplicativos"), texts.index("Links"))
+                self.assertLess(texts.index("Relatorio"), texts.index("Ponto"))
+                SuiteApp._toggle_link_favorite(app, "https://exemplo.com/ponto")
+                self.assertTrue(app.show_favorites)
+                after_link = _texts(app.content_holder.content)
+                self.assertIn("Aplicativos", after_link)
+                self.assertIn("Relatorio", after_link)
+                self.assertNotIn("Links", after_link)
+                self.assertNotIn("Ponto", after_link)
+                SuiteApp._toggle_favorite(app, "relatorio")
+                self.assertFalse(app.show_favorites)
+                self.assertNotIn(
+                    "Favoritos",
+                    [
+                        text
+                        for text in _texts(app.sidebar_holder.content)
+                        if text in {"Inicio", "Favoritos", "Links", "Catalogo"}
+                    ],
+                )
+
+
+class _AppFavorites:
+    def __init__(self, ids: list[str]) -> None:
+        self.ids = list(ids)
+
+    def list_ids(self) -> list[str]:
+        return list(self.ids)
+
+    def toggle(self, app_id: str) -> bool:
+        if app_id in self.ids:
+            self.ids = [item for item in self.ids if item != app_id]
+            return False
+        self.ids.append(app_id)
+        return True
 
 
 if __name__ == "__main__":

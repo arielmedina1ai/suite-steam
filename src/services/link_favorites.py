@@ -12,8 +12,6 @@ from pathlib import Path
 import config
 from models import LinkGroup, LinkItem
 
-FAVORITE_GROUP_TITLE = "Favoritos"
-
 
 class LinkFavoritesStore:
     """Lista de urls favoritas. Arquivo separado do favorito de aplicativo."""
@@ -67,12 +65,11 @@ class LinkFavoritesStore:
         return True
 
 
-def favorite_link_group(groups: list[LinkGroup], urls: list[str]) -> LinkGroup | None:
-    """Grupo local Favoritos, na ordem em que as urls foram favoritadas.
+def visible_favorite_links(groups: list[LinkGroup], urls: list[str]) -> list[LinkItem]:
+    """Links marcados que ainda estao no arquivo, na ordem em que foram marcados.
 
     Url que nao esta num links.json valido fica de fora. A mesma url em
     dois grupos entra uma vez, com o titulo da primeira ocorrencia.
-    Sem nenhum item visivel, devolve None.
     """
     first: dict[str, LinkItem] = {}
     for group in groups:
@@ -91,14 +88,4 @@ def favorite_link_group(groups: list[LinkGroup], urls: list[str]) -> LinkGroup |
         if item is None:
             continue
         picked.append(item)
-    if not picked:
-        return None
-    return LinkGroup(titulo=FAVORITE_GROUP_TITLE, links=picked)
-
-
-def groups_with_favorites(groups: list[LinkGroup], urls: list[str]) -> list[LinkGroup]:
-    """Favoritos acima dos grupos do arquivo. A lista original nao muda."""
-    favorite = favorite_link_group(groups, urls)
-    if favorite is None:
-        return list(groups)
-    return [favorite, *list(groups)]
+    return picked

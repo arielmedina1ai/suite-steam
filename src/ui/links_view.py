@@ -8,13 +8,12 @@ import flet as ft
 
 import config
 from models import LinkGroup, LinkItem
-from services.link_favorites import groups_with_favorites
 from services.url_launch import open_https_url
 
 _EMPTY = "Nenhum link."
 
 
-def _link_button(
+def link_card(
     item: LinkItem,
     page: Any,
     *,
@@ -98,27 +97,26 @@ def build_links_view(
     favorite_urls: list[str] | None = None,
     on_toggle_favorite: Callable[[str], None] | None = None,
 ) -> ft.Control:
-    """Grupos na ordem do JSON. Favoritos, se houver, fica acima de todos.
+    """So os grupos do links.json, na ordem do arquivo.
 
-    Arquivo valido sem itens e sem favorito visivel: uma linha curta.
+    Arquivo valido sem itens: uma linha curta. A estrela nao cria grupo.
     """
     urls = list(favorite_urls or [])
     favorite_keys = {(url or "").strip() for url in urls if (url or "").strip()}
-    shown = groups_with_favorites(groups, urls)
     sections: list[ft.Control] = [
         ft.Text("Links", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
     ]
-    if not shown:
+    if not groups:
         sections.append(ft.Text(_EMPTY, size=14, color="#8AA797"))
         return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=16, controls=sections)
 
-    for group in shown:
+    for group in groups:
         block: list[ft.Control] = [
             ft.Text(group.titulo, size=18, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
         ]
         for item in group.links:
             block.append(
-                _link_button(
+                link_card(
                     item,
                     page,
                     is_favorite=(item.url or "").strip() in favorite_keys,

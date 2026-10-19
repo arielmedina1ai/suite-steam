@@ -65,7 +65,7 @@ from services.tips import (
 )
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.favorites import FavoritesStore
-from services.link_favorites import LinkFavoritesStore
+from services.link_favorites import LinkFavoritesStore, visible_favorite_links
 from services.preferences import PreferencesStore
 from services.process_guard import running_catalog_map, snapshot_processes, terminate_pids
 from services.runner import RunError, launch_file
@@ -693,6 +693,23 @@ class SuiteApp:
     def _has_visible_favorites(self) -> bool:
         return bool(self._visible_favorite_apps())
 
+    def _visible_favorite_links(self):
+        """Links marcados que ainda estao no links.json valido."""
+        try:
+            groups = load_local_links()
+        except Exception:
+            return []
+        try:
+            return visible_favorite_links(groups, self._link_favorite_urls())
+        except Exception:
+            return []
+
+    def _favorites_menu_visible(self) -> bool:
+        """Item Favoritos: aplicativo visivel no filtro ou link marcado ainda no arquivo."""
+        if self._has_visible_favorites():
+            return True
+        return bool(self._visible_favorite_links())
+
     def _gerencia_atual(self):
         if not self.selected_gerencia_id:
             return None
@@ -1025,7 +1042,7 @@ class SuiteApp:
 
     def _toggle_favorite(self, app_id: str) -> None:
         self.favorites.toggle(app_id)
-        if self.show_favorites and not self._has_visible_favorites():
+        if self.show_favorites and not self._favorites_menu_visible():
             self.show_favorites = False
         self._render()
 
@@ -1043,6 +1060,8 @@ class SuiteApp:
         if store is None:
             return
         store.toggle(url)
+        if getattr(self, "show_favorites", False) and not self._favorites_menu_visible():
+            self.show_favorites = False
         self._render()
 
     def _publish_select(self, app_id: str) -> None:
@@ -2424,7 +2443,8 @@ class SuiteApp:
             for app in self.apps
             if self.storage.get_state(app.id).status == InstallStatus.INSTALLED
         }
-        has_favs = self._has_visible_favorites()
+        favorite_links = self._visible_favorite_links()
+        has_favs = self._has_visible_favorites() or bool(favorite_links)
         if self.show_favorites and not has_favs:
             self.show_favorites = False
         if getattr(self, "show_links", False) and not self._links_menu_visible():
@@ -2584,6 +2604,9 @@ class SuiteApp:
                 favorite_ids=fav_ids,
                 on_toggle_favorite=self._toggle_favorite,
                 installed_ids=installed_ids,
+                link_items=favorite_links,
+                page=self.page,
+                on_toggle_link=self._toggle_link_favorite,
             )
         elif self.selected_setor is not None:
             filtrados = apps_do_setor(self.apps, self.selected_setor)

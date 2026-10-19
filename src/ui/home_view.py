@@ -1,14 +1,15 @@
 """Tela inicial, favoritos e listagens por setor."""
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 import flet as ft
 
 import config
-from models import AppInfo, Dica, GerenciaInfo, SetorInfo, group_apps_by_sub_setor
+from models import AppInfo, Dica, GerenciaInfo, LinkItem, SetorInfo, group_apps_by_sub_setor
 from services.tips import tip_text_pieces
 from ui.components import app_badge, app_icon
+from ui.links_view import link_card
 
 _HERO_ASPECT = 2220 / 1140
 _HERO_DISPLAY_WIDTH = 240
@@ -198,10 +199,63 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerenci
     return stack
 
 
-def build_favoritos_view(apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
-    header = ft.Column(spacing=4, controls=[ft.Text("Favoritos", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT), ft.Text(f"{len(apps)} aplicativo(s) favorito(s)", size=13, color="#8AA797")])
-    listing = _apps_grid(apps, on_select, title="Aplicativos", empty_message="Nenhum favorito. Clique na estrela de um app para adicionar.", favorite_ids=favorite_ids, on_toggle_favorite=on_toggle_favorite, installed_ids=installed_ids or set())
-    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[header, listing])
+def build_favoritos_view(
+    apps: list[AppInfo],
+    on_select: Callable[[str], None],
+    *,
+    favorite_ids: set[str],
+    on_toggle_favorite: Callable[[str], None],
+    installed_ids: set[str] | None = None,
+    link_items: list[LinkItem] | None = None,
+    page: Any = None,
+    on_toggle_link: Callable[[str], None] | None = None,
+) -> ft.Control:
+    """Aplicativos favoritos na secao Aplicativos; links marcados abaixo, na secao Links.
+
+    Secao vazia nao aparece. So links: a tela mostra a secao Links.
+    """
+    links = list(link_items or [])
+    header_controls: list[ft.Control] = [
+        ft.Text("Favoritos", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+    ]
+    if apps:
+        header_controls.append(
+            ft.Text(f"{len(apps)} aplicativo(s) favorito(s)", size=13, color="#8AA797")
+        )
+    sections: list[ft.Control] = [ft.Column(spacing=4, controls=header_controls)]
+    if apps:
+        sections.append(
+            _apps_grid(
+                apps,
+                on_select,
+                title="Aplicativos",
+                empty_message="Nenhum favorito. Clique na estrela de um app para adicionar.",
+                favorite_ids=favorite_ids,
+                on_toggle_favorite=on_toggle_favorite,
+                installed_ids=installed_ids or set(),
+            )
+        )
+    if links:
+        block: list[ft.Control] = [
+            ft.Text("Links", size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+        ]
+        for item in links:
+            block.append(
+                link_card(
+                    item,
+                    page,
+                    is_favorite=True,
+                    on_toggle_favorite=on_toggle_link,
+                )
+            )
+        sections.append(
+            ft.Column(
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=block,
+            )
+        )
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=sections)
 
 
 def build_setor_view(setor: SetorInfo, apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
