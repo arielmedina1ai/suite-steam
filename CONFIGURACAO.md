@@ -360,7 +360,9 @@ Segurar o cartao por mais de 0,5 segundo levanta esse
 item (sombra, leve aumento) e a secao abre um vao vazio, do tamanho do cartao,
 com a borda na cor de destaque. O vao acompanha o ponteiro e os outros cartoes
 da mesma secao se afastam. Trocar de lugar nao interrompe o arraste: o mesmo
-gesto segue o ponteiro ate soltar. Ao soltar, o item entra nesse vao, a ordem
+gesto segue o ponteiro ate soltar. O vao, o tamanho da secao e o cartao
+flutuante ja estao montados quando a tela abre, entao o primeiro arraste
+e tao fluido quanto os seguintes. Ao soltar, o item entra nesse vao, a ordem
 grava na hora em `favorites.json` ou `link_favorites.json` e o cartao volta ao
 normal. O gesto continua montado no cartao, entao soltar nao deixa o cartao
 no ar. Soltar fora usa o vao mais proximo da propria secao. Um link nao entra

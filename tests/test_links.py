@@ -1268,6 +1268,20 @@ class FavoriteOrderTests(unittest.TestCase):
             on_open=opened.append,
             on_drop=lambda key, index: dropped.append((key, index)),
         )
+        self.assertIsNotNone(section.floater.content)
+        self.assertEqual(section.floater.height, 84)
+        self.assertEqual(section.floater.opacity, 0)
+        self.assertTrue(section.floater.visible)
+        self.assertEqual(section.gap.height, 84)
+        self.assertEqual(section.gap.opacity, 0)
+        self.assertIsNone(section.gap.data)
+        self.assertIn(section.gap, section.visual.controls)
+        self.assertEqual(section.visual_host.opacity, 0)
+        self.assertTrue(section.visual_host.visible)
+        self.assertEqual(section.flow.on_size_change, section._resized)
+        warm_gap = section.gap
+        warm_floater = section.floater.content
+        warm_cards = dict(section.visual_cards)
         section.press("ponto", 0.0, x=10, y=134)
         self.assertEqual(section.release(0.4), "click")
         self.assertEqual(opened, ["ponto"])
@@ -1283,9 +1297,16 @@ class FavoriteOrderTests(unittest.TestCase):
         self.assertEqual(gap.border.top.color, config.COLOR_ACCENT)
         self.assertIsNone(gap.content)
         self.assertEqual(gap.height, 84)
+        self.assertIs(gap, warm_gap)
+        self.assertIs(section.floater.content, warm_floater)
+        self.assertEqual(section.visual_cards, warm_cards)
+        self.assertEqual(section._float_faces["ponto"].opacity, 1)
+        self.assertEqual(section._float_faces["guia"].opacity, 0)
         self.assertIn(gap, section.visual.controls)
         self.assertNotIn(gap, section.flow.controls)
         self.assertTrue(section.visual_host.ignore_interactions)
+        self.assertEqual(section.visual_host.opacity, 1)
+        self.assertEqual(section.floater.opacity, 1)
         self.assertEqual(section.flow.opacity, 0)
         detector = section.cards["ponto"].content
         self.assertIsInstance(detector, ft.GestureDetector)
@@ -1309,6 +1330,13 @@ class FavoriteOrderTests(unittest.TestCase):
         self.assertTrue(section.armed)
         self.assertEqual(floater.top, -40 - 84 / 2)
         self.assertEqual(dropped, [])
+        section._resized(type("Size", (), {"width": 700.0})())
+        self.assertEqual(section.card_w, 700.0)
+        self.assertEqual(section.floater.width, 700.0)
+        self.assertTrue(section.armed)
+        self.assertIs(section.cards["ponto"].content, detector)
+        self.assertEqual(list(section.flow.controls), mounted)
+        self.assertEqual(dropped, [])
         self.assertEqual(section.move(10, 900), 2)
         self.assertEqual(
             [getattr(node, "data", None) for node in section.visual.controls],
@@ -1323,21 +1351,24 @@ class FavoriteOrderTests(unittest.TestCase):
         self.assertEqual(section.release(12.0, x=10, y=900), "drop")
         self.assertEqual(dropped, [("ponto", 2)])
         self.assertFalse(section.armed)
-        self.assertFalse(floater.visible)
+        self.assertEqual(floater.opacity, 0)
+        self.assertTrue(floater.visible)
         self.assertEqual(section.flow.opacity, 1)
-        self.assertFalse(section.visual_host.visible)
+        self.assertEqual(section.visual_host.opacity, 0)
+        self.assertTrue(section.visual_host.visible)
+        self.assertIs(section.gap, warm_gap)
         self.assertEqual(section.cards["ponto"]._hold_face.opacity, 1)
         self.assertFalse(any(getattr(node, "data", None) == "reorder-gap" for node in _walk(section.control())))
         self.assertEqual(section.release(13.0), "cancel")
 
         section.press("guia", 30.0, x=10, y=10)
         self.assertTrue(section.advance(30.5))
-        self.assertTrue(floater.visible)
+        self.assertEqual(floater.opacity, 1)
         self.assertIn(section.cards["guia"], section.flow.controls)
         section._card_pan_cancel("guia")
         self.assertEqual(dropped[-1], ("guia", 0))
         self.assertFalse(section.armed)
-        self.assertFalse(floater.visible)
+        self.assertEqual(floater.opacity, 0)
         self.assertEqual(section.cards["guia"]._hold_face.opacity, 1)
         self.assertFalse(any(getattr(node, "data", None) == "reorder-gap" for node in _walk(section.control())))
 
@@ -1357,6 +1388,26 @@ class FavoriteOrderTests(unittest.TestCase):
         self.assertFalse(alone.advance(2.0))
         self.assertEqual(alone.release(2.1), "cancel")
         self.assertEqual(dropped, [("ponto", 2), ("guia", 0)])
+
+        grid = HoldSection(
+            ["a", "b", "c", "d"],
+            axis="grid",
+            card_w=260,
+            card_h=230,
+            spacing_x=16,
+            spacing_y=16,
+            columns=3,
+            build_card=lambda key: ft.Text(key),
+            on_open=lambda _key: None,
+            on_drop=lambda _key, _index: None,
+        )
+        grid_detector = grid.cards["a"].content
+        grid_mounted = list(grid.flow.controls)
+        grid._resized(type("Size", (), {"width": 500.0})())
+        self.assertEqual(grid.columns, 1)
+        self.assertEqual(grid.gap.height, 230)
+        self.assertIs(grid.cards["a"].content, grid_detector)
+        self.assertEqual(list(grid.flow.controls), grid_mounted)
 
     def test_release_on_the_favorites_screen_saves_and_clears_the_gesture(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

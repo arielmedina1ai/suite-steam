@@ -4,6 +4,8 @@ O Flet 0.85 nao espera no Draggable nem abre um vao na secao.
 O gesto fica no ponteiro: timer no pressionar, arraste depois.
 O detector e pai do cartao e continua montado ate soltar.
 O ink do titulo fica no filho, na frente do detector.
+O vao, o tamanho e o cartao flutuante ja nascem com a tela,
+para o primeiro arraste nao montar nada no meio do gesto.
 """
 from __future__ import annotations
 
@@ -60,8 +62,10 @@ class HoldSection:
         self._timer: threading.Timer | None = None
         self._settled = True
         self.flow = self._make_flow()
+        self.flow.on_size_change = self._resized
         self.floater = ft.Container(
-            visible=False,
+            visible=True,
+            opacity=0,
             data=_FLOAT,
             left=0,
             top=0,
@@ -82,10 +86,15 @@ class HoldSection:
         self._global_x = 0.0
         self._global_y = 0.0
         self.flow.controls = [self.cards[key] for key in self.keys]
-        # Copia so do vao. Remontar isto nao mexe no detector do arraste.
+        self.gap = self._make_gap()
+        self.visual_cards = {key: self._visual_card(key) for key in self.keys}
+        self._float_faces = {key: self._float_face(key) for key in self.keys}
+        self.floater.content = ft.Stack(controls=[self._float_faces[key] for key in self.keys])
+        # Copia ja montada, invisivel. O arraste so muda opacidade e ordem.
         self.visual = self._make_flow()
         self.visual_host = ft.Container(
-            visible=False,
+            visible=True,
+            opacity=0,
             ignore_interactions=True,
             left=0,
             right=0,
@@ -278,34 +287,50 @@ class HoldSection:
         self.index = self.index_at(self.x, self.y)
         self.floater.width = self.card_w
         self.floater.height = self.card_h
-        self.floater.content = self.build_card(self.key)
+        self.floater.opacity = 1
         self.floater.visible = True
         self.floater.scale = 1.04
+        for key, face in self._float_faces.items():
+            face.opacity = 1 if key == self.key else 0
         self._place_floater()
         self._show_visual()
-        self._paint(self.flow, self.visual, self.visual_host, self.floater)
+        # Nao atualiza o flow: o detector do gesto esta nele.
+        self._paint(self.visual, self.visual_host, self.floater, *self._float_faces.values())
 
     def _place_floater(self) -> None:
         self.floater.left = self.x - self.card_w / 2.0
         self.floater.top = self.y - self.card_h / 2.0
 
     def _show_idle(self) -> None:
-        self.floater.visible = False
-        self.floater.content = None
+        self.floater.opacity = 0
+        self.floater.visible = True
+        for face in self._float_faces.values():
+            face.opacity = 0
+        self.gap.opacity = 0
+        self.gap.data = None
+        self.visual_host.opacity = 0
+        self.visual_host.visible = True
         self.flow.opacity = 1
-        self.visual.controls = []
-        self.visual_host.visible = False
-        self._paint(self.flow, self.visual, self.visual_host, self.floater)
+        self.visual.controls = [self.visual_cards[key] for key in self.keys] + [self.gap]
+        self._paint(self.flow, self.visual, self.visual_host, self.floater, *self._float_faces.values())
 
     def _show_visual(self) -> None:
-        """Abre o vao numa copia. O flow dos detectores nao muda de ordem."""
+        """Reordena a copia que ja esta na tela. Nao cria cartao nem vao."""
         controls: list[ft.Control] = []
         for kind, key in layout_slots(self.keys, self.key, self.index):
             if kind == "gap":
-                controls.append(self._gap())
+                self.gap.opacity = 1
+                self.gap.data = _GAP
+                self.gap.height = self.card_h
+                if self.axis == "grid":
+                    self.gap.width = self.card_w
+                controls.append(self.gap)
                 continue
-            controls.append(self._visual_card(key))
+            card = self.visual_cards[key]
+            card.opacity = 1
+            controls.append(card)
         self.visual.controls = controls
+        self.visual_host.opacity = 1
         self.visual_host.visible = True
         self.flow.opacity = 0
 
@@ -313,19 +338,28 @@ class HoldSection:
         return ft.Container(
             width=self.card_w if self.axis == "grid" else None,
             height=self.card_h,
+            opacity=1,
             border_radius=12,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             content=self.build_card(key),
         )
 
-    def _gap(self) -> ft.Control:
+    def _float_face(self, key: str) -> ft.Control:
         return ft.Container(
             width=self.card_w if self.axis == "grid" else None,
             height=self.card_h,
+            opacity=0,
+            content=self.build_card(key),
+        )
+
+    def _make_gap(self) -> ft.Container:
+        return ft.Container(
+            width=self.card_w if self.axis == "grid" else None,
+            height=self.card_h,
+            opacity=0,
             bgcolor=config.COLOR_BG,
             border=ft.Border.all(2, config.COLOR_ACCENT),
             border_radius=12,
-            data=_GAP,
         )
 
     def _paint(self, *controls: ft.Control) -> None:
@@ -412,14 +446,19 @@ class HoldSection:
         return 0.0, index * (self.card_h + self.spacing_y)
 
     def _resized(self, e) -> None:
-        if self.axis != "grid":
-            width = float(getattr(e, "width", 0) or 0)
-            if width > 0:
-                self.card_w = width
-            return
+        """Mede a secao quando ela abre, antes do primeiro arraste."""
         width = float(getattr(e, "width", 0) or 0)
+        if width <= 0:
+            return
+        if self.axis != "grid":
+            if abs(width - self.card_w) < 0.5:
+                return
+            self.card_w = width
+            self.floater.width = width
+            self._paint(self.floater)
+            return
         stride = self.card_w + self.spacing_x
-        if width <= 0 or stride <= 0:
+        if stride <= 0:
             return
         columns = max(1, int((width + self.spacing_x) // stride))
         if columns != self.columns:
