@@ -15,6 +15,7 @@ from urllib.parse import quote, urlparse
 import config
 from catalog.provider import hydrate_catalog_images
 from models import CatalogData, parse_catalog_dict, tips_payload
+from services.links import LinksFormState, links_payload, publish_links_block, store_local_links
 from services.tips import DicasFormState, publish_dicas_block, store_local_tips
 from services.tutorial import (
     apply_tutorial_uploads,
@@ -1809,6 +1810,197 @@ def save_dicas(
             except OSError:
                 pass
         return outcome
+    finally:
+        if session is not None:
+            session.close()
+
+
+def _links_upload_name(form: LinksFormState) -> str:
+    chosen = (form.local_name or "").replace("\\", "/").strip()
+    leaf = chosen.rstrip("/").split("/")[-1].strip() if chosen else ""
+    if not leaf and (form.local_path or "").strip():
+        leaf = original_upload_name(Path(form.local_path))
+    if not leaf:
+        leaf = existing_remote_filename(form.url, "links.json")
+    leaf = Path(leaf.replace("\\", "/")).name
+    return leaf or "links.json"
+
+
+def _upload_links_document(
+    session: PnPWebLoginSession,
+    form: LinksFormState,
+    body: str,
+    progress: ProgressCb | None,
+) -> tuple[bool, str, str]:
+    """Envia o JSON editado. Devolve ok, mensagem e a URL que o catalogo deve gravar."""
+    filename = _links_upload_name(form)
+    folder = Path(tempfile.mkdtemp(prefix="suite-links-"))
+    local = folder / filename
+    local.write_text(body, encoding="utf-8")
+    try:
+        pasted = _pasted_unique_id_url(form.url)
+        if pasted:
+            info = parsear_link_sharepoint(pasted)
+            result = enviar_por_unique_id(
+                local,
+                site_url=str(info.get("site_url") or ""),
+                unique_id=str(info.get("unique_id") or ""),
+                progress=progress,
+                session=session,
+            )
+            if not result.ok:
+                return False, result.message or "Falha ao enviar links.json.", ""
+            return True, "", pasted
+
+        if (form.local_path or "").strip():
+            dest = (form.dest_folder or "").strip() or (config.PUBLISH_FOLDER_URL or "").strip()
+            if not dest:
+                return False, "Informe a pasta de destino do links.json.", ""
+            ok, message = _upload_named(local, filename, dest, progress, session=session)
+            if not ok:
+                return False, message or "Falha ao enviar links.json.", ""
+            try:
+                meta = _folder_info(dest)
+            except ValueError as exc:
+                return False, str(exc), ""
+            url = sharing_url(meta["site_url"], meta["caminho_sp"], filename, "file")
+            return True, "", url
+
+        url = (form.url or "").strip()
+        if not url:
+            return False, "Selecione ou adicione o links.json.", ""
+        try:
+            parsear_link_sharepoint(url)
+        except ValueError as exc:
+            return False, str(exc), ""
+        try:
+            folder_url = folder_url_of_file(url)
+        except ValueError as exc:
+            return False, str(exc), ""
+        nome = existing_remote_filename(url, filename)
+        ok, message = _upload_named(local, nome, folder_url, progress, session=session)
+        if not ok:
+            return False, message or "Falha ao enviar links.json.", ""
+        return True, "", url
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _store_published_links(form: LinksFormState, outcome: PublishOutcome) -> PublishOutcome:
+    """Copia local so depois do catalog.json publicado, como o tips.json."""
+    if outcome.ok and outcome.catalog is not None:
+        try:
+            store_local_links(form.groups, outcome.catalog.links.versao)
+        except OSError:
+            pass
+    return outcome
+
+
+def save_links(
+    form: LinksFormState,
+    *,
+    expected_fingerprint: str,
+    progress: ProgressCb | None = None,
+    fetch_text: Callable[[], tuple[str, str]] | None = None,
+    upload_links: Callable[[], tuple[bool, str, str]] | None = None,
+    upload_catalog: Callable[[dict[str, Any]], PublishOutcome] | None = None,
+) -> PublishOutcome:
+    """Envia links.json e, so depois, soma 1 em links.versao no catalog.json.
+
+    Um WebLogin para os dois envios. Se o links.json falhar, o catalogo nao muda.
+    """
+
+    def report(pct: float, msg: str) -> None:
+        if progress:
+            progress(pct, msg)
+
+    if not form.has_file:
+        return PublishOutcome(ok=False, message="Selecione ou adicione o links.json.")
+
+    hooks = fetch_text is not None or upload_links is not None or upload_catalog is not None
+    if hooks:
+        if fetch_text is None or upload_links is None or upload_catalog is None:
+            return PublishOutcome(ok=False, message="Salvar links incompleto.")
+        text, err = fetch_text()
+        if err:
+            return PublishOutcome(ok=False, message=err)
+        remote_fp = catalog_fingerprint(text)
+        if expected_fingerprint and remote_fp != expected_fingerprint:
+            return PublishOutcome(
+                ok=False,
+                conflict=True,
+                message=(
+                    "O catalogo remoto mudou desde que esta tela abriu. "
+                    "Reabra o catalogo e tente de novo."
+                ),
+                fingerprint=remote_fp,
+            )
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
+        if not isinstance(data, dict):
+            return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
+        ok, message, url = upload_links()
+        if not ok:
+            publish_links_block(data, url=url, uploaded=False)
+            return PublishOutcome(
+                ok=False,
+                message=message or "Falha ao enviar links.json. A versao nao foi alterada.",
+            )
+        publish_links_block(data, url=url or form.url, uploaded=True)
+        return _store_published_links(form, upload_catalog(data))
+
+    session: PnPWebLoginSession | None = None
+    try:
+        cat_url = config.REMOTE_CATALOG_URL
+        if not cat_url:
+            return PublishOutcome(ok=False, message="catalog.remote_url nao configurado.")
+        try:
+            site = str(parsear_link_sharepoint(cat_url).get("site_url") or "")
+        except ValueError as exc:
+            return PublishOutcome(ok=False, message=str(exc))
+        if not site:
+            return PublishOutcome(ok=False, message="Site do catalog.remote_url nao determinado.")
+        session = PnPWebLoginSession(site, progress=report)
+        start_err = session.start()
+        if start_err:
+            return PublishOutcome(ok=False, message=start_err)
+
+        report(-1.0, "Relendo catalogo remoto...")
+        text, err = fetch_remote_catalog_text(progress=report, session=session)
+        if err:
+            return PublishOutcome(ok=False, message=err)
+        remote_fp = catalog_fingerprint(text)
+        if expected_fingerprint and remote_fp != expected_fingerprint:
+            return PublishOutcome(
+                ok=False,
+                conflict=True,
+                message=(
+                    "O catalogo remoto mudou desde que esta tela abriu. "
+                    "Reabra o catalogo e tente de novo."
+                ),
+                fingerprint=remote_fp,
+            )
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
+        if not isinstance(data, dict):
+            return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
+
+        body = json.dumps(links_payload(form.groups), indent=2, ensure_ascii=False) + "\n"
+        report(-1.0, "Enviando links.json...")
+        ok, message, url = _upload_links_document(session, form, body, report)
+        if not ok:
+            return PublishOutcome(
+                ok=False,
+                message=message or "Falha ao enviar links.json. A versao nao foi alterada.",
+            )
+        publish_links_block(data, url=url or form.url, uploaded=True)
+        report(-1.0, "Enviando catalog.json...")
+        outcome = _upload_catalog_text(data, report, session=session)
+        return _store_published_links(form, outcome)
     finally:
         if session is not None:
             session.close()

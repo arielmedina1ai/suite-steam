@@ -1,4 +1,4 @@
-"""Tela Catálogo: abas Publicar, Estrutura e Dicas."""
+"""Tela Catálogo: abas Publicar, Estrutura, Links e Dicas."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -8,8 +8,10 @@ import flet as ft
 import config
 from models import CatalogData
 from services.catalog_publish import PublishFormState, StructureFormState
+from services.links import LinksFormState
 from services.tips import DicasFormState
 from ui.dicas_view import bind_dicas_form
+from ui.links_form_view import bind_links_form
 from ui.publish_view import bind_publish_form
 from ui.structure_view import bind_structure_form
 
@@ -78,13 +80,35 @@ def bind_catalog_view(
     dicas_layout: ft.Column | None = None,
     dicas_select: ft.Container | None = None,
     dicas_edit: ft.Container | None = None,
+    links: LinksFormState | None = None,
+    on_links_save: Callable[[], None] | None = None,
+    on_links_pick: Callable[[], None] | None = None,
+    on_links_field: Callable[[str, str], None] | None = None,
+    links_layout: ft.Column | None = None,
+    links_select: ft.Container | None = None,
+    links_edit: ft.Container | None = None,
 ) -> None:
     tab_row.controls = [
         _tab_chip("Publicar", selected=tab == "publish", on_click=lambda: on_tab("publish")),
         _tab_chip("Estrutura", selected=tab == "estrutura", on_click=lambda: on_tab("estrutura")),
+        _tab_chip("Links", selected=tab == "links", on_click=lambda: on_tab("links")),
         _tab_chip("Dicas", selected=tab == "dicas", on_click=lambda: on_tab("dicas")),
     ]
-    if tab == "dicas" and dicas is not None and dicas_layout is not None and dicas_select is not None and dicas_edit is not None:
+    if tab == "links" and links is not None and links_layout is not None and links_select is not None and links_edit is not None:
+        bind_links_form(
+            links,
+            on_save=on_links_save or (lambda: None),
+            on_pick=on_links_pick or (lambda: None),
+            on_field=on_links_field or (lambda _key, _value: None),
+            on_reopen=on_reopen,
+            select_holder=links_select,
+            edit_holder=links_edit,
+        )
+        cur = list(links_layout.controls or [])
+        if len(cur) != 2 or cur[0] is not links_select or cur[1] is not links_edit:
+            links_layout.controls = [links_select, links_edit]
+        session_host.content = links_layout
+    elif tab == "dicas" and dicas is not None and dicas_layout is not None and dicas_select is not None and dicas_edit is not None:
         bind_dicas_form(
             dicas,
             on_save=on_dicas_save or (lambda: None),

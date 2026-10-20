@@ -53,9 +53,25 @@ from services.catalog_publish import (
     publish_app,
     save_catalog_structure,
     save_dicas,
+    save_links,
     structure_from_catalog,
 )
-from services.links import links_menu_visible, load_local_links
+from services.links import (
+    LinksFormState,
+    add_group,
+    add_item,
+    drafts_from_groups,
+    links_menu_visible,
+    load_local_links,
+    move_group,
+    move_item,
+    read_links_groups,
+    relocate_item,
+    remove_group,
+    remove_item,
+    set_group_title,
+    set_item_field,
+)
 from services.tips import (
     TIP_ROTATE_SECONDS,
     DicasFormState,
@@ -144,6 +160,10 @@ class SuiteApp:
         self._dicas_layout = ft.Column(expand=True, spacing=12)
         self._sess_dicas_sel = session_holder()
         self._sess_dicas_edit = session_holder()
+        self.links_form = LinksFormState()
+        self._links_layout = ft.Column(expand=True, spacing=12)
+        self._sess_links_sel = session_holder()
+        self._sess_links_edit = session_holder()
         self._tip_cycle: TipCycle | None = None
         self._tips_signature: tuple[tuple[str, str], ...] | None = None
         self._current_tip = None
@@ -849,6 +869,9 @@ class SuiteApp:
             return
         if tab == "estrutura":
             self.catalog_tab = "estrutura"
+        elif tab == "links":
+            self.catalog_tab = "links"
+            self._ensure_links_form()
         elif tab == "dicas":
             self.catalog_tab = "dicas"
             self._ensure_dicas_form()
@@ -923,11 +946,197 @@ class SuiteApp:
 
     def _catalog_forms_busy(self) -> bool:
         dicas = getattr(self, "dicas", None)
+        links = getattr(self, "links_form", None)
         return bool(
             getattr(self.publish_form, "busy", False)
             or getattr(self.structure, "busy", False)
             or (dicas is not None and getattr(dicas, "busy", False))
+            or (links is not None and getattr(links, "busy", False))
         )
+
+    def _ensure_links_form(self) -> None:
+        form = getattr(self, "links_form", None)
+        if form is None or form.fingerprint or form.busy:
+            return
+        self._fill_links_from_catalog()
+
+    def _fill_links_from_catalog(self) -> None:
+        form = self.links_form
+        info = self.catalog.links
+        form.url = info.url
+        form.versao = info.versao
+        form.dest_folder = config.PUBLISH_FOLDER_URL
+        form.local_path = ""
+        form.local_name = ""
+        form.groups = drafts_from_groups(load_local_links()) if info.url else []
+        form.fingerprint = self.publish_form.fingerprint or fingerprint_cache_file()
+        form.busy = False
+        form.conflict = False
+        form.notice = ""
+        form.notice_ok = False
+        form.progress = None
+        form.hold_scroll = False
+        if not form.message:
+            form.message = ""
+
+    def _links_index(self, token: str) -> int | None:
+        try:
+            return int(token)
+        except ValueError:
+            return None
+
+    def _links_pair(self, token: str) -> tuple[int, int] | None:
+        left, sep, right = token.partition(":")
+        if not sep:
+            return None
+        gi = self._links_index(left)
+        ii = self._links_index(right)
+        if gi is None or ii is None:
+            return None
+        return gi, ii
+
+    def _links_field(self, key: str, value: str) -> None:
+        form = self.links_form
+        groups = form.groups
+        if key == "url":
+            had_file = form.has_file
+            form.url = value or ""
+            form.notice = ""
+            form.notice_ok = False
+            if had_file != form.has_file:
+                self._render()
+            return
+        if key == "dest_folder":
+            form.dest_folder = value or ""
+            return
+        if key == "adicionar_grupo":
+            add_group(groups)
+            self._render()
+            return
+        if key.startswith("subir_grupo:"):
+            gi = self._links_index(key.split(":", 1)[1])
+            if gi is not None and move_group(groups, gi, -1):
+                self._render()
+            return
+        if key.startswith("descer_grupo:"):
+            gi = self._links_index(key.split(":", 1)[1])
+            if gi is not None and move_group(groups, gi, 1):
+                self._render()
+            return
+        if key.startswith("remover_grupo:"):
+            gi = self._links_index(key.split(":", 1)[1])
+            if gi is not None:
+                remove_group(groups, gi)
+                self._render()
+            return
+        if key.startswith("grupo_item:"):
+            pair = self._links_pair(key.split(":", 1)[1])
+            if pair is not None and relocate_item(groups, pair[0], pair[1], value or ""):
+                self._render()
+            return
+        if key.startswith("grupo:"):
+            gi = self._links_index(key.split(":", 1)[1])
+            if gi is not None:
+                set_group_title(groups, gi, value or "")
+            return
+        if key.startswith("adicionar:"):
+            gi = self._links_index(key.split(":", 1)[1])
+            if gi is not None:
+                add_item(groups, gi)
+                self._render()
+            return
+        if key.startswith("subir:"):
+            pair = self._links_pair(key.split(":", 1)[1])
+            if pair is not None and move_item(groups, pair[0], pair[1], -1):
+                self._render()
+            return
+        if key.startswith("descer:"):
+            pair = self._links_pair(key.split(":", 1)[1])
+            if pair is not None and move_item(groups, pair[0], pair[1], 1):
+                self._render()
+            return
+        if key.startswith("remover:"):
+            pair = self._links_pair(key.split(":", 1)[1])
+            if pair is not None:
+                remove_item(groups, pair[0], pair[1])
+                self._render()
+            return
+        if key.startswith("titulo:") or key.startswith("descricao:") or key.startswith("link:"):
+            field_name, _, rest = key.partition(":")
+            pair = self._links_pair(rest)
+            if pair is None:
+                return
+            item_field = {"titulo": "titulo", "descricao": "descricao", "link": "url"}[field_name]
+            set_item_field(groups, pair[0], pair[1], item_field, value or "")
+            return
+
+    def _links_save(self) -> None:
+        if not self.can_publish or self._catalog_forms_busy():
+            return
+        if not self.links_form.has_file:
+            self.links_form.message = "Selecione ou adicione o links.json."
+            self.links_form.notice = ""
+            self.links_form.notice_ok = False
+            self._render()
+            return
+        self.links_form.busy = True
+        self.links_form.conflict = False
+        self.links_form.hold_scroll = True
+        self.links_form.notice = ""
+        self.links_form.notice_ok = False
+        self.links_form.message = "Salvando links..."
+        self.links_form.progress = -1.0
+        self._render()
+        self.page.run_thread(self._links_save_worker)
+
+    def _on_links_progress(self, pct: float, msg: str) -> None:
+        self.links_form.hold_scroll = True
+        self.links_form.progress = pct
+        self.links_form.message = msg
+        if self._confirm_open:
+            return
+        try:
+            self._render()
+        except Exception:
+            pass
+
+    def _links_save_worker(self) -> None:
+        result = save_links(
+            self.links_form,
+            expected_fingerprint=self.links_form.fingerprint or self.publish_form.fingerprint,
+            progress=self._on_links_progress,
+        )
+        self.links_form.busy = False
+        self.links_form.progress = None
+        self.links_form.hold_scroll = True
+        if result.conflict:
+            self.links_form.conflict = True
+            self.links_form.message = result.message
+            self._render()
+            self.links_form.hold_scroll = False
+            return
+        if not result.ok:
+            self.links_form.message = result.message
+            self._render()
+            self.links_form.hold_scroll = False
+            return
+        if result.catalog is not None:
+            self.catalog = result.catalog
+            self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
+        self.links_form.fingerprint = fp
+        self.publish_form.fingerprint = fp
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self.links_form.versao = self.catalog.links.versao
+        self.links_form.url = self.catalog.links.url or self.links_form.url
+        self.links_form.local_path = ""
+        self.links_form.local_name = ""
+        self.links_form.notice = "Links salvos."
+        self.links_form.notice_ok = True
+        self.links_form.message = ""
+        self.links_form.conflict = False
+        self.links_form.hold_scroll = False
+        self._render()
 
     def _dicas_save(self) -> None:
         if not self.can_publish or self._catalog_forms_busy():
@@ -1272,7 +1481,13 @@ class SuiteApp:
 
     def _publish_reopen(self) -> None:
         dicas = getattr(self, "dicas", None)
-        if self.publish_form.busy or self.structure.busy or (dicas is not None and dicas.busy):
+        links = getattr(self, "links_form", None)
+        if (
+            self.publish_form.busy
+            or self.structure.busy
+            or (dicas is not None and dicas.busy)
+            or (links is not None and links.busy)
+        ):
             return
         self.publish_form.busy = True
         self.structure.busy = True
@@ -1281,6 +1496,9 @@ class SuiteApp:
         if dicas is not None:
             dicas.busy = True
             dicas.message = "Relendo catalogo remoto..."
+        if links is not None:
+            links.busy = True
+            links.message = "Relendo catalogo remoto..."
         self._render()
         self.page.run_thread(self._publish_reopen_worker)
 
@@ -1301,6 +1519,11 @@ class SuiteApp:
                 self.dicas.message = ""
                 self._fill_dicas_from_catalog()
                 self.dicas.message = "Catalogo recarregado."
+            if getattr(self, "links_form", None) is not None:
+                self.links_form.fingerprint = ""
+                self.links_form.message = ""
+                self._fill_links_from_catalog()
+                self.links_form.message = "Catalogo recarregado."
             self._reload_tips()
         else:
             self.publish_form.conflict = True
@@ -1312,9 +1535,29 @@ class SuiteApp:
                 self.dicas.busy = False
                 self.dicas.conflict = True
                 self.dicas.message = result.message or "Falha ao reler o catalogo."
+            if getattr(self, "links_form", None) is not None:
+                self.links_form.busy = False
+                self.links_form.conflict = True
+                self.links_form.message = result.message or "Falha ao reler o catalogo."
         self._render()
 
     def _on_publish_progress(self, pct: float, msg: str) -> None:
+        links = getattr(self, "links_form", None)
+        if (
+            links is not None
+            and links.busy
+            and getattr(self, "catalog_tab", "") == "links"
+        ):
+            links.hold_scroll = True
+            links.progress = pct
+            links.message = msg
+            if self._confirm_open:
+                return
+            try:
+                self._render()
+            except Exception:
+                pass
+            return
         dicas = getattr(self, "dicas", None)
         if (
             dicas is not None
@@ -1346,10 +1589,17 @@ class SuiteApp:
         except Exception:
             pass
 
+    def _picked_form(self, kind: str):
+        if kind == "dicas" and getattr(self, "dicas", None) is not None:
+            return self.dicas
+        if kind == "links" and getattr(self, "links_form", None) is not None:
+            return self.links_form
+        return self.publish_form
+
     def _publish_pick(self, kind: str) -> None:
         self._publish_pick_kind = kind
         if not hasattr(ft, "FilePicker"):
-            target = self.dicas if kind == "dicas" and getattr(self, "dicas", None) is not None else self.publish_form
+            target = self._picked_form(kind)
             target.message = "Seletor de arquivo indisponivel neste ambiente."
             self._render()
             return
@@ -1369,6 +1619,8 @@ class SuiteApp:
         if kind == "tutorial_markdown_path":
             allowed = ["md"]
         elif kind == "dicas":
+            allowed = ["json"]
+        elif kind == "links":
             allowed = ["json"]
         elif (kind or "").startswith("tutorial_video:"):
             allowed = ["mp4"]
@@ -1399,11 +1651,25 @@ class SuiteApp:
         selected = files[0]
         path = getattr(selected, "path", None) or ""
         if not path:
-            target = self.dicas if kind == "dicas" else self.publish_form
+            target = self._picked_form(kind)
             target.message = "O seletor nao devolveu o caminho do arquivo. Tente de novo."
             self._render()
             return
         picked_name = str(getattr(selected, "name", "") or "").strip() or Path(path).name
+        if kind == "links":
+            try:
+                self.links_form.groups = read_links_groups(Path(path))
+            except (OSError, ValueError, UnicodeDecodeError):
+                self.links_form.message = "O arquivo nao e um links.json valido."
+                self._render()
+                return
+            self.links_form.local_path = path
+            self.links_form.local_name = picked_name or Path(path).name
+            self.links_form.message = ""
+            self.links_form.notice = ""
+            self.links_form.notice_ok = False
+            self._render()
+            return
         if kind == "dicas":
             try:
                 self.dicas.pairs = read_tips_pairs(Path(path))
@@ -2444,6 +2710,8 @@ class SuiteApp:
         self._estrutura_layout.controls = [self._sess_str_sel, self._sess_str_edit]
         if getattr(self, "_dicas_layout", None) is not None:
             self._dicas_layout.controls = [self._sess_dicas_sel, self._sess_dicas_edit]
+        if getattr(self, "_links_layout", None) is not None:
+            self._links_layout.controls = [self._sess_links_sel, self._sess_links_edit]
         self._catalog_session_box.content = self._session_host
         if self._catalog_shell is None:
             self._session_host.content = self._publish_layout
@@ -2573,6 +2841,13 @@ class SuiteApp:
                 dicas_layout=self._dicas_layout,
                 dicas_select=self._sess_dicas_sel,
                 dicas_edit=self._sess_dicas_edit,
+                links=self.links_form,
+                on_links_save=self._links_save,
+                on_links_pick=lambda: self._publish_pick("links"),
+                on_links_field=self._links_field,
+                links_layout=self._links_layout,
+                links_select=self._sess_links_sel,
+                links_edit=self._sess_links_edit,
             )
             self.content_holder.content = shell
         elif self.selected_id is not None:
