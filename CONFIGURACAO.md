@@ -10,8 +10,9 @@ abertura do programa.
 | Publico (versionado) | Local / SharePoint | Para que serve |
 | -------------------- | ------------------ | -------------- |
 | `settings.example.json` | `settings.json` | Nome/empresa/exe/pasta de dados, textos da home, cores, URL do catalog.json |
-| `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps, ponteiro `dicas` |
+| `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps, ponteiros `dicas` e `links` |
 | `tips.example.json` | `tips.json` no SharePoint | Corpo das dicas (`titulo` e `texto`). Nao e o bloco do catalogo |
+| `links.example.json` | `links.json` no SharePoint | Corpo dos links (grupos com `titulo`, `descricao` e `url`). Nao e o bloco do catalogo |
 | `assets/branding/*.example.png` | `logo.png` / `hero.png` / `window_icon.png` | Logo sidebar, banner home, icone janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
@@ -88,6 +89,10 @@ Estrutura completa (veja `catalog.example.json`):
     "download_url": "https://empresa.sharepoint.com/.../SuiteApps.exe"
   },
   "dicas": {
+    "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
+    "versao": "1"
+  },
+  "links": {
     "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
     "versao": "1"
   },
@@ -204,6 +209,70 @@ e **Dica**, quantos quiser, com uma linha entre cada par. Salvar envia o
 PowerShell sem janela,
 como o restante do Catalogo.
 
+### Links (opcional)
+
+O bloco `links` aponta para o `links.json` no SharePoint, no mesmo formato de
+`dicas`: `url` com `download.aspx?UniqueId=` e `versao`. Sem `url` ou sem
+`versao`, a Suite nao busca o arquivo. Catalogo antigo, sem o bloco, continua
+valendo.
+
+O corpo — os grupos, nao o ponteiro `links` do `catalog.json` — esta em
+[`links.example.json`](links.example.json), na raiz, ao lado de
+`tips.example.json`. No SharePoint o arquivo continua se chamando `links.json`.
+
+```json
+{
+  "grupos": [
+    {
+      "titulo": "Portais",
+      "links": [
+        {
+          "titulo": "Ponto",
+          "descricao": "Registro de ponto",
+          "url": "https://exemplo.com/ponto"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Grupo sem titulo ou sem nenhum item valido e ignorado. Item sem titulo ou sem
+`url` e ignorado. A descricao pode ficar vazia.
+
+A copia local fica em `%LOCALAPPDATA%/<app.data_dir>/catalog/links.json`, e a
+versao ja salva ao lado, em `links.versao`. Essa versao so muda depois de um
+download que deu certo.
+
+Na abertura, em **Buscar atualizacoes** e na checagem das 10:00
+(America/Sao_Paulo), depois de ler o `catalog.json`, no mesmo ponto das dicas:
+
+- sem `links.url` ou sem `links.versao`: nao baixa;
+- versao remota igual a salva e o arquivo local existe: nao baixa de novo;
+- versao diferente, ou ainda sem copia: baixa o `links.json`.
+
+Se o download falhar, vier HTML ou o JSON for invalido, nao ha aviso. A copia
+anterior, se houver, permanece, e o item **Links** nao aparece no menu.
+
+Com arquivo valido, o menu mostra **Links** entre **Favoritos** e **Catalogo**.
+A pagina lista os grupos na ordem do JSON. Cada item e um botao com o titulo e
+a descricao; o clique abre a `url` https no navegador. A estrela, no mesmo
+cartao, alterna o favorito e nao abre o link. Arquivo valido sem nenhum
+link: a pagina abre com a linha "Nenhum link.". Se a pessoa estiver nessa pagina
+e um sync seguinte falhar, o item some e a tela volta para Inicio.
+
+A estrela grava só neste computador, em
+`%LOCALAPPDATA%/<app.data_dir>/link_favorites.json`, ao lado de
+`favorites.json` e sem misturar com o favorito de aplicativo. Nao altera o
+`links.json` nem o SharePoint. A pagina **Links** continua só com os grupos
+do arquivo. Os escolhidos aparecem na tela **Favoritos** da sidebar, na secao
+**Links**, abaixo da secao **Aplicativos**, na ordem em que foram marcados.
+Sem links marcados, essa secao nao aparece. Sem aplicativos favoritos, o item
+**Favoritos** continua se houver link marcado e mostra so **Links**. Sem
+nenhum dos dois, o item some. Se a pessoa estiver nessa tela e desmarcar o
+ultimo, volta para Inicio. A mesma url conta uma vez. Se a url sair do
+`links.json` valido, ela deixa de aparecer.
+
 ### Gerencias
 
 Cada gerencia lista os `id`s dos apps que ela exibe. O mesmo app pode entrar em
@@ -274,8 +343,31 @@ Capas/icones em `%LOCALAPPDATA%/<app.data_dir>/catalog/images/`, com
 ### Favoritos
 
 Estrela nos cards e no detalhe. Persistidos em
-`%LOCALAPPDATA%/<app.data_dir>/favorites.json`. Se houver ao menos 1 favorito
-visivel no filtro atual, o item **Favoritos** aparece na sidebar (apos Inicio).
+`%LOCALAPPDATA%/<app.data_dir>/favorites.json`. Os links marcados na pagina
+**Links** entram na mesma tela, secao **Links**, a partir de
+`link_favorites.json`. Se houver ao menos 1 aplicativo favorito visivel no
+filtro atual, ou 1 link marcado que ainda esteja no `links.json`, o item
+**Favoritos** aparece na sidebar (apos Inicio).
+
+Nessa tela, a frase sob o titulo conta aplicativos e links favoritados, sem
+escrever zero. Um clique curto no cartao abre o app ou o link; o espaco vazio
+da linha nao abre nada. A estrela alterna o favorito e nao abre nem arrasta.
+Passar o mouse na area do titulo e da descricao destaca essa superficie, como
+nos cartoes do Inicio. A estrela continua com o destaque dela. O detector do
+segurar e do tamanho do cartao e fica atras dessa area, para nao engolir o
+mouse nem cobrir o fim vazio da linha.
+Segurar o cartao por mais de 0,5 segundo levanta esse
+item (sombra, leve aumento) e a secao abre um vao vazio, do tamanho do cartao,
+com a borda na cor de destaque. O vao acompanha o ponteiro e os outros cartoes
+da mesma secao se afastam. Trocar de lugar nao interrompe o arraste: o mesmo
+gesto segue o ponteiro ate soltar. O vao, o tamanho da secao e o cartao
+flutuante ja estao montados quando a tela abre, entao o primeiro arraste
+e tao fluido quanto os seguintes. Ao soltar, o item entra nesse vao, a ordem
+grava na hora em `favorites.json` ou `link_favorites.json` e o cartao volta ao
+normal. O gesto continua montado no cartao, entao soltar nao deixa o cartao
+no ar. Soltar fora usa o vao mais proximo da propria secao. Um link nao entra
+no meio dos aplicativos. Favorito novo entra no fim. Tirar a estrela nao muda
+a ordem dos outros. Com menos de dois itens na secao, segurar nao reordena.
 
 A cada abertura, o SuiteApps:
 1. Baixa o `catalog.json` via PnP/WebLogin.

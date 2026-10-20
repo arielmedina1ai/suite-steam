@@ -85,6 +85,41 @@ class DicasInfo:
 
 
 @dataclass
+class LinksInfo:
+    """Bloco opcional catalog.json > links. Ausente: sem url e sem versao."""
+
+    url: str = ""
+    versao: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "LinksInfo":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            url=str(data.get("url", "")).strip(),
+            versao=str(data.get("versao", "")).strip(),
+        )
+
+    @property
+    def configured(self) -> bool:
+        """Os dois campos precisam existir para a Suite buscar o links.json."""
+        return bool(self.url and self.versao)
+
+
+@dataclass
+class LinkItem:
+    titulo: str
+    descricao: str
+    url: str
+
+
+@dataclass
+class LinkGroup:
+    titulo: str
+    links: list[LinkItem] = field(default_factory=list)
+
+
+@dataclass
 class Dica:
     titulo: str
     texto: str
@@ -237,6 +272,7 @@ class CatalogData:
     # Rotulo da opcao "sem filtro" no seletor de gerencia (default: Geral)
     gerencia_geral: str = "Geral"
     dicas: DicasInfo = field(default_factory=DicasInfo)
+    links: LinksInfo = field(default_factory=LinksInfo)
 
     def gerencia_by_id(self, gerencia_id: str) -> GerenciaInfo | None:
         alvo = (gerencia_id or "").strip()
@@ -262,6 +298,7 @@ class CatalogData:
                 setores=self.setores,
                 gerencia_geral=self.gerencia_geral,
                 dicas=self.dicas,
+                links=self.links,
             )
         g = self.gerencia_by_id(gerencia_id)
         if g is None:
@@ -275,6 +312,7 @@ class CatalogData:
                     setores=self.setores,
                     gerencia_geral=self.gerencia_geral,
                     dicas=self.dicas,
+                    links=self.links,
                 )
             return CatalogData(
                 apps=list(self.apps),
@@ -283,6 +321,7 @@ class CatalogData:
                 setores=self.setores,
                 gerencia_geral=self.gerencia_geral,
                 dicas=self.dicas,
+                links=self.links,
             )
         allowed = set(g.apps)
         apps = [a for a in self.apps if a.id in allowed]
@@ -293,6 +332,7 @@ class CatalogData:
             setores=self.setores,
             gerencia_geral=self.gerencia_geral,
             dicas=self.dicas,
+            links=self.links,
         )
 
 
@@ -387,6 +427,8 @@ def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:
 
     dicas_raw = data.get("dicas")
     dicas = DicasInfo.from_dict(dicas_raw if isinstance(dicas_raw, dict) else None)
+    links_raw = data.get("links")
+    links = LinksInfo.from_dict(links_raw if isinstance(links_raw, dict) else None)
 
     return CatalogData(
         apps=apps,
@@ -395,6 +437,7 @@ def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:
         setores=setores,
         gerencia_geral=gerencia_geral,
         dicas=dicas,
+        links=links,
     )
 
 
@@ -419,6 +462,44 @@ def parse_tips_payload(data: Any) -> list[Dica]:
             continue
         tips.append(Dica(titulo=titulo, texto=texto))
     return tips
+
+
+def parse_links_payload(data: Any) -> list[LinkGroup]:
+    """Le links.json `{ "grupos": [ { "titulo", "links": [...] } ] }`.
+
+    Grupo sem titulo ou sem item valido sai da lista. Item sem titulo ou
+    sem url tambem. Descricao pode ficar vazia. Formato errado levanta
+    ValueError — o download trata isso como falha e nao libera o menu.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("links.json invalido")
+    raw = data.get("grupos")
+    if not isinstance(raw, list):
+        raise ValueError("links.json sem lista grupos")
+    groups: list[LinkGroup] = []
+    for group in raw:
+        if not isinstance(group, dict):
+            continue
+        titulo = str(group.get("titulo", "")).strip()
+        if not titulo:
+            continue
+        items_raw = group.get("links")
+        if not isinstance(items_raw, list):
+            continue
+        items: list[LinkItem] = []
+        for item in items_raw:
+            if not isinstance(item, dict):
+                continue
+            item_titulo = str(item.get("titulo", "")).strip()
+            url = str(item.get("url", "")).strip()
+            descricao = str(item.get("descricao", "")).strip()
+            if not item_titulo or not url:
+                continue
+            items.append(LinkItem(titulo=item_titulo, descricao=descricao, url=url))
+        if not items:
+            continue
+        groups.append(LinkGroup(titulo=titulo, links=items))
+    return groups
 
 
 def tips_payload(pairs: list[tuple[str, str]]) -> dict[str, Any]:

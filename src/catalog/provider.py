@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlparse
 
 import config
 from models import AppInfo, CatalogData, parse_catalog_dict
+from services.links import sync_links
 from services.tips import sync_tips
 from services.sharepoint_manager import (
     SharePointBatchItem,
@@ -410,9 +411,13 @@ class SharePointCatalogProvider(CatalogProvider):
                 progress(pct, msg)
 
         def finish(result: CatalogSyncResult) -> CatalogSyncResult:
-            # Dicas nao entram na mensagem do catalogo. Falha fica silenciosa.
+            # Dicas e links nao entram na mensagem do catalogo. Falha fica silenciosa.
             try:
                 sync_tips(result.catalog)
+            except Exception:
+                pass
+            try:
+                sync_links(result.catalog)
             except Exception:
                 pass
             return result

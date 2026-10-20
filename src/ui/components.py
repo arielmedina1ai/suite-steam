@@ -213,6 +213,9 @@ def build_sidebar(
     selected_setor_id: str | None,
     selected_gerencia_id: str,
     show_favorites: bool,
+    show_links: bool = False,
+    links_selected: bool = False,
+    on_links: Callable[[], None] | None = None,
     suite_update: SuiteUpdateInfo | None,
     update_available: bool,
     update_busy: bool,
@@ -236,8 +239,8 @@ def build_sidebar(
     publish_selected: bool = False,
     on_publish: Callable[[], None] | None = None,
 ) -> ft.Control:
-    home_selected = home_selected and not publish_selected
-    favorites_selected = favorites_selected and not publish_selected
+    home_selected = home_selected and not publish_selected and not links_selected
+    favorites_selected = favorites_selected and not publish_selected and not links_selected
     setores = setores_visiveis(catalog)
     gerencia_list = gerencias if gerencias is not None else catalog.gerencias
     items: list[ft.Control] = [
@@ -307,6 +310,16 @@ def build_sidebar(
                 icon=ft.Icons.STAR,
                 selected=favorites_selected,
                 on_click=on_favorites,
+            )
+        )
+
+    if show_links and on_links is not None:
+        items.append(
+            _nav_item(
+                label="Links",
+                icon=ft.Icons.LINK,
+                selected=links_selected,
+                on_click=on_links,
             )
         )
 
@@ -402,6 +415,7 @@ def build_sidebar(
                         not home_selected
                         and not favorites_selected
                         and not publish_selected
+                        and not links_selected
                         and selected_setor_id == setor.id
                     ),
                     on_click=lambda s=setor.id: on_select_setor(s),

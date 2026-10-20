@@ -1,14 +1,16 @@
 """Tela inicial, favoritos e listagens por setor."""
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 import flet as ft
 
 import config
-from models import AppInfo, Dica, GerenciaInfo, SetorInfo, group_apps_by_sub_setor
+from models import AppInfo, Dica, GerenciaInfo, LinkItem, SetorInfo, group_apps_by_sub_setor
 from services.tips import tip_text_pieces
 from ui.components import app_badge, app_icon
+from ui.favorite_hold import HoldSection
+from ui.links_view import link_face
 
 _HERO_ASPECT = 2220 / 1140
 _HERO_DISPLAY_WIDTH = 240
@@ -38,7 +40,7 @@ def _tutorial_badge() -> ft.Control:
     )
 
 
-def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bool, on_toggle_favorite: Callable[[str], None], installed: bool) -> ft.Control:
+def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bool, on_toggle_favorite: Callable[[str], None], installed: bool, opens: bool = True) -> ft.Control:
     meta: list[ft.Control] = [
         ft.Container(
             bgcolor=config.COLOR_PRIMARY_DARK,
@@ -53,7 +55,11 @@ def _app_card(app: AppInfo, on_select: Callable[[str], None], *, is_favorite: bo
     body = ft.Container(
         ink=True,
         expand=True,
-        on_click=lambda e, aid=app.id: on_select(aid),
+        on_click=(lambda e, aid=app.id: on_select(aid)) if opens else None,
+        # Favoritos nao abre neste clique: o gesto da secao abre ou solta.
+        # on_tap_down liga o mesmo InkWell do Inicio (ink + toque), sem
+        # um segundo abrir. O detector fica fora desta superficie.
+        on_tap_down=None if opens else (lambda _e: None),
         content=ft.Column(
             spacing=8,
             expand=True,
@@ -198,10 +204,162 @@ def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerenci
     return stack
 
 
-def build_favoritos_view(apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
-    header = ft.Column(spacing=4, controls=[ft.Text("Favoritos", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT), ft.Text(f"{len(apps)} aplicativo(s) favorito(s)", size=13, color="#8AA797")])
-    listing = _apps_grid(apps, on_select, title="Aplicativos", empty_message="Nenhum favorito. Clique na estrela de um app para adicionar.", favorite_ids=favorite_ids, on_toggle_favorite=on_toggle_favorite, installed_ids=installed_ids or set())
-    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[header, listing])
+_LINK_ROW_H = 84.0
+_LINK_GAP = 8.0
+_APP_GAP = 16.0
+
+
+def _favorites_summary(app_count: int, link_count: int) -> str:
+    """Frase sob o titulo. Nao escreve zero."""
+    apps = int(app_count)
+    links = int(link_count)
+    if apps and links:
+        return f"{apps} aplicativo(s) e {links} link(s) favorito(s)"
+    if apps:
+        return f"{apps} aplicativo(s) favorito(s)"
+    if links:
+        return f"{links} link(s) favorito(s)"
+    return ""
+
+
+def _favorite_link_card(item: LinkItem, on_toggle_link: Callable[[str], None] | None) -> ft.Control:
+    """Titulo e descricao com o mesmo ink do cartao do Inicio. A estrela e irma."""
+    star = _star_button(item.url, True, on_toggle_link or (lambda _url: None))
+    text = ft.Container(
+        expand=True,
+        data=item.url,
+        ink=True,
+        on_tap_down=lambda _e: None,
+        content=link_face(item),
+    )
+    return ft.Container(
+        height=_LINK_ROW_H,
+        bgcolor=config.COLOR_SURFACE,
+        border_radius=12,
+        padding=ft.Padding.only(left=12, right=4, top=8, bottom=8),
+        content=ft.Row(
+            spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            controls=[text, star],
+        ),
+    )
+
+
+def build_favoritos_view(
+    apps: list[AppInfo],
+    on_select: Callable[[str], None],
+    *,
+    favorite_ids: set[str],
+    on_toggle_favorite: Callable[[str], None],
+    installed_ids: set[str] | None = None,
+    link_items: list[LinkItem] | None = None,
+    page: Any = None,
+    on_toggle_link: Callable[[str], None] | None = None,
+    on_reorder_app: Callable[[str, int], None] | None = None,
+    on_reorder_link: Callable[[str, int], None] | None = None,
+) -> ft.Control:
+    """Aplicativos favoritos na secao Aplicativos; links marcados abaixo, na secao Links.
+
+    Secao vazia nao aparece. Segurar um cartao por mais de 0,5s ordena so essa secao.
+    """
+    links = list(link_items or [])
+    installed = installed_ids or set()
+    header_controls: list[ft.Control] = [
+        ft.Text("Favoritos", size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+    ]
+    summary = _favorites_summary(len(apps), len(links))
+    if summary:
+        header_controls.append(ft.Text(summary, size=13, color="#8AA797"))
+    sections: list[ft.Control] = [ft.Column(spacing=4, controls=header_controls)]
+    hold_apps = None
+    hold_links = None
+    if apps:
+        app_bridge = {"cancel": lambda: None}
+
+        def _app_face(app_id: str) -> ft.Control:
+            app = next(item for item in apps if item.id == app_id)
+
+            def _star(_id: str = app_id) -> None:
+                app_bridge["cancel"]()
+                on_toggle_favorite(_id)
+
+            return _app_card(
+                app,
+                on_select,
+                is_favorite=app.id in favorite_ids,
+                on_toggle_favorite=_star,
+                installed=app.id in installed,
+                opens=False,
+            )
+
+        hold_apps = HoldSection(
+            [app.id for app in apps],
+            axis="grid",
+            card_w=_CARD_WIDTH,
+            card_h=_CARD_HEIGHT,
+            spacing_x=_APP_GAP,
+            spacing_y=_APP_GAP,
+            columns=3,
+            build_card=_app_face,
+            on_open=on_select,
+            on_drop=on_reorder_app or (lambda _key, _index: None),
+            page=page,
+        )
+        app_bridge["cancel"] = hold_apps.cancel_press
+        sections.append(
+            ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Text("Aplicativos", size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+                    hold_apps.control(),
+                ],
+            )
+        )
+    if links:
+        link_bridge = {"cancel": lambda: None}
+
+        def _link_face(url: str) -> ft.Control:
+            item = next(link for link in links if link.url == url)
+
+            def _star(_id: str = url) -> None:
+                link_bridge["cancel"]()
+                if callable(on_toggle_link):
+                    on_toggle_link(_id)
+
+            return _favorite_link_card(item, _star)
+
+        def _open_link(url: str) -> None:
+            from services.url_launch import open_https_url
+
+            open_https_url(page, url)
+
+        hold_links = HoldSection(
+            [item.url for item in links],
+            axis="line",
+            card_w=640,
+            card_h=_LINK_ROW_H,
+            spacing_x=0,
+            spacing_y=_LINK_GAP,
+            columns=1,
+            build_card=_link_face,
+            on_open=_open_link,
+            on_drop=on_reorder_link or (lambda _key, _index: None),
+            page=page,
+        )
+        link_bridge["cancel"] = hold_links.cancel_press
+        sections.append(
+            ft.Column(
+                spacing=8,
+                controls=[
+                    ft.Text("Links", size=20, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT),
+                    hold_links.control(),
+                ],
+            )
+        )
+    column = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=sections)
+    column._hold_apps = hold_apps
+    column._hold_links = hold_links
+    return column
 
 
 def build_setor_view(setor: SetorInfo, apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:

@@ -199,6 +199,8 @@ USER_DATA_DIR = _user_data_dir()
 DOWNLOADS_DIR = USER_DATA_DIR / "apps"
 INSTALLED_MANIFEST = USER_DATA_DIR / "installed.json"
 FAVORITES_FILE = USER_DATA_DIR / "favorites.json"
+# Estrelas da pagina Links. Nao mistura com o favorito de aplicativo.
+LINK_FAVORITES_FILE = USER_DATA_DIR / "link_favorites.json"
 CATALOG_CACHE_DIR = USER_DATA_DIR / "catalog"
 CATALOG_CACHE_FILE = CATALOG_CACHE_DIR / "catalog.json"
 CATALOG_IMAGES_DIR = CATALOG_CACHE_DIR / "images"
@@ -207,6 +209,9 @@ TUTORIAL_CACHE_DIR = CATALOG_CACHE_DIR / "tutorials"
 # tips.json baixado e a versao que ja deu certo. A versao so muda depois do arquivo.
 TIPS_FILE = CATALOG_CACHE_DIR / "tips.json"
 TIPS_VERSION_FILE = CATALOG_CACHE_DIR / "tips.versao"
+# links.json baixado e a versao que ja deu certo. A versao so muda depois do arquivo.
+LINKS_FILE = CATALOG_CACHE_DIR / "links.json"
+LINKS_VERSION_FILE = CATALOG_CACHE_DIR / "links.versao"
 
 
 def user_downloads_dir() -> Path:
