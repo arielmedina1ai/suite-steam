@@ -273,6 +273,22 @@ nenhum dos dois, o item some. Se a pessoa estiver nessa tela e desmarcar o
 ultimo, volta para Inicio. A mesma url conta uma vez. Se a url sair do
 `links.json` valido, ela deixa de aparecer.
 
+A aba **Links** do Catalogo fica entre **Estrutura** e **Dicas** e usa o mesmo
+acesso de `publish.users`. O bloco **Selecionar ou adicionar** recebe o
+`links.json`: colar o link do SharePoint ou escolher um arquivo local (o envio
+vai para a pasta de destino com o nome original). O bloco **Editar** so abre
+com esse arquivo. Cada item tem grupo, titulo, descricao e link. A descricao
+pode ficar vazia. Sem titulo ou sem url, o item nao entra no arquivo. Grupo
+sem titulo nao entra. A ordem editada e a ordem da pagina. **Subir** e
+**Descer** movem o grupo, ou o item dentro do grupo. Item novo entra no fim
+do grupo. Grupo novo entra no fim. Trocar o campo de grupo move o item para
+esse grupo, no fim dele. Salvar envia o `links.json` e, so se esse envio der
+certo, grava `links.url` e soma 1 em `links.versao`. A copia local
+(`links.json` e `links.versao`) atualiza nesse mesmo sucesso. Um link
+`download.aspx?UniqueId=` colado entra como foi colado. Se o envio falhar, a
+versao nao muda. Um WebLogin so, PowerShell sem janela, como o restante do
+Catalogo.
+
 ### Gerencias
 
 Cada gerencia lista os `id`s dos apps que ela exibe. O mesmo app pode entrar em
@@ -433,7 +449,7 @@ notificacao (Abrir / Sair). Minimizar deixa a janela na barra de tarefas. **Inic
 - **Tutorial** (contornado, so com o app instalado e se houver markdown ou video)
 - **Atualizar versao** (quando `versao` do catalogo difere da instalada; se **esse**
   processo estiver aberto, o hub encerra, instala e reabre)
-- **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps), Estrutura (gerencias, setores, sub-setores) e Dicas (tips.json); envio para `publish.folder_url`
+- **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps), Estrutura (gerencias, setores, sub-setores), Links (links.json) e Dicas (tips.json); envio para `publish.folder_url`
 - Barra de progresso com percentual durante download/update (indeterminado no WebLogin)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**
