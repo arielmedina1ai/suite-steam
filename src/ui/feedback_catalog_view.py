@@ -114,6 +114,18 @@ def bind_feedback_form(
             )
         )
     else:
+        edit_controls.append(
+            option7_text(
+                "Introdução",
+                form.introducao,
+                changed=False,
+                on_commit=lambda value: on_field("introducao", value),
+                is_changed=lambda: False,
+                multiline=True,
+                min_lines=3,
+                max_lines=8,
+            )
+        )
         shown = ordered_feedback_entries(form.entries)
         if not shown:
             edit_controls.append(

@@ -16,6 +16,7 @@ class FeedbackView:
         app: AppInfo,
         on_back: Callable[[], None],
         on_submit: Callable[[str], str],
+        introducao: str = "",
     ) -> None:
         self.page = page
         self.app = app
@@ -23,6 +24,20 @@ class FeedbackView:
         self.on_submit = on_submit
         self._busy = False
         self._sent = False
+        self.introducao = introducao or ""
+        self.guide_text = ft.Text(
+            self.introducao.strip(),
+            size=15,
+            color="#D6E5DC",
+        )
+        self.guide_card = ft.Container(
+            visible=bool(self.introducao.strip()),
+            bgcolor=config.COLOR_SURFACE,
+            border=ft.Border.all(1, "#2C4036"),
+            border_radius=12,
+            padding=16,
+            content=self.guide_text,
+        )
         self.field = ft.TextField(
             multiline=True,
             min_lines=6,
@@ -80,6 +95,7 @@ class FeedbackView:
                         self.back_button,
                     ],
                 ),
+                self.guide_card,
                 self.field,
                 self.send_button,
                 self.error_text,
@@ -144,6 +160,14 @@ class FeedbackView:
         self.sent_text.visible = True
         self.ok_button.visible = True
         self.back_button.disabled = False
+        self.guide_card.visible = False
+        self._safe_update()
+
+    def set_introducao(self, text: str) -> None:
+        self.introducao = text or ""
+        shown = self.introducao.strip()
+        self.guide_text.value = shown
+        self.guide_card.visible = bool(shown) and not self._sent
         self._safe_update()
 
     def _safe_update(self) -> None:

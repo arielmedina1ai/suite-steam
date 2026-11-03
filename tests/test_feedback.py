@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import flet as ft
 
+import config
 from models import AppInfo, FeedbackInfo, parse_catalog_dict
 from services.catalog_publish import PublishFormState, PublishOutcome, StructureFormState
 from services.feedback import (
@@ -133,9 +134,9 @@ class CatalogFeedbackTests(unittest.TestCase):
         self.assertIn("download.aspx?UniqueId=", pointer["url"])
         self.assertTrue(str(pointer["versao"]).strip())
         body = json.loads((ROOT / "feedback.example.json").read_text(encoding="utf-8"))
-        self.assertIsInstance(body, list)
+        self.assertTrue(str(body["introducao"]).strip())
         self.assertEqual(
-            set(body[0]),
+            set(body["itens"][0]),
             {"usuario", "quando", "app_id", "texto"},
         )
 
@@ -350,6 +351,32 @@ class FeedbackScreenTests(unittest.TestCase):
         field_at = built.controls.index(view.field)
         send_at = built.controls.index(view.send_button)
         self.assertEqual(send_at, field_at + 1)
+        self.assertFalse(view.guide_card.visible)
+        self.assertLess(built.controls.index(view.guide_card), field_at)
+
+        guide = "Pode falar do uso no dia a dia, agradecer, sugerir melhoria ou apontar bug."
+        guided = FeedbackView(page, self._app(), lambda: None, lambda texto: "")
+        guided_page = guided.build()
+        self.assertFalse(guided.guide_card.visible)
+        guided.set_introducao("   ")
+        self.assertFalse(guided.guide_card.visible)
+        guided.set_introducao(guide)
+        self.assertTrue(guided.guide_card.visible)
+        self.assertIs(guided.guide_card.content, guided.guide_text)
+        self.assertEqual(guided.guide_text.value, guide)
+        self.assertEqual(guided.guide_card.bgcolor, config.COLOR_SURFACE)
+        self.assertEqual(guided.guide_card.border_radius, 12)
+        self.assertEqual(guided.guide_card.border.top.width, 1)
+        self.assertEqual(guided.guide_card.border.top.color, "#2C4036")
+        self.assertLess(guided_page.controls.index(guided.guide_card), guided_page.controls.index(guided.field))
+        self.assertEqual(
+            guided_page.controls.index(guided.send_button),
+            guided_page.controls.index(guided.field) + 1,
+        )
+        self.assertTrue(guided.field.autofocus)
+        guided._show_sent()
+        self.assertFalse(guided.guide_card.visible)
+        self.assertEqual(guided.sent_text.value, "Feedback enviado.")
 
     def test_failure_keeps_the_text_and_success_waits_for_ok_or_back(self) -> None:
         page = _Page()
@@ -475,7 +502,11 @@ class FeedbackListTests(unittest.TestCase):
         self.assertIn("sem-nome", labels)
         self.assertNotIn("Remover", labels)
         self.assertNotIn("Adicionar", labels)
-        self.assertFalse(any(type(node).__name__ == "TextField" for node in _walk(edit)))
+        fields = [node for node in _walk(edit) if type(node).__name__ == "TextField"]
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(fields[0].value, "")
+        self.assertTrue(fields[0].multiline)
+        self.assertIn("Introdução", labels)
         self.assertIn("Link", _texts(select))
         self.assertIn("Pasta destino", _texts(select))
         self.assertIn("Escolher arquivo", _texts(select))
@@ -505,20 +536,65 @@ class FeedbackListTests(unittest.TestCase):
             calls.append(json.loads(json.dumps(data)))
             return PublishOutcome(ok=False, message="Nao foi possivel atualizar a versao.")
 
-        form = FeedbackCatalogState(url="  " + PASTED + "  ", versao="3")
-        with patch("services.feedback.enviar_por_unique_id", side_effect=AssertionError("lista")):
-            failed = save_feedback_pointer(
-                form,
-                expected_fingerprint="",
-                fetch_text=fetch,
-                upload_catalog=refuse,
-            )
+        original_items = [
+            {
+                "usuario": "EMPRESA\\maria",
+                "quando": "ontem",
+                "app_id": "relatorio-producao",
+                "texto": "antigo",
+                "nota": "fica",
+            }
+        ]
+        feedback_file = {"introducao": "velha", "extra": "mantem", "itens": original_items}
+        bodies: list[str] = []
+
+        def read_feedback() -> tuple[str, str]:
+            return json.dumps(feedback_file), ""
+
+        def upload_fail(_body: str) -> tuple[bool, str]:
+            return False, "Nao foi possivel gravar o texto guia."
+
+        form = FeedbackCatalogState(
+            url="  " + PASTED + "  ",
+            versao="3",
+            introducao="Pode falar do uso no dia a dia.",
+        )
+        failed = save_feedback_pointer(
+            form,
+            expected_fingerprint="",
+            read_feedback=read_feedback,
+            upload_feedback=upload_fail,
+            fetch_text=fetch,
+            upload_catalog=refuse,
+        )
         self.assertFalse(failed.ok)
+        self.assertEqual(calls, [])
+        self.assertEqual(feedback_file["itens"], original_items)
+        self.assertEqual(feedback_file["introducao"], "velha")
+        self.assertEqual(catalog["feedback"]["versao"], "3")
+
+        def upload_ok(body: str) -> tuple[bool, str]:
+            bodies.append(body)
+            return True, ""
+
+        saved_fail_catalog = save_feedback_pointer(
+            form,
+            expected_fingerprint="",
+            read_feedback=read_feedback,
+            upload_feedback=upload_ok,
+            fetch_text=fetch,
+            upload_catalog=refuse,
+        )
+        self.assertFalse(saved_fail_catalog.ok)
         self.assertEqual(calls[0]["feedback"]["url"], PASTED)
         self.assertEqual(calls[0]["feedback"]["versao"], "4")
         self.assertNotIn(":u:", calls[0]["feedback"]["url"])
         self.assertEqual(catalog["feedback"]["versao"], "3")
         self.assertEqual(catalog["feedback"]["url"], "https://antiga")
+        written = json.loads(bodies[0])
+        self.assertEqual(written["introducao"], "Pode falar do uso no dia a dia.")
+        self.assertEqual(written["extra"], "mantem")
+        self.assertEqual(written["itens"], original_items)
 
         def accept(data: dict) -> PublishOutcome:
             calls.append(json.loads(json.dumps(data)))
@@ -527,12 +603,83 @@ class FeedbackListTests(unittest.TestCase):
         saved = save_feedback_pointer(
             form,
             expected_fingerprint="",
+            read_feedback=read_feedback,
+            upload_feedback=upload_ok,
             fetch_text=fetch,
             upload_catalog=accept,
         )
         self.assertTrue(saved.ok)
         self.assertEqual(saved.catalog.feedback.url, PASTED)
         self.assertEqual(saved.catalog.feedback.versao, "4")
+
+    def test_send_keeps_the_guide_and_old_list_shape(self) -> None:
+        catalog = {"feedback": {"url": PASTED, "versao": "3"}}
+        text = json.dumps(catalog)
+        bodies: list[str] = []
+        guide = {
+            "introducao": "Pode agradecer ou apontar um bug.",
+            "itens": [
+                {
+                    "usuario": "EMPRESA\\ana",
+                    "quando": "2026-11-01 09:00:00",
+                    "app_id": "outro",
+                    "texto": "antes",
+                }
+            ],
+        }
+
+        def read() -> tuple[str, str]:
+            return json.dumps(guide), ""
+
+        def upload(body: str) -> tuple[bool, str]:
+            bodies.append(body)
+            return True, ""
+
+        def fetch() -> tuple[str, str]:
+            return text, ""
+
+        def upload_catalog(data: dict) -> tuple[bool, str]:
+            return True, ""
+
+        result = submit_app_feedback(
+            app_id="relatorio-producao",
+            texto="novo",
+            feedback_url=PASTED,
+            usuario="EMPRESA\\maria",
+            now=datetime(2026, 11, 3, 18, 4, 5, tzinfo=timezone.utc),
+            read_feedback=read,
+            upload_feedback=upload,
+            fetch_catalog=fetch,
+            upload_catalog=upload_catalog,
+        )
+        self.assertTrue(result.ok)
+        saved = json.loads(bodies[0])
+        self.assertEqual(saved["introducao"], guide["introducao"])
+        self.assertEqual(saved["itens"][0], guide["itens"][0])
+        self.assertEqual(saved["itens"][1]["texto"], "novo")
+
+        bare: list[str] = []
+
+        def read_list() -> tuple[str, str]:
+            return json.dumps(guide["itens"]), ""
+
+        def upload_list(body: str) -> tuple[bool, str]:
+            bare.append(body)
+            return True, ""
+
+        listed = submit_app_feedback(
+            app_id="relatorio-producao",
+            texto="novo",
+            feedback_url=PASTED,
+            usuario="EMPRESA\\maria",
+            now=datetime(2026, 11, 3, 18, 4, 5, tzinfo=timezone.utc),
+            read_feedback=read_list,
+            upload_feedback=upload_list,
+            fetch_catalog=fetch,
+            upload_catalog=upload_catalog,
+        )
+        self.assertTrue(listed.ok)
+        self.assertIsInstance(json.loads(bare[0]), list)
 
     def test_feedback_tab_follows_dicas(self) -> None:
         row = ft.Row()
