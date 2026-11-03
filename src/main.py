@@ -72,6 +72,7 @@ from services.links import (
     set_group_title,
     set_item_field,
 )
+from services.feedback import submit_app_feedback
 from services.tips import (
     TIP_ROTATE_SECONDS,
     DicasFormState,
@@ -102,6 +103,7 @@ from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
+from ui.feedback_view import FeedbackView
 from ui.tutorial_view import TutorialView
 from ui.catalog_view import bind_catalog_view, session_holder
 from ui.home_view import apply_tip, build_favoritos_view, build_home, build_setor_view
@@ -125,6 +127,7 @@ class SuiteApp:
         self.selected_gerencia_id = self.preferences.get_gerencia_id()
         self.selected_id: str | None = None
         self.show_tutorial = False
+        self.show_feedback = False
         self.selected_setor: str | None = None
         self.show_favorites = False
         self.show_links = False
@@ -787,6 +790,7 @@ class SuiteApp:
     # ------------------------------------------------------------------
     def _leave_app_screen(self) -> None:
         self.show_tutorial = False
+        self.show_feedback = False
         self.run_error = ""
         self.detail_notice = ""
         self.detail_notice_app_id = None
@@ -1224,6 +1228,7 @@ class SuiteApp:
             return
         if self.storage.get_state(target.id).status != InstallStatus.INSTALLED:
             return
+        self.show_feedback = False
         self.show_tutorial = True
         self._render()
 
@@ -1231,10 +1236,40 @@ class SuiteApp:
         self.show_tutorial = False
         self._render()
 
+    def _open_feedback(self, app: AppInfo | None = None) -> None:
+        if not self.catalog.feedback.configured:
+            return
+        target = app
+        if target is None and self.selected_id:
+            target = self.apps_by_id.get(self.selected_id)
+        if target is None:
+            return
+        self.show_tutorial = False
+        self.show_feedback = True
+        self._render()
+
+    def _close_feedback(self) -> None:
+        self.show_feedback = False
+        self._render()
+
+    def _submit_feedback(self, texto: str) -> str:
+        result = submit_app_feedback(
+            app_id=self.selected_id or "",
+            texto=texto,
+            feedback_url=self.catalog.feedback.url,
+        )
+        if result.ok and result.catalog is not None:
+            self.catalog = result.catalog
+            self._apply_gerencia_filter()
+        if result.ok:
+            return ""
+        return result.message or "Nao foi possivel enviar."
+
     def _select_app(self, app_id: str) -> None:
         if self.selected_id != app_id:
             self._leave_app_screen()
         self.show_tutorial = False
+        self.show_feedback = False
         self.selected_id = app_id
         app = self.apps_by_id.get(app_id)
         if app is not None and app.setor:
@@ -2856,6 +2891,13 @@ class SuiteApp:
                 self.content_holder.content = ft.Text(
                     "Aplicativo nao encontrado.", color=config.COLOR_TEXT
                 )
+            elif self.show_feedback and self.catalog.feedback.configured:
+                self.content_holder.content = FeedbackView(
+                    self.page,
+                    app,
+                    self._close_feedback,
+                    self._submit_feedback,
+                ).build()
             elif (
                 self.show_tutorial
                 and app.has_tutorial
@@ -2867,6 +2909,8 @@ class SuiteApp:
                     self._close_tutorial,
                 ).build()
             else:
+                if self.show_feedback and not self.catalog.feedback.configured:
+                    self.show_feedback = False
                 if self.show_tutorial and (
                     not app.has_tutorial
                     or self.storage.get_state(app.id).status != InstallStatus.INSTALLED
@@ -2883,6 +2927,8 @@ class SuiteApp:
                     on_update_app=self._request_app_update,
                     on_uninstall=self._request_uninstall,
                     on_tutorial=self._open_tutorial,
+                    on_feedback=self._open_feedback,
+                    feedback_enabled=self.catalog.feedback.configured,
                     on_status=self._set_detail_notice,
                     this_app_running=self._this_app_running(app.id),
                     work_busy=self.app_job_busy and self.app_job_app_id == app.id,

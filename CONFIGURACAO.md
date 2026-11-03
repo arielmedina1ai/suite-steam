@@ -10,9 +10,10 @@ abertura do programa.
 | Publico (versionado) | Local / SharePoint | Para que serve |
 | -------------------- | ------------------ | -------------- |
 | `settings.example.json` | `settings.json` | Nome/empresa/exe/pasta de dados, textos da home, cores, URL do catalog.json |
-| `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps, ponteiros `dicas` e `links` |
+| `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps, ponteiros `dicas`, `links` e `feedback` |
 | `tips.example.json` | `tips.json` no SharePoint | Corpo das dicas (`titulo` e `texto`). Nao e o bloco do catalogo |
 | `links.example.json` | `links.json` no SharePoint | Corpo dos links (grupos com `titulo`, `descricao` e `url`). Nao e o bloco do catalogo |
+| `feedback.example.json` | `feedback.json` no SharePoint | Lista de feedback dos aplicativos. Nao e o bloco do catalogo |
 | `assets/branding/*.example.png` | `logo.png` / `hero.png` / `window_icon.png` | Logo sidebar, banner home, icone janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
@@ -93,6 +94,10 @@ Estrutura completa (veja `catalog.example.json`):
     "versao": "1"
   },
   "links": {
+    "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
+    "versao": "1"
+  },
+  "feedback": {
     "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
     "versao": "1"
   },
@@ -288,6 +293,52 @@ certo, grava `links.url` e soma 1 em `links.versao`. A copia local
 `download.aspx?UniqueId=` colado entra como foi colado. Se o envio falhar, a
 versao nao muda. Um WebLogin so, PowerShell sem janela, como o restante do
 Catalogo.
+
+### Feedback (opcional)
+
+O bloco `feedback` aponta para o `feedback.json` no SharePoint, no mesmo
+formato de `dicas` e `links`: `url` com `download.aspx?UniqueId=` e `versao`.
+Sem `url` ou sem `versao`, o botao **Feedback** nao aparece. Catalogo antigo,
+sem o bloco, continua valendo. Nao ha feedback da Suite nem aba de leitura
+no Catalogo.
+
+O corpo — a lista, nao o ponteiro `feedback` do `catalog.json` — esta em
+[`feedback.example.json`](feedback.example.json), na raiz, ao lado de
+`tips.example.json`. No SharePoint o arquivo continua se chamando
+`feedback.json`. A lista so cresce:
+
+```json
+[
+  {
+    "usuario": "EMPRESA\\maria",
+    "quando": "2026-11-03 15:04:05",
+    "app_id": "relatorio-producao",
+    "texto": "A planilha nao abriu na primeira vez."
+  }
+]
+```
+
+`usuario` e o login Windows no formato NameSamCompatible (`DOMINIO\\usuario`),
+o mesmo de `publish.users`. `quando` e data e hora em America/Sao_Paulo.
+A tela nao pede login nem data.
+
+Na tela do aplicativo, o botao **Feedback** fica entre **Executar** (ou
+**Baixar / Instalar**) e **Tutorial**, com o icone de balao e o mesmo tamanho
+dos outros botoes da linha. A tela ocupa o lugar da tela do aplicativo, como
+o tutorial. **Voltar** e o mesmo botao do tutorial, no mesmo canto. O titulo
+e `Feedback de {nome do app}`. O campo tem varias linhas e recebe o foco.
+**Enviar** fica no fim do campo.
+
+**Voltar** antes de enviar sai e descarta o texto. **Enviar** le o
+`feedback.json` pelo PnP, como as dicas, acrescenta o item e grava de novo.
+`feedback.versao` sobe 1 so se esse envio deu certo. Um WebLogin so,
+PowerShell sem janela. Um link `download.aspx?UniqueId=` colado permanece
+como foi colado.
+
+Se o envio falhar, a tela fica, o texto permanece e aparece uma linha curta
+de erro. Se der certo, a mesma tela mostra "Feedback enviado." e um botao
+**OK**. So **OK** ou **Voltar** nessa hora voltam para o aplicativo. A tela
+nao volta sozinha.
 
 ### Gerencias
 

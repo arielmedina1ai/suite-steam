@@ -28,6 +28,8 @@ class AppDetailView:
         on_update_app=None,
         on_uninstall=None,
         on_tutorial=None,
+        on_feedback=None,
+        feedback_enabled: bool = False,
         on_status=None,
         this_app_running: bool = False,
         work_busy: bool = False,
@@ -45,6 +47,8 @@ class AppDetailView:
         self.on_update_app = on_update_app
         self.on_uninstall = on_uninstall
         self.on_tutorial = on_tutorial
+        self.on_feedback = on_feedback
+        self.feedback_enabled = feedback_enabled
         self.on_status = on_status
         self.this_app_running = this_app_running
         self.work_busy = work_busy
@@ -65,6 +69,11 @@ class AppDetailView:
         self.local_info = ft.Text("", size=12, color="#8AA797")
 
         self.action_button = ft.FilledButton(on_click=self._on_action)
+        self.feedback_button = ft.OutlinedButton(
+            "Feedback",
+            icon=ft.Icons.CHAT_BUBBLE_OUTLINE,
+            on_click=self._on_feedback,
+        )
         self.tutorial_button = ft.OutlinedButton(
             "Tutorial",
             icon=ft.Icons.MENU_BOOK,
@@ -146,6 +155,7 @@ class AppDetailView:
         )
         action_controls: list[ft.Control] = [
             self.action_button,
+            self.feedback_button,
             self.tutorial_button,
             self.update_button,
             self.uninstall_button,
@@ -179,6 +189,10 @@ class AppDetailView:
                 self.status_text,
             ],
         )
+
+    def _on_feedback(self, _e) -> None:
+        if self.on_feedback and self.feedback_enabled and not self.work_busy:
+            self.on_feedback(self.app)
 
     def _on_tutorial(self, _e) -> None:
         if (
@@ -231,6 +245,8 @@ class AppDetailView:
             self.update_button.visible = False
             self.uninstall_button.visible = False
             self.local_info.value = ""
+        self.feedback_button.visible = self.feedback_enabled
+        self.feedback_button.disabled = self.work_busy
         self.tutorial_button.visible = installed and self.app.has_tutorial
         self.tutorial_button.disabled = self.work_busy
         if this and not self.work_busy:
@@ -305,6 +321,7 @@ class AppDetailView:
         self.work_busy = busy
         installed = self._current_status() == InstallStatus.INSTALLED
         self.action_button.disabled = busy or (installed and self.this_app_running)
+        self.feedback_button.disabled = busy
         self.tutorial_button.disabled = busy
         self.update_button.disabled = busy
         self.uninstall_button.disabled = busy or self.this_app_running
