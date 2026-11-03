@@ -13,7 +13,7 @@ abertura do programa.
 | `catalog.example.json` | `catalog.json` no SharePoint | Suite update, gerencias, setores, apps, ponteiros `dicas`, `links` e `feedback` |
 | `tips.example.json` | `tips.json` no SharePoint | Corpo das dicas (`titulo` e `texto`). Nao e o bloco do catalogo |
 | `links.example.json` | `links.json` no SharePoint | Corpo dos links (grupos com `titulo`, `descricao` e `url`). Nao e o bloco do catalogo |
-| `feedback.example.json` | `feedback.json` no SharePoint | Texto guia (`introducao`) e a lista de envios. Nao e o bloco do catalogo |
+| `feedback.example.json` | `feedback.json` no SharePoint | Lista de envios. Nao e o bloco do catalogo |
 | `assets/branding/*.example.png` | `logo.png` / `hero.png` / `window_icon.png` | Logo sidebar, banner home, icone janela |
 | `scripts/*.ps1` | (fixos) | Download/upload via PnP |
 
@@ -99,7 +99,8 @@ Estrutura completa (veja `catalog.example.json`):
   },
   "feedback": {
     "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
-    "versao": "1"
+    "versao": "1",
+    "introducao": "Pode falar do uso no dia a dia, agradecer, sugerir uma melhoria ou apontar um bug."
   },
   "gerencia_geral": "Geral",
   "gerencias": [
@@ -298,28 +299,25 @@ Catalogo.
 
 O bloco `feedback` aponta para o `feedback.json` no SharePoint, no mesmo
 formato de `dicas` e `links`: `url` com `download.aspx?UniqueId=` e `versao`.
-Sem `url` ou sem `versao`, o botao **Feedback** na tela do aplicativo nao
-aparece. Catalogo antigo, sem o bloco, continua valendo. Nao ha feedback
-da Suite.
+`introducao` fica nesse bloco, ao lado dos dois, e e o texto guia da tela
+do aplicativo. Sem `url` ou sem `versao`, o botao **Feedback** nao aparece.
+`introducao` vazia nao esconde o botao. Catalogo antigo, sem o bloco,
+continua valendo. Nao ha feedback da Suite.
 
-O corpo — o texto guia e a lista, nao o ponteiro `feedback` do `catalog.json` —
-esta em [`feedback.example.json`](feedback.example.json), na raiz, ao lado de
+O corpo — a lista, nao o ponteiro `feedback` do `catalog.json` — esta em
+[`feedback.example.json`](feedback.example.json), na raiz, ao lado de
 `tips.example.json`. No SharePoint o arquivo continua se chamando
-`feedback.json`. `introducao` e o unico texto editavel. A lista `itens` so
-cresce. Um arquivo que ainda e so a lista continua valendo: o guia fica vazio.
+`feedback.json` e e so a lista, que so cresce:
 
 ```json
-{
-  "introducao": "Pode falar do uso no dia a dia, agradecer, sugerir uma melhoria ou apontar um bug.",
-  "itens": [
-    {
-      "usuario": "EMPRESA\\maria",
-      "quando": "2026-11-03 15:04:05",
-      "app_id": "relatorio-producao",
-      "texto": "A planilha nao abriu na primeira vez."
-    }
-  ]
-}
+[
+  {
+    "usuario": "EMPRESA\\maria",
+    "quando": "2026-11-03 15:04:05",
+    "app_id": "relatorio-producao",
+    "texto": "A planilha nao abriu na primeira vez."
+  }
+]
 ```
 
 `usuario` e o login Windows no formato NameSamCompatible (`DOMINIO\\usuario`),
@@ -330,10 +328,12 @@ Na tela do aplicativo, o botao **Feedback** fica entre **Executar** (ou
 **Baixar / Instalar**) e **Tutorial**, com o icone de balao e o mesmo tamanho
 dos outros botoes da linha. A tela ocupa o lugar da tela do aplicativo, como
 o tutorial. **Voltar** e o mesmo botao do tutorial, no mesmo canto. O titulo
-e `Feedback de {nome do app}`. Se `introducao` tiver texto, ele aparece
-acima do campo, num cartao com fundo de superficie, borda `#2C4036` e
-cantos arredondados. O campo tem varias linhas, fica abaixo e recebe o foco.
-**Enviar** fica no fim do campo. Sem texto guia, a tela segue sem esse cartao.
+e `Feedback de {nome do app}`, fora do cartao. O texto guia vem de
+`feedback.introducao` no catalogo. Se houver texto, ele fica num cartao
+com fundo de superficie, borda `#2C4036`, cantos arredondados e espaco
+interno. O campo fica abaixo, num segundo cartao do mesmo estilo, com
+foco. **Enviar** fica no fim do campo. Sem texto guia, esse cartao nao
+aparece.
 
 **Voltar** antes de enviar sai e descarta o texto. **Enviar** le o
 `feedback.json` pelo PnP, como as dicas, acrescenta o item e grava de novo.
@@ -349,17 +349,18 @@ nao volta sozinha.
 A aba **Feedback** do Catalogo fica depois de **Dicas** e usa o mesmo
 acesso de `publish.users`. O bloco **Selecionar ou adicionar** e o mesmo
 da aba Dicas: colar o link ou escolher um arquivo local para ver a lista.
-O unico campo editavel do arquivo e **Introdução**. A lista **Enviados**
-nao edita pares. Mostra `usuario`, `quando`, `app` e `texto`, sem apagar
-e sem editar um feedback ja enviado. A ordem e a do arquivo, do mais
+**Introdução** e **Feedbacks enviados** sao dois blocos, cada um com titulo
+e espaco entre eles. Introdução e o unico campo editavel. A lista nao
+edita pares. Mostra `usuario`, `quando`, `app` e `texto`, sem apagar e
+sem editar um feedback ja enviado. A ordem e a do arquivo, do mais
 recente para o mais antigo quando todas as datas puderem ser lidas. Se
 alguma data nao puder, fica a ordem do arquivo. `app` e o nome no catalogo;
 sem nome, fica o `app_id`.
 
-**Salvar** grava `introducao` no `feedback.json`, sem mexer na lista, e o
-ponteiro no `catalog.json`: a url como foi colada (um
-`download.aspx?UniqueId=` nao e reescrito) e soma 1 em `feedback.versao`
-so se o texto guia subiu.
+**Salvar** grava `introducao` no bloco `feedback` do `catalog.json`, junto
+com a url como foi colada (um `download.aspx?UniqueId=` nao e reescrito).
+`feedback.versao` sobe 1 so se esse envio do catalogo der certo. A lista
+no `feedback.json` nao e regravada.
 
 ### Gerencias
 

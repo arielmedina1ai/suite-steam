@@ -1246,7 +1246,7 @@ class SuiteApp:
         form.dest_folder = config.PUBLISH_FOLDER_URL
         form.local_path = ""
         form.local_name = ""
-        form.introducao = ""
+        form.introducao = info.introducao
         form.entries = []
         form.loaded_url = ""
         form.fingerprint = self.publish_form.fingerprint or fingerprint_cache_file()
@@ -1274,7 +1274,7 @@ class SuiteApp:
         self.page.run_thread(lambda: self._feedback_load_worker(url))
 
     def _feedback_load_worker(self, url: str) -> None:
-        intro, entries, err = load_feedback_document(url)
+        entries, err = load_feedback_document(url)
         form = self.feedback_form
         form.busy = False
         form.progress = None
@@ -1282,11 +1282,9 @@ class SuiteApp:
             self._render()
             return
         if err:
-            form.introducao = ""
             form.entries = []
             form.message = err
         else:
-            form.introducao = intro
             form.entries = entries
             form.message = ""
         self._render()
@@ -1417,18 +1415,6 @@ class SuiteApp:
         self.show_feedback = False
         self._feedback_screen = None
         self._render()
-
-    def _load_app_feedback_intro(self, app_id: str) -> None:
-        url = (self.catalog.feedback.url or "").strip()
-        intro = ""
-        if url:
-            loaded, _entries, err = load_feedback_document(url)
-            if not err:
-                intro = loaded
-        screen = getattr(self, "_feedback_screen", None)
-        if screen is None or not self.show_feedback or self.selected_id != app_id:
-            return
-        screen.set_introducao(intro)
 
     def _submit_feedback(self, texto: str) -> str:
         result = submit_app_feedback(
@@ -1935,12 +1921,11 @@ class SuiteApp:
             return
         if kind == "feedback":
             try:
-                intro, entries = read_feedback_document(Path(path))
+                entries = read_feedback_document(Path(path))
             except (OSError, ValueError, UnicodeDecodeError):
                 self.feedback_form.message = "O arquivo nao e um feedback.json valido."
                 self._render()
                 return
-            self.feedback_form.introducao = intro
             self.feedback_form.entries = entries
             self.feedback_form.local_path = path
             self.feedback_form.local_name = picked_name or Path(path).name
@@ -3133,15 +3118,18 @@ class SuiteApp:
                 )
             elif self.show_feedback and self.catalog.feedback.configured:
                 screen = getattr(self, "_feedback_screen", None)
+                intro = self.catalog.feedback.introducao
                 if screen is None or getattr(screen.app, "id", None) != app.id:
                     screen = FeedbackView(
                         self.page,
                         app,
                         self._close_feedback,
                         self._submit_feedback,
+                        introducao=intro,
                     )
                     self._feedback_screen = screen
-                    self.page.run_thread(lambda aid=app.id: self._load_app_feedback_intro(aid))
+                else:
+                    screen.set_introducao(intro, refresh=False)
                 self.content_holder.content = screen.build()
             elif (
                 self.show_tutorial

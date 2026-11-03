@@ -108,10 +108,14 @@ class LinksInfo:
 
 @dataclass
 class FeedbackInfo:
-    """Bloco opcional catalog.json > feedback. Ausente: sem url e sem versao."""
+    """Bloco opcional catalog.json > feedback. Ausente: sem url e sem versao.
+
+    ``introducao`` e o texto guia da tela do aplicativo. Vazio nao esconde o botao.
+    """
 
     url: str = ""
     versao: str = ""
+    introducao: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "FeedbackInfo":
@@ -120,6 +124,7 @@ class FeedbackInfo:
         return cls(
             url=str(data.get("url", "")).strip(),
             versao=str(data.get("versao", "")).strip(),
+            introducao=str(data.get("introducao") or ""),
         )
 
     @property

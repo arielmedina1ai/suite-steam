@@ -30,14 +30,8 @@ class FeedbackView:
             size=15,
             color="#D6E5DC",
         )
-        self.guide_card = ft.Container(
-            visible=bool(self.introducao.strip()),
-            bgcolor=config.COLOR_SURFACE,
-            border=ft.Border.all(1, "#2C4036"),
-            border_radius=12,
-            padding=16,
-            content=self.guide_text,
-        )
+        self.guide_card = _feedback_card(self.guide_text)
+        self.guide_card.visible = bool(self.introducao.strip())
         self.field = ft.TextField(
             multiline=True,
             min_lines=6,
@@ -50,6 +44,7 @@ class FeedbackView:
             cursor_color=config.COLOR_ACCENT,
             focused_border_color=config.COLOR_ACCENT,
         )
+        self.field_card = _feedback_card(self.field)
         self.send_button = ft.FilledButton(
             "Enviar",
             icon=ft.Icons.SEND,
@@ -96,7 +91,7 @@ class FeedbackView:
                     ],
                 ),
                 self.guide_card,
-                self.field,
+                self.field_card,
                 self.send_button,
                 self.error_text,
                 self.sent_text,
@@ -154,6 +149,7 @@ class FeedbackView:
     def _show_sent(self) -> None:
         self._sent = True
         self.field.visible = False
+        self.field_card.visible = False
         self.send_button.visible = False
         self.error_text.visible = False
         self.error_text.value = ""
@@ -163,15 +159,26 @@ class FeedbackView:
         self.guide_card.visible = False
         self._safe_update()
 
-    def set_introducao(self, text: str) -> None:
+    def set_introducao(self, text: str, *, refresh: bool = True) -> None:
         self.introducao = text or ""
         shown = self.introducao.strip()
         self.guide_text.value = shown
         self.guide_card.visible = bool(shown) and not self._sent
-        self._safe_update()
+        if refresh:
+            self._safe_update()
 
     def _safe_update(self) -> None:
         try:
             self.page.update()
         except Exception:
             pass
+
+
+def _feedback_card(content: ft.Control) -> ft.Container:
+    return ft.Container(
+        bgcolor=config.COLOR_SURFACE,
+        border=ft.Border.all(1, "#2C4036"),
+        border_radius=12,
+        padding=16,
+        content=content,
+    )

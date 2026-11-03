@@ -104,9 +104,9 @@ def bind_feedback_form(
         height=280,
     )
 
-    edit_controls: list[ft.Control] = []
+    list_controls: list[ft.Control] = []
     if not form.has_file:
-        edit_controls.append(
+        list_controls.append(
             ft.Text(
                 "Selecione ou adicione o feedback.json para ver.",
                 size=13,
@@ -114,7 +114,34 @@ def bind_feedback_form(
             )
         )
     else:
-        edit_controls.append(
+        shown = ordered_feedback_entries(form.entries)
+        if not shown:
+            list_controls.append(
+                ft.Text("Nenhum feedback.", size=13, color="#8AA797")
+            )
+        for index, entry in enumerate(shown):
+            if index > 0:
+                list_controls.append(_pair_divider())
+            list_controls.append(option7_row("Usuario", _read_value(entry.usuario)))
+            list_controls.append(option7_row("Quando", _read_value(entry.quando)))
+            list_controls.append(
+                option7_row("App", _read_value(feedback_app_label(entry, app_names)))
+            )
+            list_controls.append(
+                option7_row(
+                    "Texto",
+                    _read_value(entry.texto, multiline=True),
+                    align=ft.CrossAxisAlignment.START,
+                )
+            )
+
+    done_text = form.notice if form.notice else ("" if form.busy else form.message)
+    intro_box = ft.Container()
+    list_box = ft.Container()
+    bind_form_section(
+        intro_box,
+        "Introdução",
+        [
             option7_text(
                 "Introdução",
                 form.introducao,
@@ -125,33 +152,13 @@ def bind_feedback_form(
                 min_lines=3,
                 max_lines=8,
             )
-        )
-        shown = ordered_feedback_entries(form.entries)
-        if not shown:
-            edit_controls.append(
-                ft.Text("Nenhum feedback.", size=13, color="#8AA797")
-            )
-        for index, entry in enumerate(shown):
-            if index > 0:
-                edit_controls.append(_pair_divider())
-            edit_controls.append(option7_row("Usuario", _read_value(entry.usuario)))
-            edit_controls.append(option7_row("Quando", _read_value(entry.quando)))
-            edit_controls.append(
-                option7_row("App", _read_value(feedback_app_label(entry, app_names)))
-            )
-            edit_controls.append(
-                option7_row(
-                    "Texto",
-                    _read_value(entry.texto, multiline=True),
-                    align=ft.CrossAxisAlignment.START,
-                )
-            )
-
-    done_text = form.notice if form.notice else ("" if form.busy else form.message)
+        ],
+        expand=False,
+    )
     bind_form_section(
-        edit_holder,
-        "Enviados",
-        edit_controls,
+        list_box,
+        "Feedbacks enviados",
+        list_controls,
         on_scroll_offset=lambda value: _remember_scroll(form, "edit_scroll", value),
         preserve_inner=form.hold_scroll,
         footer=[
@@ -191,3 +198,8 @@ def bind_feedback_form(
             ),
         ],
     )
+    edit_holder.height = None
+    edit_holder.expand = True
+    edit_holder.bgcolor = None
+    edit_holder.padding = 0
+    edit_holder.content = ft.Column(spacing=16, controls=[intro_box, list_box])

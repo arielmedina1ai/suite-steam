@@ -66,15 +66,8 @@ def feedback_item(*, usuario: str, quando: str, app_id: str, texto: str) -> dict
     }
 
 
-def feedback_intro(data: Any) -> str:
-    """Texto guia. Lista antiga nao tem o campo e devolve vazio."""
-    if isinstance(data, dict):
-        return str(data.get("introducao") or "")
-    return ""
-
-
 def feedback_item_list(data: Any) -> list[Any]:
-    """Itens na ordem do arquivo. Lista pura ou objeto com ``itens``."""
+    """Itens na ordem do arquivo. Lista pura ou objeto antigo com ``itens``."""
     if isinstance(data, list):
         return data
     if isinstance(data, dict) and isinstance(data.get("itens"), list):
@@ -82,35 +75,9 @@ def feedback_item_list(data: Any) -> list[Any]:
     raise ValueError(_INVALID_ERROR)
 
 
-def append_feedback(data: Any, item: dict[str, str]) -> Any:
-    """Acrescenta no fim. O texto guia e os itens antigos ficam como estavam."""
-    if isinstance(data, list):
-        return [*data, item]
-    if isinstance(data, dict):
-        items = feedback_item_list(data)
-        updated = dict(data)
-        updated["itens"] = [*items, item]
-        return updated
-    raise ValueError(_INVALID_ERROR)
-
-
-def with_feedback_intro(data: Any, introducao: str) -> Any:
-    """Troca so o texto guia. A lista de envios permanece a mesma."""
-    text = introducao if isinstance(introducao, str) else str(introducao or "")
-    if isinstance(data, list):
-        return {"introducao": text, "itens": data}
-    if isinstance(data, dict):
-        items = feedback_item_list(data)
-        updated = dict(data)
-        updated["introducao"] = text
-        updated["itens"] = items
-        return updated
-    raise ValueError(_INVALID_ERROR)
-
-
-def feedback_document_text(data: Any, introducao: str) -> str:
-    updated = with_feedback_intro(data, introducao)
-    return json.dumps(updated, indent=2, ensure_ascii=False) + "\n"
+def append_feedback(data: Any, item: dict[str, str]) -> list[Any]:
+    """Acrescenta no fim e devolve so a lista. O texto guia nao mora aqui."""
+    return [*feedback_item_list(data), item]
 
 
 def publish_feedback_block(
@@ -118,13 +85,13 @@ def publish_feedback_block(
     *,
     uploaded: bool,
     url: str | None = None,
+    introducao: str | None = None,
 ) -> str:
-    """Soma 1 em feedback.versao so se o envio do ponteiro deu certo.
+    """Soma 1 em feedback.versao so se o envio do catalogo deu certo.
 
     Sem ``url``, a url que ja estava no bloco permanece. UniqueId colado
     nao e reescrito. ``uploaded`` falso devolve a versao atual e nao mexe
-    no bloco. Com ``url``, o ponteiro passa a ser essa string, como foi
-    colada.
+    no bloco. ``introducao`` None deixa o texto guia como estava.
     """
     block = data.get("feedback")
     current = ""
@@ -142,6 +109,8 @@ def publish_feedback_block(
         updated = dict(block)
         updated["url"] = raw_url
         updated["versao"] = bump_dicas_version(current)
+        if introducao is not None:
+            updated["introducao"] = introducao
         data["feedback"] = updated
         return updated["versao"]
     stored = url if isinstance(url, str) else str(url or "")
@@ -150,6 +119,8 @@ def publish_feedback_block(
     updated = dict(block) if isinstance(block, dict) else {}
     updated["url"] = stored
     updated["versao"] = bump_dicas_version(current)
+    if introducao is not None:
+        updated["introducao"] = introducao
     data["feedback"] = updated
     return updated["versao"]
 
@@ -432,32 +403,25 @@ def parse_feedback_entries(data: Any) -> list[FeedbackEntry]:
     return entries
 
 
-def read_feedback_entries(path: Path) -> list[FeedbackEntry]:
-    intro, entries = read_feedback_document(path)
-    del intro
-    return entries
-
-
-def read_feedback_document(path: Path) -> tuple[str, list[FeedbackEntry]]:
+def read_feedback_document(path: Path) -> list[FeedbackEntry]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return feedback_intro(data), parse_feedback_entries(data)
+    return parse_feedback_entries(data)
 
 
-def _document_from_text(text: str) -> tuple[str, list[FeedbackEntry], str]:
+def _entries_from_text(text: str) -> tuple[list[FeedbackEntry], str]:
     if (text or "").lstrip().startswith("<"):
-        return "", [], _READ_ERROR
+        return [], _READ_ERROR
     try:
-        data = json.loads(text)
-        return feedback_intro(data), parse_feedback_entries(data), ""
+        return parse_feedback_entries(json.loads(text)), ""
     except (json.JSONDecodeError, ValueError, TypeError):
-        return "", [], _INVALID_ERROR
+        return [], _INVALID_ERROR
 
 
-def load_feedback_document(url: str) -> tuple[str, list[FeedbackEntry], str]:
-    """Baixa o feedback.json (PnP) so para mostrar. Nao grava de volta."""
+def load_feedback_document(url: str) -> tuple[list[FeedbackEntry], str]:
+    """Baixa o feedback.json (PnP) so para mostrar a lista. Nao grava de volta."""
     link = (url or "").strip()
     if not link:
-        return "", [], "Cole o link do feedback.json."
+        return [], "Cole o link do feedback.json."
     folder = tempfile.mkdtemp(prefix="suite-feedback-")
     try:
         result = baixar_do_sharepoint(
@@ -467,13 +431,13 @@ def load_feedback_document(url: str) -> tuple[str, list[FeedbackEntry], str]:
         )
         path = getattr(result, "path", None)
         if not getattr(result, "ok", False) or path is None or not path.is_file():
-            return "", [], _READ_ERROR
+            return [], _READ_ERROR
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
-        return "", [], _READ_ERROR
+        return [], _READ_ERROR
     finally:
         shutil.rmtree(folder, ignore_errors=True)
-    return _document_from_text(text)
+    return _entries_from_text(text)
 
 
 def _parse_quando(value: str) -> datetime | None:
@@ -515,15 +479,12 @@ def save_feedback_pointer(
     *,
     expected_fingerprint: str,
     progress: ProgressCb | None = None,
-    read_feedback: Callable[[], tuple[str, str]] | None = None,
-    upload_feedback: Callable[[str], tuple[bool, str]] | None = None,
     fetch_text: Callable[[], tuple[str, str]] | None = None,
     upload_catalog: Callable[[dict[str, Any]], PublishOutcome] | None = None,
 ) -> PublishOutcome:
-    """Grava o texto guia no feedback.json e o ponteiro no catalog.json.
+    """Grava introducao e o ponteiro no catalog.json. Nao regrava a lista.
 
-    A lista de envios nao e editada. A url colada entra como foi colada.
-    A versao sobe 1 so se o feedback.json subiu e o catalogo sobe em seguida.
+    A url colada entra como foi colada. A versao sobe 1 so se o catalogo subir.
     """
 
     def report(pct: float, msg: str) -> None:
@@ -533,15 +494,6 @@ def save_feedback_pointer(
     stored = (form.url or "").strip()
     if not stored:
         return PublishOutcome(ok=False, message="Cole o link do feedback.json.")
-
-    def _guide_body(raw: str) -> tuple[str, str]:
-        if (raw or "").lstrip().startswith("<"):
-            return "", _READ_ERROR
-        try:
-            data = json.loads(raw)
-            return feedback_document_text(data, form.introducao), ""
-        except (json.JSONDecodeError, ValueError, TypeError):
-            return "", _INVALID_ERROR
 
     def _apply(text: str) -> PublishOutcome | tuple[dict[str, Any], str]:
         remote_fp = catalog_fingerprint(text)
@@ -561,36 +513,17 @@ def save_feedback_pointer(
             return PublishOutcome(ok=False, message=f"Catalogo remoto invalido: {exc}")
         if not isinstance(data, dict):
             return PublishOutcome(ok=False, message="Catalogo remoto invalido.")
-        publish_feedback_block(data, uploaded=True, url=stored)
+        publish_feedback_block(
+            data,
+            uploaded=True,
+            url=stored,
+            introducao=form.introducao,
+        )
         return data, remote_fp
 
-    hooks = (
-        read_feedback is not None
-        or upload_feedback is not None
-        or fetch_text is not None
-        or upload_catalog is not None
-    )
-    if hooks:
-        if (
-            read_feedback is None
-            or upload_feedback is None
-            or fetch_text is None
-            or upload_catalog is None
-        ):
+    if fetch_text is not None or upload_catalog is not None:
+        if fetch_text is None or upload_catalog is None:
             return PublishOutcome(ok=False, message="Salvar feedback incompleto.")
-        raw, err = read_feedback()
-        if err:
-            return PublishOutcome(ok=False, message=err or _READ_ERROR)
-        body, invalid = _guide_body(raw)
-        if invalid:
-            return PublishOutcome(ok=False, message=invalid)
-        report(-1.0, "Enviando feedback.json...")
-        ok, message = upload_feedback(body)
-        if not ok:
-            return PublishOutcome(
-                ok=False,
-                message=message or "Nao foi possivel gravar o texto guia.",
-            )
         text, err = fetch_text()
         if err:
             return PublishOutcome(ok=False, message=err)
@@ -616,20 +549,6 @@ def save_feedback_pointer(
         start_err = session.start()
         if start_err:
             return PublishOutcome(ok=False, message=start_err)
-        report(-1.0, "Lendo feedback.json...")
-        raw, err = _download_feedback(session, stored)
-        if err:
-            return PublishOutcome(ok=False, message=err)
-        body, invalid = _guide_body(raw)
-        if invalid:
-            return PublishOutcome(ok=False, message=invalid)
-        report(-1.0, "Enviando feedback.json...")
-        ok, message = _upload_feedback(session, stored, body)
-        if not ok:
-            return PublishOutcome(
-                ok=False,
-                message=message or "Nao foi possivel gravar o texto guia.",
-            )
         report(-1.0, "Relendo catalogo remoto...")
         text, err = fetch_remote_catalog_text(progress=report, session=session)
         if err:
