@@ -298,9 +298,9 @@ Catalogo.
 
 O bloco `feedback` aponta para o `feedback.json` no SharePoint, no mesmo
 formato de `dicas` e `links`: `url` com `download.aspx?UniqueId=` e `versao`.
-Sem `url` ou sem `versao`, o botao **Feedback** nao aparece. Catalogo antigo,
-sem o bloco, continua valendo. Nao ha feedback da Suite nem aba de leitura
-no Catalogo.
+Sem `url` ou sem `versao`, o botao **Feedback** na tela do aplicativo nao
+aparece. Catalogo antigo, sem o bloco, continua valendo. Nao ha feedback
+da Suite.
 
 O corpo — a lista, nao o ponteiro `feedback` do `catalog.json` — esta em
 [`feedback.example.json`](feedback.example.json), na raiz, ao lado de
@@ -339,6 +339,19 @@ Se o envio falhar, a tela fica, o texto permanece e aparece uma linha curta
 de erro. Se der certo, a mesma tela mostra "Feedback enviado." e um botao
 **OK**. So **OK** ou **Voltar** nessa hora voltam para o aplicativo. A tela
 nao volta sozinha.
+
+A aba **Feedback** do Catalogo fica depois de **Dicas** e usa o mesmo
+acesso de `publish.users`. O bloco **Selecionar ou adicionar** e o mesmo
+da aba Dicas: colar o link ou escolher um arquivo local para ver a lista.
+A parte de baixo, **Enviados**, nao edita pares. Mostra `usuario`, `quando`,
+`app` e `texto`, sem apagar e sem editar um feedback ja enviado. A ordem e
+a do arquivo, do mais recente para o mais antigo quando todas as datas
+puderem ser lidas. Se alguma data nao puder, fica a ordem do arquivo.
+`app` e o nome no catalogo; sem nome, fica o `app_id`.
+
+**Salvar** grava so o ponteiro no `catalog.json`: a url como foi colada
+(um `download.aspx?UniqueId=` nao e reescrito) e soma 1 em `feedback.versao`
+so se esse envio do catalogo der certo. A lista nao e regravada.
 
 ### Gerencias
 
@@ -500,7 +513,7 @@ notificacao (Abrir / Sair). Minimizar deixa a janela na barra de tarefas. **Inic
 - **Tutorial** (contornado, so com o app instalado e se houver markdown ou video)
 - **Atualizar versao** (quando `versao` do catalogo difere da instalada; se **esse**
   processo estiver aberto, o hub encerra, instala e reabre)
-- **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps), Estrutura (gerencias, setores, sub-setores), Links (links.json) e Dicas (tips.json); envio para `publish.folder_url`
+- **Catalogo** (so se o login Windows estiver em `publish.users`): abas Publicar (criar/editar apps), Estrutura (gerencias, setores, sub-setores), Links (links.json), Dicas (tips.json) e Feedback (ponteiro e leitura do feedback.json); envio para `publish.folder_url`
 - Barra de progresso com percentual durante download/update (indeterminado no WebLogin)
 - **Enviar para SharePoint** (se houver `upload_url`)
 - **Desinstalar**

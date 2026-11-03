@@ -440,7 +440,7 @@ class LinksUiTests(unittest.TestCase):
             links_select=holders[6],
             links_edit=holders[7],
         )
-        self.assertEqual(_texts(row), ["Publicar", "Estrutura", "Links", "Dicas"])
+        self.assertEqual(_texts(row), ["Publicar", "Estrutura", "Links", "Dicas", "Feedback"])
         self.assertIs(host.content, links_layout)
 
 

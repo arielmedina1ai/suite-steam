@@ -15,8 +15,18 @@ sys.path.insert(0, str(ROOT / "src"))
 import flet as ft
 
 from models import AppInfo, FeedbackInfo, parse_catalog_dict
-from services.catalog_publish import PublishOutcome
-from services.feedback import publish_feedback_block, submit_app_feedback
+from services.catalog_publish import PublishFormState, PublishOutcome, StructureFormState
+from services.feedback import (
+    FeedbackCatalogState,
+    FeedbackEntry,
+    feedback_app_label,
+    ordered_feedback_entries,
+    publish_feedback_block,
+    save_feedback_pointer,
+    submit_app_feedback,
+)
+from ui.catalog_view import bind_catalog_view
+from ui.feedback_catalog_view import bind_feedback_form
 from services.sharepoint_manager import SharePointResult
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
@@ -415,3 +425,166 @@ class FeedbackScreenTests(unittest.TestCase):
         self.assertEqual(detail.feedback_button.width, detail.tutorial_button.width)
         self.assertEqual(detail.feedback_button.style, detail.tutorial_button.style)
         self.assertIs(type(detail.feedback_button), type(detail.tutorial_button))
+
+
+def _entry(usuario: str, quando: str, app_id: str, texto: str) -> FeedbackEntry:
+    return FeedbackEntry(usuario=usuario, quando=quando, app_id=app_id, texto=texto)
+
+
+class FeedbackListTests(unittest.TestCase):
+    def test_newest_first_when_every_date_parses_otherwise_file_order(self) -> None:
+        older = _entry("EMPRESA\\maria", "2026-11-01 09:00:00", "relatorio-producao", "antigo")
+        newer = _entry("EMPRESA\\joao", "2026-11-03T15:04:05", "monitor-ativos", "novo")
+        same = _entry("EMPRESA\\ana", "2026-11-03 15:04:05", "outro", "empate")
+        ordered = ordered_feedback_entries([older, newer, same])
+        self.assertEqual([item.texto for item in ordered], ["empate", "novo", "antigo"])
+        self.assertEqual(feedback_app_label(older, {"relatorio-producao": "Relatorio"}), "Relatorio")
+        self.assertEqual(feedback_app_label(same, {}), "outro")
+
+        broken = _entry("EMPRESA\\maria", "ontem", "relatorio-producao", "sem data")
+        file_order = ordered_feedback_entries([older, broken, newer])
+        self.assertEqual([item.texto for item in file_order], ["antigo", "sem data", "novo"])
+
+    def test_view_lists_entries_without_edit_or_delete(self) -> None:
+        form = FeedbackCatalogState(
+            url=PASTED,
+            entries=[
+                _entry("EMPRESA\\maria", "2026-11-01 09:00:00", "relatorio-producao", "antigo"),
+                _entry("EMPRESA\\joao", "2026-11-03 15:04:05", "sem-nome", "novo"),
+            ],
+        )
+        select = ft.Container()
+        edit = ft.Container()
+        bind_feedback_form(
+            form,
+            app_names={"relatorio-producao": "Relatorio de Producao"},
+            on_save=lambda: None,
+            on_pick=lambda: None,
+            on_field=lambda _key, _value: None,
+            on_reopen=lambda: None,
+            select_holder=select,
+            edit_holder=edit,
+        )
+        labels = _texts(edit)
+        self.assertEqual(labels.count("Usuario"), 2)
+        self.assertEqual(labels.count("Quando"), 2)
+        self.assertEqual(labels.count("App"), 2)
+        self.assertEqual(labels.count("Texto"), 2)
+        self.assertLess(labels.index("novo"), labels.index("antigo"))
+        self.assertIn("Relatorio de Producao", labels)
+        self.assertIn("sem-nome", labels)
+        self.assertNotIn("Remover", labels)
+        self.assertNotIn("Adicionar", labels)
+        self.assertFalse(any(type(node).__name__ == "TextField" for node in _walk(edit)))
+        self.assertIn("Link", _texts(select))
+        self.assertIn("Pasta destino", _texts(select))
+        self.assertIn("Escolher arquivo", _texts(select))
+
+        locked = FeedbackCatalogState()
+        bind_feedback_form(
+            locked,
+            app_names={},
+            on_save=lambda: None,
+            on_pick=lambda: None,
+            on_field=lambda _key, _value: None,
+            on_reopen=lambda: None,
+            select_holder=select,
+            edit_holder=edit,
+        )
+        self.assertIn("Selecione ou adicione o feedback.json para ver.", _texts(edit))
+
+    def test_save_updates_only_the_pointer_and_bumps_when_catalog_upload_works(self) -> None:
+        catalog = {"apps": [], "feedback": {"url": "https://antiga", "versao": "3"}}
+        text = json.dumps(catalog)
+        calls: list[dict] = []
+
+        def fetch() -> tuple[str, str]:
+            return text, ""
+
+        def refuse(data: dict) -> PublishOutcome:
+            calls.append(json.loads(json.dumps(data)))
+            return PublishOutcome(ok=False, message="Nao foi possivel atualizar a versao.")
+
+        form = FeedbackCatalogState(url="  " + PASTED + "  ", versao="3")
+        with patch("services.feedback.enviar_por_unique_id", side_effect=AssertionError("lista")):
+            failed = save_feedback_pointer(
+                form,
+                expected_fingerprint="",
+                fetch_text=fetch,
+                upload_catalog=refuse,
+            )
+        self.assertFalse(failed.ok)
+        self.assertEqual(calls[0]["feedback"]["url"], PASTED)
+        self.assertEqual(calls[0]["feedback"]["versao"], "4")
+        self.assertNotIn(":u:", calls[0]["feedback"]["url"])
+        self.assertEqual(catalog["feedback"]["versao"], "3")
+        self.assertEqual(catalog["feedback"]["url"], "https://antiga")
+
+        def accept(data: dict) -> PublishOutcome:
+            calls.append(json.loads(json.dumps(data)))
+            return PublishOutcome(ok=True, message="Catalogo publicado.", catalog=parse_catalog_dict(data))
+
+        saved = save_feedback_pointer(
+            form,
+            expected_fingerprint="",
+            fetch_text=fetch,
+            upload_catalog=accept,
+        )
+        self.assertTrue(saved.ok)
+        self.assertEqual(saved.catalog.feedback.url, PASTED)
+        self.assertEqual(saved.catalog.feedback.versao, "4")
+
+    def test_feedback_tab_follows_dicas(self) -> None:
+        row = ft.Row()
+        host = ft.Container()
+        holders = [ft.Container() for _ in range(10)]
+
+        def noop(*_args, **_kwargs):
+            return None
+
+        bind_catalog_view(
+            parse_catalog_dict({"apps": [{"id": "relatorio-producao", "nome": "Relatorio"}]}),
+            PublishFormState(),
+            StructureFormState(),
+            "feedback",
+            on_tab=noop,
+            on_select_app=noop,
+            on_save=noop,
+            on_cancel=noop,
+            on_pick=noop,
+            on_field=noop,
+            on_reopen=noop,
+            on_structure_select=noop,
+            on_structure_field=noop,
+            on_structure_toggle_app=noop,
+            on_structure_new=noop,
+            on_structure_new_subsetor=noop,
+            on_structure_delete=noop,
+            on_structure_save=noop,
+            on_structure_reopen=noop,
+            tab_row=row,
+            session_host=host,
+            publish_layout=ft.Column(),
+            estrutura_layout=ft.Row(),
+            publish_select=holders[0],
+            publish_edit=holders[1],
+            structure_select=holders[2],
+            structure_edit=holders[3],
+            dicas_layout=ft.Column(),
+            dicas_select=holders[4],
+            dicas_edit=holders[5],
+            links_layout=ft.Column(),
+            links_select=holders[6],
+            links_edit=holders[7],
+            feedback=FeedbackCatalogState(
+                url=PASTED,
+                entries=[_entry("EMPRESA\\maria", "2026-11-03 15:04:05", "relatorio-producao", "novo")],
+            ),
+            feedback_app_names={"relatorio-producao": "Relatorio"},
+            feedback_layout=ft.Column(),
+            feedback_select=holders[8],
+            feedback_edit=holders[9],
+        )
+        self.assertEqual(_texts(row), ["Publicar", "Estrutura", "Links", "Dicas", "Feedback"])
+        self.assertIn("Relatorio", _texts(host))
+        self.assertNotIn("Remover", _texts(host))
