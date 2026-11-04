@@ -122,6 +122,9 @@ def bind_catalog_view(
             select_holder=feedback_select,
             edit_holder=feedback_edit,
         )
+        feedback_layout.expand = True
+        feedback_layout.spacing = 12
+        feedback_edit.expand = True
         feedback_layout.controls = [feedback_top_row(feedback_select, intro), feedback_edit]
         session_host.content = feedback_layout
         return

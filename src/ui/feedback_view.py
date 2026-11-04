@@ -33,7 +33,7 @@ class FeedbackView:
         self.guide_card = _feedback_card(self.guide_text)
         self.guide_card.visible = bool(self.introducao.strip())
         self.field_title = ft.Text(
-            "Seu feedback",
+            "Escreva seu feedback:",
             size=15,
             weight=ft.FontWeight.BOLD,
             color=config.COLOR_TEXT,
@@ -51,7 +51,11 @@ class FeedbackView:
             focused_border_color=config.COLOR_ACCENT,
         )
         self.field_card = _feedback_card(
-            ft.Column(spacing=8, controls=[self.field_title, self.field])
+            ft.Column(
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=[self.field_title, self.field],
+            )
         )
         self.send_button = ft.FilledButton(
             "Enviar",
@@ -96,6 +100,7 @@ class FeedbackView:
             expand=True,
             scroll=ft.ScrollMode.AUTO,
             spacing=16,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -199,8 +204,8 @@ class FeedbackView:
 
 
 def _feedback_card(content: ft.Control) -> ft.Container:
+    """Largura da janela vem do stretch da coluna. Sem largura fixa e sem expand vertical."""
     return ft.Container(
-        expand=True,
         bgcolor=config.COLOR_SURFACE,
         border=ft.Border.all(1, "#2C4036"),
         border_radius=12,

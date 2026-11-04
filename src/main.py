@@ -2972,8 +2972,6 @@ class SuiteApp:
             self._dicas_layout.controls = [self._sess_dicas_sel, self._sess_dicas_edit]
         if getattr(self, "_links_layout", None) is not None:
             self._links_layout.controls = [self._sess_links_sel, self._sess_links_edit]
-        if getattr(self, "_feedback_layout", None) is not None:
-            self._feedback_layout.controls = [self._sess_feedback_sel, self._sess_feedback_edit]
         self._catalog_session_box.content = self._session_host
         if self._catalog_shell is None:
             self._session_host.content = self._publish_layout

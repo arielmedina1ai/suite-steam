@@ -36,11 +36,20 @@ def _read_value(text: str, *, multiline: bool = False) -> ft.Container:
     )
 
 
+_TOP_HEIGHT = 280
+
+
 def feedback_top_row(select_holder: ft.Control, intro_holder: ft.Control) -> ft.Row:
-    """Selecionar e Introdução dividem a largura. Nenhum dos dois tem largura fixa."""
+    """Selecionar e Introdução dividem a largura, com altura real.
+
+    Sem altura na linha, o expand dos filhos zera o quadro e so fica o fundo.
+    """
     select_holder.expand = True
     intro_holder.expand = True
+    select_holder.height = _TOP_HEIGHT
+    intro_holder.height = _TOP_HEIGHT
     return ft.Row(
+        height=_TOP_HEIGHT,
         spacing=12,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH,
         controls=[select_holder, intro_holder],

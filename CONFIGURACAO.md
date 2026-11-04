@@ -332,8 +332,8 @@ e `Feedback de {nome do app}`, fora do cartao. O texto guia vem de
 `feedback.introducao` no catalogo. Se houver texto, ele fica num cartao
 com fundo de superficie, borda `#2C4036`, cantos arredondados e espaco
 interno. O campo fica abaixo, num segundo cartao do mesmo estilo, com o
-titulo **Seu feedback** e foco. Os dois cartoes acompanham a largura da
-janela (`expand`, sem largura fixa). **Enviar** fica no fim do campo.
+titulo **Escreva seu feedback:** e foco. A coluna estica os cartoes na
+horizontal, na largura da janela, sem largura fixa. **Enviar** fica no fim do campo.
 Sem texto guia, esse cartao nao aparece.
 
 **Voltar** antes de enviar sai e descarta o texto. **Enviar** le o
