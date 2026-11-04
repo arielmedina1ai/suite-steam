@@ -16,7 +16,7 @@ from ui.progress_util import bar_value, label as progress_label
 from ui.publish_view import _remember_scroll, bind_form_section, notice_banner, option7_text
 
 _VALUE_FILL = "#1A2621"
-_ENTRY_TITLE_WIDTH = 420
+_ENTRY_TITLE_WIDTH = 210
 
 
 def _pair_divider() -> ft.Control:
