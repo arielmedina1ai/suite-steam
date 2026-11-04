@@ -566,6 +566,41 @@ def _parse_quando(value: str) -> datetime | None:
         return None
 
 
+def feedback_day(quando: str) -> str:
+    """Data na tela, AAAA-MM-DD. Sem data legivel, fica o texto original."""
+    moment = _parse_quando(quando)
+    if moment is not None:
+        return moment.strftime("%Y-%m-%d")
+    return (quando or "").strip()
+
+
+def feedback_screen_numbers(entries: list[FeedbackEntry]) -> list[int]:
+    """Numero de cada item na ordem do arquivo. O mais antigo e 1.
+
+    O numero so existe na tela. Com todas as datas legiveis, a idade segue
+    a data e, no empate, a posicao no arquivo. Sem isso, a ordem do arquivo.
+    """
+    moments = [_parse_quando(item.quando) for item in entries]
+    if entries and all(moment is not None for moment in moments):
+        order = sorted(range(len(entries)), key=lambda index: (moments[index], index))
+        numbers = [0] * len(entries)
+        for rank, index in enumerate(order, start=1):
+            numbers[index] = rank
+        return numbers
+    return list(range(1, len(entries) + 1))
+
+
+def feedback_entry_title(
+    number: int,
+    entry: FeedbackEntry,
+    names: dict[str, str] | None = None,
+) -> str:
+    """Titulo do item: ``N & App & Usuario & AAAA-MM-DD``."""
+    return (
+        f"{number} & {feedback_app_label(entry, names)} & {entry.usuario} & {feedback_day(entry.quando)}"
+    )
+
+
 def ordered_feedback_entries(entries: list[FeedbackEntry]) -> list[FeedbackEntry]:
     """Mais recente primeiro, se toda data puder ser lida. Senao, a ordem do arquivo."""
     moments = [_parse_quando(item.quando) for item in entries]

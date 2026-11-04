@@ -331,9 +331,10 @@ o tutorial. **Voltar** e o mesmo botao do tutorial, no mesmo canto. O titulo
 e `Feedback de {nome do app}`, fora do cartao. O texto guia vem de
 `feedback.introducao` no catalogo. Se houver texto, ele fica num cartao
 com fundo de superficie, borda `#2C4036`, cantos arredondados e espaco
-interno. O campo fica abaixo, num segundo cartao do mesmo estilo, com
-foco. **Enviar** fica no fim do campo. Sem texto guia, esse cartao nao
-aparece.
+interno. O campo fica abaixo, num segundo cartao do mesmo estilo, com o
+titulo **Seu feedback** e foco. Os dois cartoes acompanham a largura da
+janela (`expand`, sem largura fixa). **Enviar** fica no fim do campo.
+Sem texto guia, esse cartao nao aparece.
 
 **Voltar** antes de enviar sai e descarta o texto. **Enviar** le o
 `feedback.json` pelo PnP, como as dicas, acrescenta o item e grava de novo.
@@ -358,13 +359,15 @@ baixa de novo pelo PnP e mostra a lista nova. A versao local so muda depois
 que o arquivo novo foi gravado. Sem `url` ou sem `versao`, nao baixa.
 O bloco **Selecionar ou adicionar** e o mesmo
 da aba Dicas: colar o link ou escolher um arquivo local para ver a lista.
-**Introdução** e **Feedbacks enviados** sao dois blocos, cada um com titulo
-e espaco entre eles. Introdução e o unico campo editavel. A lista nao
-edita pares. Mostra `usuario`, `quando`, `app` e `texto`, sem apagar e
-sem editar um feedback ja enviado. A ordem e a do arquivo, do mais
-recente para o mais antigo quando todas as datas puderem ser lidas. Se
-alguma data nao puder, fica a ordem do arquivo. `app` e o nome no catalogo;
-sem nome, fica o `app_id`.
+**Selecionar ou adicionar** e **Introdução** ficam lado a lado e dividem
+a largura. **Feedbacks enviados** fica abaixo, na largura toda.
+Introdução e o unico campo editavel. Cada envio nao usa o titulo
+"Texto": o titulo e `N & App & Usuario & AAAA-MM-DD`. O mais recente
+aparece primeiro. O mais antigo e o numero 1 e o mais recente e o enesimo.
+O numero so existe na tela, nao entra no `feedback.json`. Sem apagar e
+sem editar um feedback ja enviado. Se alguma data nao puder ser lida,
+a ordem da tela fica a do arquivo. `App` e o nome no catalogo; sem nome,
+fica o `app_id`.
 
 **Salvar** grava `introducao` no bloco `feedback` do `catalog.json`, junto
 com a url como foi colada (um `download.aspx?UniqueId=` nao e reescrito).

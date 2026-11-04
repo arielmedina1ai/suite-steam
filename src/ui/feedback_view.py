@@ -32,6 +32,12 @@ class FeedbackView:
         )
         self.guide_card = _feedback_card(self.guide_text)
         self.guide_card.visible = bool(self.introducao.strip())
+        self.field_title = ft.Text(
+            "Seu feedback",
+            size=15,
+            weight=ft.FontWeight.BOLD,
+            color=config.COLOR_TEXT,
+        )
         self.field = ft.TextField(
             multiline=True,
             min_lines=6,
@@ -44,7 +50,9 @@ class FeedbackView:
             cursor_color=config.COLOR_ACCENT,
             focused_border_color=config.COLOR_ACCENT,
         )
-        self.field_card = _feedback_card(self.field)
+        self.field_card = _feedback_card(
+            ft.Column(spacing=8, controls=[self.field_title, self.field])
+        )
         self.send_button = ft.FilledButton(
             "Enviar",
             icon=ft.Icons.SEND,
@@ -192,6 +200,7 @@ class FeedbackView:
 
 def _feedback_card(content: ft.Control) -> ft.Container:
     return ft.Container(
+        expand=True,
         bgcolor=config.COLOR_SURFACE,
         border=ft.Border.all(1, "#2C4036"),
         border_radius=12,

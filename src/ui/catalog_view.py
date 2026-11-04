@@ -12,7 +12,7 @@ from services.links import LinksFormState
 from services.feedback import FeedbackCatalogState
 from services.tips import DicasFormState
 from ui.dicas_view import bind_dicas_form
-from ui.feedback_catalog_view import bind_feedback_form
+from ui.feedback_catalog_view import bind_feedback_form, feedback_top_row
 from ui.links_form_view import bind_links_form
 from ui.publish_view import bind_publish_form
 from ui.structure_view import bind_structure_form
@@ -112,7 +112,7 @@ def bind_catalog_view(
         and feedback_select is not None
         and feedback_edit is not None
     ):
-        bind_feedback_form(
+        intro = bind_feedback_form(
             feedback,
             app_names=feedback_app_names or {},
             on_save=on_feedback_save or (lambda: None),
@@ -122,9 +122,7 @@ def bind_catalog_view(
             select_holder=feedback_select,
             edit_holder=feedback_edit,
         )
-        cur = list(feedback_layout.controls or [])
-        if len(cur) != 2 or cur[0] is not feedback_select or cur[1] is not feedback_edit:
-            feedback_layout.controls = [feedback_select, feedback_edit]
+        feedback_layout.controls = [feedback_top_row(feedback_select, intro), feedback_edit]
         session_host.content = feedback_layout
         return
     if tab == "links" and links is not None and links_layout is not None and links_select is not None and links_edit is not None:

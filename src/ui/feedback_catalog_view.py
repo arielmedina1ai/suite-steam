@@ -8,11 +8,12 @@ import flet as ft
 import config
 from services.feedback import (
     FeedbackCatalogState,
-    feedback_app_label,
+    feedback_entry_title,
+    feedback_screen_numbers,
     ordered_feedback_entries,
 )
 from ui.progress_util import bar_value, label as progress_label
-from ui.publish_view import _remember_scroll, bind_form_section, notice_banner, option7_row, option7_text
+from ui.publish_view import _remember_scroll, bind_form_section, notice_banner, option7_text
 
 _VALUE_FILL = "#1A2621"
 
@@ -32,6 +33,17 @@ def _read_value(text: str, *, multiline: bool = False) -> ft.Container:
             color=config.COLOR_TEXT,
             no_wrap=not multiline,
         ),
+    )
+
+
+def feedback_top_row(select_holder: ft.Control, intro_holder: ft.Control) -> ft.Row:
+    """Selecionar e Introdução dividem a largura. Nenhum dos dois tem largura fixa."""
+    select_holder.expand = True
+    intro_holder.expand = True
+    return ft.Row(
+        spacing=12,
+        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+        controls=[select_holder, intro_holder],
     )
 
 
@@ -115,6 +127,10 @@ def bind_feedback_form(
         )
     else:
         shown = ordered_feedback_entries(form.entries)
+        numbers = {
+            id(entry): number
+            for entry, number in zip(form.entries, feedback_screen_numbers(form.entries))
+        }
         if not shown:
             list_controls.append(
                 ft.Text("Nenhum feedback.", size=13, color="#8AA797")
@@ -122,22 +138,18 @@ def bind_feedback_form(
         for index, entry in enumerate(shown):
             if index > 0:
                 list_controls.append(_pair_divider())
-            list_controls.append(option7_row("Usuario", _read_value(entry.usuario)))
-            list_controls.append(option7_row("Quando", _read_value(entry.quando)))
             list_controls.append(
-                option7_row("App", _read_value(feedback_app_label(entry, app_names)))
-            )
-            list_controls.append(
-                option7_row(
-                    "Texto",
-                    _read_value(entry.texto, multiline=True),
-                    align=ft.CrossAxisAlignment.START,
+                ft.Text(
+                    feedback_entry_title(numbers[id(entry)], entry, app_names),
+                    size=13,
+                    weight=ft.FontWeight.BOLD,
+                    color=config.COLOR_TEXT,
                 )
             )
+            list_controls.append(_read_value(entry.texto, multiline=True))
 
     done_text = form.notice if form.notice else ("" if form.busy else form.message)
     intro_box = ft.Container()
-    list_box = ft.Container()
     bind_form_section(
         intro_box,
         "Introdução",
@@ -154,9 +166,10 @@ def bind_feedback_form(
             )
         ],
         expand=False,
+        height=280,
     )
     bind_form_section(
-        list_box,
+        edit_holder,
         "Feedbacks enviados",
         list_controls,
         on_scroll_offset=lambda value: _remember_scroll(form, "edit_scroll", value),
@@ -198,8 +211,5 @@ def bind_feedback_form(
             ),
         ],
     )
-    edit_holder.height = None
     edit_holder.expand = True
-    edit_holder.bgcolor = None
-    edit_holder.padding = 0
-    edit_holder.content = ft.Column(spacing=16, controls=[intro_box, list_box])
+    return intro_box

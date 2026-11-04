@@ -21,6 +21,8 @@ from services.feedback import (
     FeedbackCatalogState,
     FeedbackEntry,
     feedback_app_label,
+    feedback_entry_title,
+    feedback_screen_numbers,
     ordered_feedback_entries,
     publish_feedback_block,
     save_feedback_pointer,
@@ -29,7 +31,7 @@ from services.feedback import (
     sync_feedback,
 )
 from ui.catalog_view import bind_catalog_view
-from ui.feedback_catalog_view import bind_feedback_form
+from ui.feedback_catalog_view import bind_feedback_form, feedback_top_row
 from services.sharepoint_manager import SharePointResult
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
@@ -366,7 +368,13 @@ class FeedbackScreenTests(unittest.TestCase):
         self.assertEqual(view.back_button.icon, tutorial_back.icon)
         self.assertEqual(view.back_button.icon, ft.Icons.ARROW_BACK)
         self.assertLess(built.controls.index(view.field_card), built.controls.index(view.send_button))
-        self.assertIs(view.field_card.content, view.field)
+        self.assertIn(view.field, view.field_card.content.controls)
+        self.assertEqual(view.field_title.value, "Seu feedback")
+        self.assertIn("Seu feedback", _texts(view.field_card))
+        self.assertTrue(view.field_card.expand)
+        self.assertIsNone(view.field_card.width)
+        self.assertTrue(view.guide_card.expand)
+        self.assertIsNone(view.guide_card.width)
         self.assertFalse(view.guide_card.visible)
         self.assertTrue(view.field_card.visible)
         self._assert_same_card(view.field_card)
@@ -509,6 +517,15 @@ class FeedbackListTests(unittest.TestCase):
         same = _entry("EMPRESA\\ana", "2026-11-03 15:04:05", "outro", "empate")
         ordered = ordered_feedback_entries([older, newer, same])
         self.assertEqual([item.texto for item in ordered], ["empate", "novo", "antigo"])
+        self.assertEqual(feedback_screen_numbers([older, newer, same]), [1, 2, 3])
+        self.assertEqual(
+            feedback_entry_title(3, same, {}),
+            "3 & outro & EMPRESA\\ana & 2026-11-03",
+        )
+        self.assertEqual(
+            feedback_entry_title(1, older, {"relatorio-producao": "Relatorio"}),
+            "1 & Relatorio & EMPRESA\\maria & 2026-11-01",
+        )
         self.assertEqual(feedback_app_label(older, {"relatorio-producao": "Relatorio"}), "Relatorio")
         self.assertEqual(feedback_app_label(same, {}), "outro")
 
@@ -526,7 +543,7 @@ class FeedbackListTests(unittest.TestCase):
         )
         select = ft.Container()
         edit = ft.Container()
-        bind_feedback_form(
+        intro = bind_feedback_form(
             form,
             app_names={"relatorio-producao": "Relatorio de Producao"},
             on_save=lambda: None,
@@ -536,28 +553,36 @@ class FeedbackListTests(unittest.TestCase):
             select_holder=select,
             edit_holder=edit,
         )
+        top = feedback_top_row(select, intro)
+        self.assertIs(top.controls[0], select)
+        self.assertIs(top.controls[1], intro)
+        self.assertTrue(select.expand)
+        self.assertTrue(intro.expand)
+        self.assertIsNone(select.width)
+        self.assertIsNone(intro.width)
+        self.assertIn("Selecionar ou adicionar", _texts(select))
+        self.assertIn("Introdução", _texts(intro))
+        self.assertNotIn("Feedbacks enviados", _texts(intro))
         labels = _texts(edit)
-        self.assertEqual(labels.count("Usuario"), 2)
-        self.assertEqual(labels.count("Quando"), 2)
-        self.assertEqual(labels.count("App"), 2)
-        self.assertEqual(labels.count("Texto"), 2)
-        self.assertLess(labels.index("novo"), labels.index("antigo"))
-        self.assertIn("Relatorio de Producao", labels)
-        self.assertIn("sem-nome", labels)
+        self.assertNotIn("Texto", labels)
+        self.assertNotIn("Usuario", labels)
+        self.assertNotIn("Quando", labels)
+        self.assertNotIn("App", labels)
+        newest = "2 & sem-nome & EMPRESA\\joao & 2026-11-03"
+        oldest = "1 & Relatorio de Producao & EMPRESA\\maria & 2026-11-01"
+        self.assertLess(labels.index(newest), labels.index("novo"))
+        self.assertLess(labels.index("novo"), labels.index(oldest))
+        self.assertLess(labels.index(oldest), labels.index("antigo"))
+        self.assertIn("Feedbacks enviados", labels)
         self.assertNotIn("Remover", labels)
         self.assertNotIn("Adicionar", labels)
-        fields = [node for node in _walk(edit) if type(node).__name__ == "TextField"]
+        fields = [node for node in _walk(intro) if type(node).__name__ == "TextField"]
         self.assertEqual(len(fields), 1)
         self.assertEqual(fields[0].value, "")
         self.assertTrue(fields[0].multiline)
-        self.assertIn("Introdução", labels)
-        self.assertIn("Feedbacks enviados", labels)
-        blocks = getattr(edit.content, "controls", None)
-        self.assertEqual(len(blocks), 2)
-        self.assertEqual(getattr(edit.content, "spacing", None), 16)
-        self.assertIn("Introdução", _texts(blocks[0]))
-        self.assertIn("Feedbacks enviados", _texts(blocks[1]))
-        self.assertFalse(any(type(node).__name__ == "TextField" for node in _walk(blocks[1])))
+        self.assertFalse(any(type(node).__name__ == "TextField" for node in _walk(edit)))
+        self.assertTrue(edit.expand)
+        self.assertIsNone(edit.width)
         self.assertIn("Link", _texts(select))
         self.assertIn("Pasta destino", _texts(select))
         self.assertIn("Escolher arquivo", _texts(select))
@@ -732,8 +757,13 @@ class FeedbackListTests(unittest.TestCase):
             feedback_edit=holders[9],
         )
         self.assertEqual(_texts(row), ["Publicar", "Estrutura", "Links", "Dicas", "Feedback"])
-        self.assertIn("Relatorio", _texts(host))
-        self.assertNotIn("Remover", _texts(host))
+        host_texts = _texts(host)
+        self.assertIn("1 & Relatorio & EMPRESA\\maria & 2026-11-03", host_texts)
+        top = host.content.controls[0]
+        self.assertIs(top.controls[0], holders[8])
+        self.assertIn("Introdução", _texts(top.controls[1]))
+        self.assertIn("Feedbacks enviados", _texts(host.content.controls[1]))
+        self.assertNotIn("Remover", host_texts)
 
 
 class _DownloadResult:
