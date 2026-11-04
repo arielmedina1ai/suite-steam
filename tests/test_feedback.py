@@ -367,7 +367,10 @@ class FeedbackScreenTests(unittest.TestCase):
         self.assertEqual(view.back_button.content, tutorial_back.content)
         self.assertEqual(view.back_button.icon, tutorial_back.icon)
         self.assertEqual(view.back_button.icon, ft.Icons.ARROW_BACK)
-        self.assertLess(built.controls.index(view.field_card), built.controls.index(view.send_button))
+        self.assertLess(built.controls.index(view.field_card), built.controls.index(view.send_row))
+        self.assertIs(view.send_row.controls[0], view.send_button)
+        self.assertNotEqual(view.send_button.expand, True)
+        self.assertIsNone(view.send_button.width)
         self.assertIn(view.field, view.field_card.content.controls)
         self.assertEqual(view.field_title.value, "Escreva seu feedback:")
         self.assertIn("Escreva seu feedback:", _texts(view.field_card))
@@ -402,7 +405,7 @@ class FeedbackScreenTests(unittest.TestCase):
         )
         self.assertLess(
             guided_page.controls.index(guided.field_card),
-            guided_page.controls.index(guided.send_button),
+            guided_page.controls.index(guided.send_row),
         )
         title = guided_page.controls[0]
         self.assertLess(guided_page.controls.index(title), guided_page.controls.index(guided.guide_card))
@@ -523,11 +526,11 @@ class FeedbackListTests(unittest.TestCase):
         self.assertEqual(feedback_screen_numbers([older, newer, same]), [1, 2, 3])
         self.assertEqual(
             feedback_entry_title(3, same, {}),
-            "3 & outro & EMPRESA\\ana & 2026-11-03",
+            "3 - EMPRESA\\ana - 2026-11-03 - outro",
         )
         self.assertEqual(
             feedback_entry_title(1, older, {"relatorio-producao": "Relatorio"}),
-            "1 & Relatorio & EMPRESA\\maria & 2026-11-01",
+            "1 - EMPRESA\\maria - 2026-11-01 - Relatorio",
         )
         self.assertEqual(feedback_app_label(older, {"relatorio-producao": "Relatorio"}), "Relatorio")
         self.assertEqual(feedback_app_label(same, {}), "outro")
@@ -575,9 +578,17 @@ class FeedbackListTests(unittest.TestCase):
         self.assertNotIn("Usuario", labels)
         self.assertNotIn("Quando", labels)
         self.assertNotIn("App", labels)
-        newest = "2 & sem-nome & EMPRESA\\joao & 2026-11-03"
-        oldest = "1 & Relatorio de Producao & EMPRESA\\maria & 2026-11-01"
+        newest = "2 - EMPRESA\\joao - 2026-11-03 - sem-nome"
+        oldest = "1 - EMPRESA\\maria - 2026-11-01 - Relatorio de Producao"
         self.assertLess(labels.index(newest), labels.index("novo"))
+        item_rows = [
+            node
+            for node in _walk(edit)
+            if getattr(getattr(node, "controls", [None])[0], "value", None) == newest
+        ]
+        self.assertEqual(len(item_rows), 1)
+        self.assertEqual(item_rows[0].controls[0].value, newest)
+        self.assertIn("novo", _texts(item_rows[0].controls[1]))
         self.assertLess(labels.index("novo"), labels.index(oldest))
         self.assertLess(labels.index(oldest), labels.index("antigo"))
         self.assertIn("Feedbacks enviados", labels)
@@ -765,7 +776,7 @@ class FeedbackListTests(unittest.TestCase):
         )
         self.assertEqual(_texts(row), ["Publicar", "Estrutura", "Links", "Dicas", "Feedback"])
         host_texts = _texts(host)
-        self.assertIn("1 & Relatorio & EMPRESA\\maria & 2026-11-03", host_texts)
+        self.assertIn("1 - EMPRESA\\maria - 2026-11-03 - Relatorio", host_texts)
         top = host.content.controls[0]
         self.assertIs(top.controls[0], holders[8])
         self.assertIn("Introdução", _texts(top.controls[1]))

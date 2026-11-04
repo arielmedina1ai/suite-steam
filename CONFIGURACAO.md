@@ -333,7 +333,8 @@ e `Feedback de {nome do app}`, fora do cartao. O texto guia vem de
 com fundo de superficie, borda `#2C4036`, cantos arredondados e espaco
 interno. O campo fica abaixo, num segundo cartao do mesmo estilo, com o
 titulo **Escreva seu feedback:** e foco. A coluna estica os cartoes na
-horizontal, na largura da janela, sem largura fixa. **Enviar** fica no fim do campo.
+horizontal, na largura da janela, sem largura fixa. **Enviar** fica no fim do campo
+e tem a largura do conteudo, sem esticar na horizontal.
 Sem texto guia, esse cartao nao aparece.
 
 **Voltar** antes de enviar sai e descarta o texto. **Enviar** le o
@@ -362,7 +363,8 @@ da aba Dicas: colar o link ou escolher um arquivo local para ver a lista.
 **Selecionar ou adicionar** e **Introdução** ficam lado a lado e dividem
 a largura. **Feedbacks enviados** fica abaixo, na largura toda.
 Introdução e o unico campo editavel. Cada envio nao usa o titulo
-"Texto": o titulo e `N & App & Usuario & AAAA-MM-DD`. O mais recente
+"Texto": o titulo e `N - Usuario - AAAA-MM-DD - App`, na mesma linha,
+a esquerda do texto. O mais recente
 aparece primeiro. O mais antigo e o numero 1 e o mais recente e o enesimo.
 O numero so existe na tela, nao entra no `feedback.json`. Sem apagar e
 sem editar um feedback ja enviado. Se alguma data nao puder ser lida,

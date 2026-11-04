@@ -63,6 +63,7 @@ class FeedbackView:
             style=ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white"),
             on_click=self._on_send,
         )
+        self.send_row = ft.Row(controls=[self.send_button])
         self.error_text = ft.Text("", size=13, color="#E07A7A", visible=False)
         self.success_icon = ft.Icon(
             ft.Icons.CHECK_CIRCLE,
@@ -118,7 +119,7 @@ class FeedbackView:
                 ),
                 self.guide_card,
                 self.field_card,
-                self.send_button,
+                self.send_row,
                 self.error_text,
                 self.success_card,
             ],
@@ -178,6 +179,7 @@ class FeedbackView:
         self.field.visible = False
         self.field_card.visible = False
         self.send_button.visible = False
+        self.send_row.visible = False
         self.send_button.content = "Enviar"
         self.error_text.visible = False
         self.error_text.value = ""

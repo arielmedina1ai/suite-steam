@@ -595,9 +595,9 @@ def feedback_entry_title(
     entry: FeedbackEntry,
     names: dict[str, str] | None = None,
 ) -> str:
-    """Titulo do item: ``N & App & Usuario & AAAA-MM-DD``."""
+    """Titulo do item: ``N - Usuario - AAAA-MM-DD - App``."""
     return (
-        f"{number} & {feedback_app_label(entry, names)} & {entry.usuario} & {feedback_day(entry.quando)}"
+        f"{number} - {entry.usuario} - {feedback_day(entry.quando)} - {feedback_app_label(entry, names)}"
     )
 
 

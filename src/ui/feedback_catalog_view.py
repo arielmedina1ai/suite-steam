@@ -148,14 +148,23 @@ def bind_feedback_form(
             if index > 0:
                 list_controls.append(_pair_divider())
             list_controls.append(
-                ft.Text(
-                    feedback_entry_title(numbers[id(entry)], entry, app_names),
-                    size=13,
-                    weight=ft.FontWeight.BOLD,
-                    color=config.COLOR_TEXT,
+                ft.Row(
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                    controls=[
+                        ft.Text(
+                            feedback_entry_title(numbers[id(entry)], entry, app_names),
+                            size=13,
+                            weight=ft.FontWeight.BOLD,
+                            color=config.COLOR_TEXT,
+                        ),
+                        ft.Container(
+                            expand=True,
+                            content=_read_value(entry.texto, multiline=True),
+                        ),
+                    ],
                 )
             )
-            list_controls.append(_read_value(entry.texto, multiline=True))
 
     done_text = form.notice if form.notice else ("" if form.busy else form.message)
     intro_box = ft.Container()
@@ -221,4 +230,7 @@ def bind_feedback_form(
         ],
     )
     edit_holder.expand = True
+    scroll = getattr(edit_holder, "_suite_scroll", None)
+    if scroll is not None:
+        scroll.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
     return intro_box
