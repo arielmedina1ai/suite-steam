@@ -7,6 +7,7 @@ import flet as ft
 
 import config
 from models import AppInfo
+from services.feedback import feedback_sent_message
 
 
 class FeedbackView:
@@ -17,6 +18,7 @@ class FeedbackView:
         on_back: Callable[[], None],
         on_submit: Callable[[str], str],
         introducao: str = "",
+        confirmacao: str = "",
     ) -> None:
         self.page = page
         self.app = app
@@ -25,6 +27,7 @@ class FeedbackView:
         self._busy = False
         self._sent = False
         self.introducao = introducao or ""
+        self.confirmacao = confirmacao or ""
         self.guide_text = ft.Text(
             self.introducao.strip(),
             size=15,
@@ -71,7 +74,7 @@ class FeedbackView:
             size=40,
         )
         self.sent_text = ft.Text(
-            "Feedback enviado.",
+            feedback_sent_message(self.confirmacao),
             size=16,
             color=config.COLOR_TEXT,
             visible=False,
@@ -195,6 +198,12 @@ class FeedbackView:
         shown = self.introducao.strip()
         self.guide_text.value = shown
         self.guide_card.visible = bool(shown) and not self._sent
+        if refresh:
+            self._safe_update()
+
+    def set_confirmacao(self, text: str, *, refresh: bool = True) -> None:
+        self.confirmacao = text or ""
+        self.sent_text.value = feedback_sent_message(self.confirmacao)
         if refresh:
             self._safe_update()
 

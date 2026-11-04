@@ -86,12 +86,13 @@ def publish_feedback_block(
     uploaded: bool,
     url: str | None = None,
     introducao: str | None = None,
+    confirmacao: str | None = None,
 ) -> str:
     """Soma 1 em feedback.versao so se o envio do catalogo deu certo.
 
     Sem ``url``, a url que ja estava no bloco permanece. UniqueId colado
     nao e reescrito. ``uploaded`` falso devolve a versao atual e nao mexe
-    no bloco. ``introducao`` None deixa o texto guia como estava.
+    no bloco. ``introducao`` ou ``confirmacao`` None deixam o texto como estava.
     """
     block = data.get("feedback")
     current = ""
@@ -111,6 +112,8 @@ def publish_feedback_block(
         updated["versao"] = bump_dicas_version(current)
         if introducao is not None:
             updated["introducao"] = introducao
+        if confirmacao is not None:
+            updated["confirmacao"] = confirmacao
         data["feedback"] = updated
         return updated["versao"]
     stored = url if isinstance(url, str) else str(url or "")
@@ -121,6 +124,8 @@ def publish_feedback_block(
     updated["versao"] = bump_dicas_version(current)
     if introducao is not None:
         updated["introducao"] = introducao
+    if confirmacao is not None:
+        updated["confirmacao"] = confirmacao
     data["feedback"] = updated
     return updated["versao"]
 
@@ -366,6 +371,7 @@ class FeedbackCatalogState:
     local_path: str = ""
     local_name: str = ""
     introducao: str = ""
+    confirmacao: str = ""
     entries: list[FeedbackEntry] = field(default_factory=list)
     loaded_url: str = ""
     versao: str = ""
@@ -590,14 +596,29 @@ def feedback_screen_numbers(entries: list[FeedbackEntry]) -> list[int]:
     return list(range(1, len(entries) + 1))
 
 
+def feedback_user_label(usuario: str) -> str:
+    """So o nome, sem o dominio. O arquivo guarda o login completo."""
+    raw = usuario or ""
+    normalized = raw.replace("/", "\\")
+    if "\\" in normalized:
+        return normalized.rsplit("\\", 1)[-1]
+    return raw
+
+
+def feedback_sent_message(text: str) -> str:
+    """Texto da tela de sucesso. Vazio usa o padrao."""
+    shown = (text or "").strip()
+    return shown or "Feedback enviado."
+
+
 def feedback_entry_title(
     number: int,
     entry: FeedbackEntry,
     names: dict[str, str] | None = None,
 ) -> str:
-    """Titulo do item: ``N - Usuario - AAAA-MM-DD - App``."""
+    """Titulo do item: ``N - usuario - AAAA-MM-DD - App``."""
     return (
-        f"{number} - {entry.usuario} - {feedback_day(entry.quando)} - {feedback_app_label(entry, names)}"
+        f"{number} - {feedback_user_label(entry.usuario)} - {feedback_day(entry.quando)} - {feedback_app_label(entry, names)}"
     )
 
 
@@ -664,6 +685,7 @@ def save_feedback_pointer(
             uploaded=True,
             url=stored,
             introducao=form.introducao,
+            confirmacao=form.confirmacao,
         )
         return data, remote_fp
 

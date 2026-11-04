@@ -1248,6 +1248,7 @@ class SuiteApp:
         form.local_path = ""
         form.local_name = ""
         form.introducao = info.introducao
+        form.confirmacao = info.confirmacao
         form.entries = []
         form.loaded_url = ""
         form.fingerprint = self.publish_form.fingerprint or fingerprint_cache_file()
@@ -1314,6 +1315,9 @@ class SuiteApp:
             return
         if key == "introducao":
             form.introducao = value or ""
+            return
+        if key == "confirmacao":
+            form.confirmacao = value or ""
 
     def _feedback_save(self) -> None:
         if not self.can_publish or self._catalog_forms_busy():
@@ -3127,6 +3131,7 @@ class SuiteApp:
             elif self.show_feedback and self.catalog.feedback.configured:
                 screen = getattr(self, "_feedback_screen", None)
                 intro = self.catalog.feedback.introducao
+                confirmacao = self.catalog.feedback.confirmacao
                 if screen is None or getattr(screen.app, "id", None) != app.id:
                     screen = FeedbackView(
                         self.page,
@@ -3134,10 +3139,12 @@ class SuiteApp:
                         self._close_feedback,
                         self._submit_feedback,
                         introducao=intro,
+                        confirmacao=confirmacao,
                     )
                     self._feedback_screen = screen
                 else:
                     screen.set_introducao(intro, refresh=False)
+                    screen.set_confirmacao(confirmacao, refresh=False)
                 self.content_holder.content = screen.build()
             elif (
                 self.show_tutorial

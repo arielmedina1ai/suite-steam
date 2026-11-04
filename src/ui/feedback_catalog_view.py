@@ -16,6 +16,7 @@ from ui.progress_util import bar_value, label as progress_label
 from ui.publish_view import _remember_scroll, bind_form_section, notice_banner, option7_text
 
 _VALUE_FILL = "#1A2621"
+_ENTRY_TITLE_WIDTH = 420
 
 
 def _pair_divider() -> ft.Control:
@@ -152,11 +153,14 @@ def bind_feedback_form(
                     spacing=12,
                     vertical_alignment=ft.CrossAxisAlignment.START,
                     controls=[
-                        ft.Text(
-                            feedback_entry_title(numbers[id(entry)], entry, app_names),
-                            size=13,
-                            weight=ft.FontWeight.BOLD,
-                            color=config.COLOR_TEXT,
+                        ft.Container(
+                            width=_ENTRY_TITLE_WIDTH,
+                            content=ft.Text(
+                                feedback_entry_title(numbers[id(entry)], entry, app_names),
+                                size=13,
+                                weight=ft.FontWeight.BOLD,
+                                color=config.COLOR_TEXT,
+                            ),
                         ),
                         ft.Container(
                             expand=True,
@@ -181,7 +185,17 @@ def bind_feedback_form(
                 multiline=True,
                 min_lines=3,
                 max_lines=8,
-            )
+            ),
+            option7_text(
+                "Confirmação",
+                form.confirmacao,
+                changed=False,
+                on_commit=lambda value: on_field("confirmacao", value),
+                is_changed=lambda: False,
+                multiline=True,
+                min_lines=2,
+                max_lines=6,
+            ),
         ],
         expand=False,
         height=280,

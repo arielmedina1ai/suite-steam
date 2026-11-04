@@ -100,7 +100,8 @@ Estrutura completa (veja `catalog.example.json`):
   "feedback": {
     "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
     "versao": "1",
-    "introducao": "Pode falar do uso no dia a dia, agradecer, sugerir uma melhoria ou apontar um bug."
+    "introducao": "Pode falar do uso no dia a dia, agradecer, sugerir uma melhoria ou apontar um bug.",
+    "confirmacao": "Feedback enviado."
   },
   "gerencia_geral": "Geral",
   "gerencias": [
@@ -300,8 +301,10 @@ Catalogo.
 O bloco `feedback` aponta para o `feedback.json` no SharePoint, no mesmo
 formato de `dicas` e `links`: `url` com `download.aspx?UniqueId=` e `versao`.
 `introducao` fica nesse bloco, ao lado dos dois, e e o texto guia da tela
-do aplicativo. Sem `url` ou sem `versao`, o botao **Feedback** nao aparece.
-`introducao` vazia nao esconde o botao. Catalogo antigo, sem o bloco,
+do aplicativo. `confirmacao`, ao lado de `introducao`, e o texto da tela
+de sucesso. Vazio, a tela usa "Feedback enviado.". Sem `url` ou sem `versao`,
+o botao **Feedback** nao aparece. `introducao` vazia nao esconde o botao.
+Catalogo antigo, sem o bloco,
 continua valendo. Nao ha feedback da Suite.
 
 O corpo — a lista, nao o ponteiro `feedback` do `catalog.json` — esta em
@@ -347,7 +350,8 @@ se esse envio deu certo. Um WebLogin so, PowerShell sem janela. Um link
 Se o envio falhar, o botao volta a **Enviar**, o texto permanece e aparece
 uma linha curta de erro. Se der certo, o lugar do formulario vira um cartao
 do mesmo estilo (fundo de superficie, borda `#2C4036`, raio 12), com um
-icone de confirmacao na cor de destaque, "Feedback enviado." e um botao
+icone de confirmacao na cor de destaque, o texto de `feedback.confirmacao`
+(ou "Feedback enviado." se estiver vazio) e um botao
 **OK**. So **OK** ou **Voltar** nessa hora voltam para o aplicativo. A tela
 nao volta sozinha.
 
@@ -363,15 +367,17 @@ da aba Dicas: colar o link ou escolher um arquivo local para ver a lista.
 **Selecionar ou adicionar** e **Introdução** ficam lado a lado e dividem
 a largura. **Feedbacks enviados** fica abaixo, na largura toda.
 Introdução e o unico campo editavel. Cada envio nao usa o titulo
-"Texto": o titulo e `N - Usuario - AAAA-MM-DD - App`, na mesma linha,
-a esquerda do texto. O mais recente
+"Texto": o titulo e `N - usuario - AAAA-MM-DD - App`, na mesma linha,
+a esquerda do texto, numa largura fixa para o texto comecar sempre no
+mesmo ponto. O dominio do login nao aparece: `EMPRESA\usuario` vira
+`usuario`. O arquivo guarda o login completo. O mais recente
 aparece primeiro. O mais antigo e o numero 1 e o mais recente e o enesimo.
 O numero so existe na tela, nao entra no `feedback.json`. Sem apagar e
 sem editar um feedback ja enviado. Se alguma data nao puder ser lida,
 a ordem da tela fica a do arquivo. `App` e o nome no catalogo; sem nome,
 fica o `app_id`.
 
-**Salvar** grava `introducao` no bloco `feedback` do `catalog.json`, junto
+**Salvar** grava `introducao` e `confirmacao` no bloco `feedback` do `catalog.json`, junto
 com a url como foi colada (um `download.aspx?UniqueId=` nao e reescrito).
 `feedback.versao` sobe 1 so se esse envio do catalogo der certo. A lista
 no `feedback.json` nao e regravada.

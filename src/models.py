@@ -111,11 +111,13 @@ class FeedbackInfo:
     """Bloco opcional catalog.json > feedback. Ausente: sem url e sem versao.
 
     ``introducao`` e o texto guia da tela do aplicativo. Vazio nao esconde o botao.
+    ``confirmacao`` e o texto da tela de sucesso. Vazio usa "Feedback enviado.".
     """
 
     url: str = ""
     versao: str = ""
     introducao: str = ""
+    confirmacao: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "FeedbackInfo":
@@ -125,6 +127,7 @@ class FeedbackInfo:
             url=str(data.get("url", "")).strip(),
             versao=str(data.get("versao", "")).strip(),
             introducao=str(data.get("introducao") or ""),
+            confirmacao=str(data.get("confirmacao") or ""),
         )
 
     @property

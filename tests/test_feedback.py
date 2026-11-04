@@ -23,6 +23,8 @@ from services.feedback import (
     feedback_app_label,
     feedback_entry_title,
     feedback_screen_numbers,
+    feedback_sent_message,
+    feedback_user_label,
     ordered_feedback_entries,
     publish_feedback_block,
     save_feedback_pointer,
@@ -31,7 +33,7 @@ from services.feedback import (
     sync_feedback,
 )
 from ui.catalog_view import bind_catalog_view
-from ui.feedback_catalog_view import bind_feedback_form, feedback_top_row
+from ui.feedback_catalog_view import _ENTRY_TITLE_WIDTH, bind_feedback_form, feedback_top_row
 from services.sharepoint_manager import SharePointResult
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
@@ -134,15 +136,20 @@ class CatalogFeedbackTests(unittest.TestCase):
     def test_example_points_at_the_growing_list(self) -> None:
         catalog = json.loads((ROOT / "catalog.example.json").read_text(encoding="utf-8"))
         pointer = catalog["feedback"]
-        self.assertTrue({"url", "versao", "introducao"} <= set(pointer))
+        self.assertTrue({"url", "versao", "introducao", "confirmacao"} <= set(pointer))
         self.assertIn("download.aspx?UniqueId=", pointer["url"])
         self.assertTrue(str(pointer["versao"]).strip())
         self.assertIn("dia a dia", pointer["introducao"])
         parsed = parse_catalog_dict(catalog)
         self.assertEqual(parsed.feedback.introducao, pointer["introducao"])
+        self.assertEqual(parsed.feedback.confirmacao, pointer["confirmacao"])
         self.assertTrue(parsed.feedback.configured)
         legacy = parse_catalog_dict({"feedback": {"url": PASTED, "versao": "1"}})
         self.assertEqual(legacy.feedback.introducao, "")
+        self.assertEqual(legacy.feedback.confirmacao, "")
+        self.assertEqual(feedback_sent_message(""), "Feedback enviado.")
+        self.assertEqual(feedback_sent_message("   "), "Feedback enviado.")
+        self.assertEqual(feedback_sent_message("Obrigado."), "Obrigado.")
         self.assertTrue(legacy.feedback.configured)
         body = json.loads((ROOT / "feedback.example.json").read_text(encoding="utf-8"))
         self.assertIsInstance(body, list)
@@ -419,6 +426,10 @@ class FeedbackScreenTests(unittest.TestCase):
         self._assert_same_card(guided.success_card)
         self.assertEqual(guided.success_icon.color, config.COLOR_ACCENT)
         self.assertEqual(guided.sent_text.value, "Feedback enviado.")
+        guided.set_confirmacao("   ")
+        self.assertEqual(guided.sent_text.value, "Feedback enviado.")
+        guided.set_confirmacao("Valeu.")
+        self.assertEqual(guided.sent_text.value, "Valeu.")
         self.assertTrue(guided.ok_button.visible)
 
     def test_failure_keeps_the_text_and_success_waits_for_ok_or_back(self) -> None:
@@ -524,13 +535,15 @@ class FeedbackListTests(unittest.TestCase):
         ordered = ordered_feedback_entries([older, newer, same])
         self.assertEqual([item.texto for item in ordered], ["empate", "novo", "antigo"])
         self.assertEqual(feedback_screen_numbers([older, newer, same]), [1, 2, 3])
+        self.assertEqual(feedback_user_label("EMPRESA\\ana"), "ana")
+        self.assertEqual(same.usuario, "EMPRESA\\ana")
         self.assertEqual(
             feedback_entry_title(3, same, {}),
-            "3 - EMPRESA\\ana - 2026-11-03 - outro",
+            "3 - ana - 2026-11-03 - outro",
         )
         self.assertEqual(
             feedback_entry_title(1, older, {"relatorio-producao": "Relatorio"}),
-            "1 - EMPRESA\\maria - 2026-11-01 - Relatorio",
+            "1 - maria - 2026-11-01 - Relatorio",
         )
         self.assertEqual(feedback_app_label(older, {"relatorio-producao": "Relatorio"}), "Relatorio")
         self.assertEqual(feedback_app_label(same, {}), "outro")
@@ -578,16 +591,22 @@ class FeedbackListTests(unittest.TestCase):
         self.assertNotIn("Usuario", labels)
         self.assertNotIn("Quando", labels)
         self.assertNotIn("App", labels)
-        newest = "2 - EMPRESA\\joao - 2026-11-03 - sem-nome"
-        oldest = "1 - EMPRESA\\maria - 2026-11-01 - Relatorio de Producao"
+        newest = "2 - joao - 2026-11-03 - sem-nome"
+        oldest = "1 - maria - 2026-11-01 - Relatorio de Producao"
         self.assertLess(labels.index(newest), labels.index("novo"))
-        item_rows = [
-            node
-            for node in _walk(edit)
-            if getattr(getattr(node, "controls", [None])[0], "value", None) == newest
-        ]
-        self.assertEqual(len(item_rows), 1)
-        self.assertEqual(item_rows[0].controls[0].value, newest)
+        self.assertNotIn("EMPRESA", newest)
+        item_rows = []
+        for node in _walk(edit):
+            controls = getattr(node, "controls", None)
+            if not isinstance(controls, list) or not controls:
+                continue
+            title = getattr(getattr(controls[0], "content", None), "value", None)
+            if title in {newest, oldest}:
+                item_rows.append(node)
+        self.assertEqual(len(item_rows), 2)
+        self.assertEqual(getattr(item_rows[0].controls[0].content, "value", None), newest)
+        self.assertEqual(item_rows[0].controls[0].width, _ENTRY_TITLE_WIDTH)
+        self.assertEqual(item_rows[1].controls[0].width, _ENTRY_TITLE_WIDTH)
         self.assertIn("novo", _texts(item_rows[0].controls[1]))
         self.assertLess(labels.index("novo"), labels.index(oldest))
         self.assertLess(labels.index(oldest), labels.index("antigo"))
@@ -595,8 +614,10 @@ class FeedbackListTests(unittest.TestCase):
         self.assertNotIn("Remover", labels)
         self.assertNotIn("Adicionar", labels)
         fields = [node for node in _walk(intro) if type(node).__name__ == "TextField"]
-        self.assertEqual(len(fields), 1)
+        self.assertEqual(len(fields), 2)
         self.assertEqual(fields[0].value, "")
+        self.assertEqual(fields[1].value, "")
+        self.assertIn("Confirmação", _texts(intro))
         self.assertTrue(fields[0].multiline)
         self.assertFalse(any(type(node).__name__ == "TextField" for node in _walk(edit)))
         self.assertTrue(edit.expand)
@@ -637,6 +658,7 @@ class FeedbackListTests(unittest.TestCase):
             url="  " + PASTED + "  ",
             versao="3",
             introducao="Pode falar do uso no dia a dia.",
+            confirmacao="Obrigado pelo aviso.",
         )
         with patch("services.feedback.enviar_por_unique_id", side_effect=AssertionError("lista")):
             failed = save_feedback_pointer(
@@ -649,6 +671,7 @@ class FeedbackListTests(unittest.TestCase):
         self.assertEqual(calls[0]["feedback"]["url"], PASTED)
         self.assertEqual(calls[0]["feedback"]["versao"], "4")
         self.assertEqual(calls[0]["feedback"]["introducao"], "Pode falar do uso no dia a dia.")
+        self.assertEqual(calls[0]["feedback"]["confirmacao"], "Obrigado pelo aviso.")
         self.assertNotIn("itens", calls[0]["feedback"])
         self.assertNotIn(":u:", calls[0]["feedback"]["url"])
         self.assertEqual(catalog["feedback"]["versao"], "3")
@@ -672,6 +695,7 @@ class FeedbackListTests(unittest.TestCase):
         self.assertEqual(saved.catalog.feedback.url, PASTED)
         self.assertEqual(saved.catalog.feedback.versao, "4")
         self.assertEqual(saved.catalog.feedback.introducao, "Pode falar do uso no dia a dia.")
+        self.assertEqual(saved.catalog.feedback.confirmacao, "Obrigado pelo aviso.")
 
     def test_send_appends_a_list_and_drops_a_stale_guide(self) -> None:
         catalog = {
@@ -776,7 +800,7 @@ class FeedbackListTests(unittest.TestCase):
         )
         self.assertEqual(_texts(row), ["Publicar", "Estrutura", "Links", "Dicas", "Feedback"])
         host_texts = _texts(host)
-        self.assertIn("1 - EMPRESA\\maria - 2026-11-03 - Relatorio", host_texts)
+        self.assertIn("1 - maria - 2026-11-03 - Relatorio", host_texts)
         top = host.content.controls[0]
         self.assertIs(top.controls[0], holders[8])
         self.assertIn("Introdução", _texts(top.controls[1]))

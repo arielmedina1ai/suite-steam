@@ -14,7 +14,8 @@
   "feedback": {
     "url": "https://empresa.sharepoint.com/teams/seu-time/_layouts/15/download.aspx?UniqueId=...",
     "versao": "1",
-    "introducao": "Pode falar do uso no dia a dia, agradecer, sugerir uma melhoria ou apontar um bug."
+    "introducao": "Pode falar do uso no dia a dia, agradecer, sugerir uma melhoria ou apontar um bug.",
+    "confirmacao": "Feedback enviado."
   },
   "gerencia_geral": "Geral",
   "gerencias": [
