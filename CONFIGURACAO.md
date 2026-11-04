@@ -337,17 +337,26 @@ aparece.
 
 **Voltar** antes de enviar sai e descarta o texto. **Enviar** le o
 `feedback.json` pelo PnP, como as dicas, acrescenta o item e grava de novo.
-`feedback.versao` sobe 1 so se esse envio deu certo. Um WebLogin so,
-PowerShell sem janela. Um link `download.aspx?UniqueId=` colado permanece
-como foi colado.
+No clique, o botao passa a **Enviando...** e fica desabilitado ate o fim.
+O texto digitado nao e apagado nem recolocado. `feedback.versao` sobe 1 so
+se esse envio deu certo. Um WebLogin so, PowerShell sem janela. Um link
+`download.aspx?UniqueId=` colado permanece como foi colado.
 
-Se o envio falhar, a tela fica, o texto permanece e aparece uma linha curta
-de erro. Se der certo, a mesma tela mostra "Feedback enviado." e um botao
+Se o envio falhar, o botao volta a **Enviar**, o texto permanece e aparece
+uma linha curta de erro. Se der certo, o lugar do formulario vira um cartao
+do mesmo estilo (fundo de superficie, borda `#2C4036`, raio 12), com um
+icone de confirmacao na cor de destaque, "Feedback enviado." e um botao
 **OK**. So **OK** ou **Voltar** nessa hora voltam para o aplicativo. A tela
 nao volta sozinha.
 
 A aba **Feedback** do Catalogo fica depois de **Dicas** e usa o mesmo
-acesso de `publish.users`. O bloco **Selecionar ou adicionar** e o mesmo
+acesso de `publish.users`. Ao abrir a aba, a Suite compara
+`feedback.versao` do catalogo com a copia local
+(`catalog/feedback.json` e `catalog/feedback.versao`, ao lado das dicas).
+Versao igual: nao baixa e mostra o que ja esta na maquina. Versao diferente:
+baixa de novo pelo PnP e mostra a lista nova. A versao local so muda depois
+que o arquivo novo foi gravado. Sem `url` ou sem `versao`, nao baixa.
+O bloco **Selecionar ou adicionar** e o mesmo
 da aba Dicas: colar o link ou escolher um arquivo local para ver a lista.
 **Introdução** e **Feedbacks enviados** sao dois blocos, cada um com titulo
 e espaco entre eles. Introdução e o unico campo editavel. A lista nao

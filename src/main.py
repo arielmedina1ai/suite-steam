@@ -74,10 +74,13 @@ from services.links import (
 )
 from services.feedback import (
     FeedbackCatalogState,
-    load_feedback_document,
+    load_local_feedback,
     read_feedback_document,
+    read_saved_feedback_version,
     save_feedback_pointer,
+    should_download_feedback,
     submit_app_feedback,
+    sync_feedback,
 )
 from services.tips import (
     TIP_ROTATE_SECONDS,
@@ -1234,9 +1237,7 @@ class SuiteApp:
             return
         if not form.fingerprint:
             self._fill_feedback_from_catalog()
-        url = (form.url or "").strip()
-        if url and not (form.local_path or "").strip() and form.loaded_url != url:
-            self._feedback_load_remote()
+        self._feedback_load_remote()
 
     def _fill_feedback_from_catalog(self) -> None:
         form = self.feedback_form
@@ -1260,32 +1261,41 @@ class SuiteApp:
             form.message = ""
 
     def _feedback_load_remote(self) -> None:
+        """Compara a versao local com a do catalogo. Igual: mostra a copia. Diferente: baixa."""
         form = self.feedback_form
-        url = (form.url or "").strip()
-        if not url or form.busy:
+        if form.busy or (form.local_path or "").strip():
             return
-        form.loaded_url = url
+        info = self.catalog.feedback
+        if not should_download_feedback(
+            url=info.url,
+            versao=info.versao,
+            saved_versao=read_saved_feedback_version(),
+            local_exists=config.FEEDBACK_FILE.is_file(),
+        ):
+            form.entries = load_local_feedback()
+            form.progress = None
+            return
+        form.entries = load_local_feedback()
         form.busy = True
         form.notice = ""
         form.notice_ok = False
         form.message = "Lendo feedback.json..."
         form.progress = -1.0
         self._render()
-        self.page.run_thread(lambda: self._feedback_load_worker(url))
+        self.page.run_thread(self._feedback_sync_worker)
 
-    def _feedback_load_worker(self, url: str) -> None:
-        entries, err = load_feedback_document(url)
+    def _feedback_sync_worker(self) -> None:
+        status = sync_feedback(self.catalog)
         form = self.feedback_form
         form.busy = False
         form.progress = None
-        if (form.url or "").strip() != url or (form.local_path or "").strip():
+        if (form.local_path or "").strip():
             self._render()
             return
-        if err:
-            form.entries = []
-            form.message = err
+        form.entries = load_local_feedback()
+        if status == "failed":
+            form.message = "Nao foi possivel ler o feedback."
         else:
-            form.entries = entries
             form.message = ""
         self._render()
 

@@ -212,6 +212,9 @@ TIPS_VERSION_FILE = CATALOG_CACHE_DIR / "tips.versao"
 # links.json baixado e a versao que ja deu certo. A versao so muda depois do arquivo.
 LINKS_FILE = CATALOG_CACHE_DIR / "links.json"
 LINKS_VERSION_FILE = CATALOG_CACHE_DIR / "links.versao"
+# feedback.json baixado e a versao que ja deu certo. A versao so muda depois do arquivo.
+FEEDBACK_FILE = CATALOG_CACHE_DIR / "feedback.json"
+FEEDBACK_VERSION_FILE = CATALOG_CACHE_DIR / "feedback.versao"
 
 
 def user_downloads_dir() -> Path:

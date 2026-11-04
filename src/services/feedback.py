@@ -417,6 +417,117 @@ def _entries_from_text(text: str) -> tuple[list[FeedbackEntry], str]:
         return [], _INVALID_ERROR
 
 
+def should_download_feedback(
+    *,
+    url: str,
+    versao: str,
+    saved_versao: str,
+    local_exists: bool,
+) -> bool:
+    """True quando vale baixar. Sem url ou sem versao remota: nao baixa."""
+    remote_url = (url or "").strip()
+    remote_versao = (versao or "").strip()
+    if not remote_url or not remote_versao:
+        return False
+    if (saved_versao or "").strip() == remote_versao and local_exists:
+        return False
+    return True
+
+
+def read_saved_feedback_version(path: Path | None = None) -> str:
+    version_path = path or config.FEEDBACK_VERSION_FILE
+    try:
+        return version_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def write_saved_feedback_version(versao: str, path: Path | None = None) -> None:
+    version_path = path or config.FEEDBACK_VERSION_FILE
+    version_path.parent.mkdir(parents=True, exist_ok=True)
+    version_path.write_text((versao or "").strip(), encoding="utf-8")
+
+
+def load_local_feedback(path: Path | None = None) -> list[FeedbackEntry]:
+    """Le a copia local. Arquivo ausente ou invalido vira lista vazia."""
+    feedback_path = path or config.FEEDBACK_FILE
+    if not feedback_path.is_file():
+        return []
+    try:
+        return read_feedback_document(feedback_path)
+    except (OSError, json.JSONDecodeError, ValueError, TypeError, UnicodeError):
+        return []
+
+
+def _quiet_unlink(path: Path) -> None:
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        pass
+
+
+def _download_feedback_file(url: str, dest: Path) -> Any:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    return baixar_do_sharepoint(
+        link=url,
+        pasta_destino=dest.parent,
+        nome_arquivo=dest.name,
+    )
+
+
+def sync_feedback(
+    catalog: CatalogData,
+    *,
+    download: Callable[[str, Path], Any] | None = None,
+    feedback_path: Path | None = None,
+    version_path: Path | None = None,
+) -> str:
+    """``skipped``, ``downloaded`` ou ``failed``.
+
+    Falha nao levanta e nao apaga a copia anterior. A versao local
+    so muda depois que o arquivo novo foi gravado.
+    """
+    info = catalog.feedback
+    dest = feedback_path or config.FEEDBACK_FILE
+    version_dest = version_path or config.FEEDBACK_VERSION_FILE
+    saved = read_saved_feedback_version(version_dest)
+    if not should_download_feedback(
+        url=info.url,
+        versao=info.versao,
+        saved_versao=saved,
+        local_exists=dest.is_file(),
+    ):
+        return "skipped"
+    partial = dest.with_name(dest.name + ".partial")
+    _quiet_unlink(partial)
+    downloader = download or _download_feedback_file
+    try:
+        result = downloader(info.url.strip(), partial)
+    except Exception:
+        _quiet_unlink(partial)
+        return "failed"
+    if not getattr(result, "ok", False):
+        _quiet_unlink(partial)
+        return "failed"
+    source = getattr(result, "path", None) or partial
+    try:
+        text = Path(source).read_text(encoding="utf-8")
+        if text.lstrip().startswith("<"):
+            raise ValueError("conteudo HTML")
+        parse_feedback_entries(json.loads(text))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        writing = dest.with_name(dest.name + ".writing")
+        writing.write_text(text, encoding="utf-8")
+        writing.replace(dest)
+        write_saved_feedback_version(info.versao.strip(), version_dest)
+    except Exception:
+        return "failed"
+    finally:
+        _quiet_unlink(partial)
+    return "downloaded"
+
+
 def load_feedback_document(url: str) -> tuple[list[FeedbackEntry], str]:
     """Baixa o feedback.json (PnP) so para mostrar a lista. Nao grava de volta."""
     link = (url or "").strip()

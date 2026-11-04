@@ -52,6 +52,11 @@ class FeedbackView:
             on_click=self._on_send,
         )
         self.error_text = ft.Text("", size=13, color="#E07A7A", visible=False)
+        self.success_icon = ft.Icon(
+            ft.Icons.CHECK_CIRCLE,
+            color=config.COLOR_ACCENT,
+            size=40,
+        )
         self.sent_text = ft.Text(
             "Feedback enviado.",
             size=16,
@@ -64,6 +69,14 @@ class FeedbackView:
             style=ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white"),
             on_click=self._on_ok,
         )
+        self.success_card = _feedback_card(
+            ft.Column(
+                spacing=12,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[self.success_icon, self.sent_text, self.ok_button],
+            )
+        )
+        self.success_card.visible = False
         self.back_button = ft.OutlinedButton(
             "Voltar",
             icon=ft.Icons.ARROW_BACK,
@@ -94,8 +107,7 @@ class FeedbackView:
                 self.field_card,
                 self.send_button,
                 self.error_text,
-                self.sent_text,
-                self.ok_button,
+                self.success_card,
             ],
         )
 
@@ -117,6 +129,7 @@ class FeedbackView:
             self._show_error("Escreva o feedback.")
             return
         self._busy = True
+        self.send_button.content = "Enviando..."
         self.send_button.disabled = True
         self.back_button.disabled = True
         self.error_text.visible = False
@@ -130,8 +143,8 @@ class FeedbackView:
         except Exception:
             message = "Nao foi possivel enviar."
         if message:
-            self.field.value = text
             self._busy = False
+            self.send_button.content = "Enviar"
             self.send_button.disabled = False
             self.back_button.disabled = False
             self._show_error(message)
@@ -142,6 +155,7 @@ class FeedbackView:
     def _show_error(self, message: str) -> None:
         self.error_text.value = message
         self.error_text.visible = True
+        self.success_card.visible = False
         self.sent_text.visible = False
         self.ok_button.visible = False
         self._safe_update()
@@ -151,8 +165,10 @@ class FeedbackView:
         self.field.visible = False
         self.field_card.visible = False
         self.send_button.visible = False
+        self.send_button.content = "Enviar"
         self.error_text.visible = False
         self.error_text.value = ""
+        self.success_card.visible = True
         self.sent_text.visible = True
         self.ok_button.visible = True
         self.back_button.disabled = False

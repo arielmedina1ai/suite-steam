@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import flet as ft
 
 import config
-from models import AppInfo, FeedbackInfo, parse_catalog_dict
+from models import AppInfo, CatalogData, FeedbackInfo, parse_catalog_dict
 from services.catalog_publish import PublishFormState, PublishOutcome, StructureFormState
 from services.feedback import (
     FeedbackCatalogState,
@@ -24,7 +24,9 @@ from services.feedback import (
     ordered_feedback_entries,
     publish_feedback_block,
     save_feedback_pointer,
+    should_download_feedback,
     submit_app_feedback,
+    sync_feedback,
 )
 from ui.catalog_view import bind_catalog_view
 from ui.feedback_catalog_view import bind_feedback_form
@@ -399,6 +401,9 @@ class FeedbackScreenTests(unittest.TestCase):
         guided._show_sent()
         self.assertFalse(guided.guide_card.visible)
         self.assertFalse(guided.field_card.visible)
+        self.assertTrue(guided.success_card.visible)
+        self._assert_same_card(guided.success_card)
+        self.assertEqual(guided.success_icon.color, config.COLOR_ACCENT)
         self.assertEqual(guided.sent_text.value, "Feedback enviado.")
         self.assertTrue(guided.ok_button.visible)
 
@@ -407,6 +412,9 @@ class FeedbackScreenTests(unittest.TestCase):
         backs: list[str] = []
 
         def fail(_texto: str) -> str:
+            self.assertEqual(view.send_button.content, "Enviando...")
+            self.assertTrue(view.send_button.disabled)
+            self.assertEqual(view.field.value, "Texto que fica")
             return "Nao foi possivel enviar."
 
         view = FeedbackView(page, self._app(), lambda: backs.append("voltar"), fail)
@@ -416,12 +424,18 @@ class FeedbackScreenTests(unittest.TestCase):
         self.assertEqual(backs, [])
         self.assertEqual(view.field.value, "Texto que fica")
         self.assertTrue(view.field.visible)
+        self.assertEqual(view.send_button.content, "Enviar")
+        self.assertFalse(view.send_button.disabled)
         self.assertEqual(view.error_text.value, "Nao foi possivel enviar.")
         self.assertTrue(view.error_text.visible)
+        self.assertFalse(view.success_card.visible)
         self.assertFalse(view.sent_text.visible)
         self.assertFalse(view.ok_button.visible)
 
         def ok(_texto: str) -> str:
+            self.assertEqual(done.send_button.content, "Enviando...")
+            self.assertTrue(done.send_button.disabled)
+            self.assertEqual(done.field.value, "Pode ir")
             return ""
 
         done = FeedbackView(page, self._app(), lambda: backs.append("voltar"), ok)
@@ -429,10 +443,16 @@ class FeedbackScreenTests(unittest.TestCase):
         done.field.value = "Pode ir"
         done.send_button.on_click(_Event(done.send_button))
         self.assertEqual(backs, [])
+        self.assertTrue(done.success_card.visible)
+        self._assert_same_card(done.success_card)
+        self.assertEqual(done.success_icon.color, config.COLOR_ACCENT)
         self.assertTrue(done.sent_text.visible)
         self.assertEqual(done.sent_text.value, "Feedback enviado.")
         self.assertTrue(done.ok_button.visible)
         self.assertFalse(done.field.visible)
+        self.assertFalse(done.guide_card.visible)
+        self.assertFalse(done.field_card.visible)
+        self.assertFalse(done.send_button.visible)
         done.ok_button.on_click(_Event(done.ok_button))
         self.assertEqual(backs, ["voltar"])
 
@@ -714,3 +734,117 @@ class FeedbackListTests(unittest.TestCase):
         self.assertEqual(_texts(row), ["Publicar", "Estrutura", "Links", "Dicas", "Feedback"])
         self.assertIn("Relatorio", _texts(host))
         self.assertNotIn("Remover", _texts(host))
+
+
+class _DownloadResult:
+    def __init__(self, ok: bool, path: Path | None) -> None:
+        self.ok = ok
+        self.path = path
+
+
+class FeedbackVersionTests(unittest.TestCase):
+    def test_same_version_does_not_download_and_different_does(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            body = root / "feedback.json"
+            version = root / "feedback.versao"
+            body.write_text(
+                json.dumps([
+                    {
+                        "usuario": "EMPRESA\\maria",
+                        "quando": "2026-11-01 09:00:00",
+                        "app_id": "relatorio-producao",
+                        "texto": "velho",
+                    }
+                ]),
+                encoding="utf-8",
+            )
+            version.write_text("2", encoding="utf-8")
+            calls: list[str] = []
+
+            def download(url: str, dest: Path) -> _DownloadResult:
+                calls.append(url)
+                dest.write_text(
+                    json.dumps([
+                        {
+                            "usuario": "EMPRESA\\joao",
+                            "quando": "2026-11-03 15:04:05",
+                            "app_id": "monitor-ativos",
+                            "texto": "novo",
+                        }
+                    ]),
+                    encoding="utf-8",
+                )
+                return _DownloadResult(True, dest)
+
+            same = CatalogData(feedback=FeedbackInfo(url=PASTED, versao="2"))
+            self.assertFalse(
+                should_download_feedback(
+                    url=same.feedback.url,
+                    versao=same.feedback.versao,
+                    saved_versao="2",
+                    local_exists=True,
+                )
+            )
+            self.assertEqual(
+                sync_feedback(same, download=download, feedback_path=body, version_path=version),
+                "skipped",
+            )
+            self.assertEqual(calls, [])
+            self.assertIn("velho", body.read_text(encoding="utf-8"))
+
+            changed = CatalogData(feedback=FeedbackInfo(url=PASTED, versao="3"))
+            self.assertTrue(
+                should_download_feedback(
+                    url=changed.feedback.url,
+                    versao=changed.feedback.versao,
+                    saved_versao="2",
+                    local_exists=True,
+                )
+            )
+            self.assertEqual(
+                sync_feedback(changed, download=download, feedback_path=body, version_path=version),
+                "downloaded",
+            )
+            self.assertEqual(calls, [PASTED])
+            self.assertIn("novo", body.read_text(encoding="utf-8"))
+            self.assertEqual(version.read_text(encoding="utf-8"), "3")
+
+    def test_missing_url_or_version_does_not_download(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            body = root / "feedback.json"
+            version = root / "feedback.versao"
+            body.write_text("[]\n", encoding="utf-8")
+            version.write_text("1", encoding="utf-8")
+            calls: list[str] = []
+
+            def download(url: str, dest: Path) -> _DownloadResult:
+                calls.append(url)
+                return _DownloadResult(True, dest)
+
+            for info in (
+                FeedbackInfo(url="", versao="2"),
+                FeedbackInfo(url=PASTED, versao=""),
+                FeedbackInfo(),
+            ):
+                catalog = CatalogData(feedback=info)
+                self.assertFalse(
+                    should_download_feedback(
+                        url=info.url,
+                        versao=info.versao,
+                        saved_versao="1",
+                        local_exists=True,
+                    )
+                )
+                self.assertEqual(
+                    sync_feedback(
+                        catalog,
+                        download=download,
+                        feedback_path=body,
+                        version_path=version,
+                    ),
+                    "skipped",
+                )
+            self.assertEqual(calls, [])
+            self.assertEqual(version.read_text(encoding="utf-8"), "1")
