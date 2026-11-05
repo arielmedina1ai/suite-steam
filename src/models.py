@@ -107,6 +107,36 @@ class LinksInfo:
 
 
 @dataclass
+class FeedbackInfo:
+    """Bloco opcional catalog.json > feedback. Ausente: sem url e sem versao.
+
+    ``introducao`` e o texto guia da tela do aplicativo. Vazio nao esconde o botao.
+    ``confirmacao`` e o texto da tela de sucesso. Vazio usa "Feedback enviado.".
+    """
+
+    url: str = ""
+    versao: str = ""
+    introducao: str = ""
+    confirmacao: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "FeedbackInfo":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            url=str(data.get("url", "")).strip(),
+            versao=str(data.get("versao", "")).strip(),
+            introducao=str(data.get("introducao") or ""),
+            confirmacao=str(data.get("confirmacao") or ""),
+        )
+
+    @property
+    def configured(self) -> bool:
+        """Os dois campos precisam existir para o botao Feedback aparecer."""
+        return bool(self.url and self.versao)
+
+
+@dataclass
 class LinkItem:
     titulo: str
     descricao: str
@@ -273,6 +303,7 @@ class CatalogData:
     gerencia_geral: str = "Geral"
     dicas: DicasInfo = field(default_factory=DicasInfo)
     links: LinksInfo = field(default_factory=LinksInfo)
+    feedback: FeedbackInfo = field(default_factory=FeedbackInfo)
 
     def gerencia_by_id(self, gerencia_id: str) -> GerenciaInfo | None:
         alvo = (gerencia_id or "").strip()
@@ -299,6 +330,7 @@ class CatalogData:
                 gerencia_geral=self.gerencia_geral,
                 dicas=self.dicas,
                 links=self.links,
+                feedback=self.feedback,
             )
         g = self.gerencia_by_id(gerencia_id)
         if g is None:
@@ -313,6 +345,7 @@ class CatalogData:
                     gerencia_geral=self.gerencia_geral,
                     dicas=self.dicas,
                     links=self.links,
+                    feedback=self.feedback,
                 )
             return CatalogData(
                 apps=list(self.apps),
@@ -322,6 +355,7 @@ class CatalogData:
                 gerencia_geral=self.gerencia_geral,
                 dicas=self.dicas,
                 links=self.links,
+                feedback=self.feedback,
             )
         allowed = set(g.apps)
         apps = [a for a in self.apps if a.id in allowed]
@@ -333,6 +367,7 @@ class CatalogData:
             gerencia_geral=self.gerencia_geral,
             dicas=self.dicas,
             links=self.links,
+            feedback=self.feedback,
         )
 
 
@@ -429,6 +464,8 @@ def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:
     dicas = DicasInfo.from_dict(dicas_raw if isinstance(dicas_raw, dict) else None)
     links_raw = data.get("links")
     links = LinksInfo.from_dict(links_raw if isinstance(links_raw, dict) else None)
+    feedback_raw = data.get("feedback")
+    feedback = FeedbackInfo.from_dict(feedback_raw if isinstance(feedback_raw, dict) else None)
 
     return CatalogData(
         apps=apps,
@@ -438,6 +475,7 @@ def parse_catalog_dict(data: dict[str, Any] | list[Any]) -> CatalogData:
         gerencia_geral=gerencia_geral,
         dicas=dicas,
         links=links,
+        feedback=feedback,
     )
 
 

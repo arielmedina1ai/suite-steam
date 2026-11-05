@@ -72,6 +72,16 @@ from services.links import (
     set_group_title,
     set_item_field,
 )
+from services.feedback import (
+    FeedbackCatalogState,
+    load_local_feedback,
+    read_feedback_document,
+    read_saved_feedback_version,
+    save_feedback_pointer,
+    should_download_feedback,
+    submit_app_feedback,
+    sync_feedback,
+)
 from services.tips import (
     TIP_ROTATE_SECONDS,
     DicasFormState,
@@ -102,6 +112,7 @@ from services.windows_identity import current_windows_login, user_can_publish
 from services.windows_startup import set_start_with_windows, supported as startup_supported
 from ui.app_detail_view import AppDetailView
 from ui.components import build_sidebar
+from ui.feedback_view import FeedbackView
 from ui.tutorial_view import TutorialView
 from ui.catalog_view import bind_catalog_view, session_holder
 from ui.home_view import apply_tip, build_favoritos_view, build_home, build_setor_view
@@ -125,6 +136,7 @@ class SuiteApp:
         self.selected_gerencia_id = self.preferences.get_gerencia_id()
         self.selected_id: str | None = None
         self.show_tutorial = False
+        self.show_feedback = False
         self.selected_setor: str | None = None
         self.show_favorites = False
         self.show_links = False
@@ -164,6 +176,11 @@ class SuiteApp:
         self._links_layout = ft.Column(expand=True, spacing=12)
         self._sess_links_sel = session_holder()
         self._sess_links_edit = session_holder()
+        self.feedback_form = FeedbackCatalogState()
+        self._feedback_screen = None
+        self._feedback_layout = ft.Column(expand=True, spacing=12)
+        self._sess_feedback_sel = session_holder()
+        self._sess_feedback_edit = session_holder()
         self._tip_cycle: TipCycle | None = None
         self._tips_signature: tuple[tuple[str, str], ...] | None = None
         self._current_tip = None
@@ -787,6 +804,8 @@ class SuiteApp:
     # ------------------------------------------------------------------
     def _leave_app_screen(self) -> None:
         self.show_tutorial = False
+        self.show_feedback = False
+        self._feedback_screen = None
         self.run_error = ""
         self.detail_notice = ""
         self.detail_notice_app_id = None
@@ -875,6 +894,9 @@ class SuiteApp:
         elif tab == "dicas":
             self.catalog_tab = "dicas"
             self._ensure_dicas_form()
+        elif tab == "feedback":
+            self.catalog_tab = "feedback"
+            self._ensure_feedback_form()
         else:
             self.catalog_tab = "publish"
         self._render()
@@ -947,11 +969,13 @@ class SuiteApp:
     def _catalog_forms_busy(self) -> bool:
         dicas = getattr(self, "dicas", None)
         links = getattr(self, "links_form", None)
+        feedback = getattr(self, "feedback_form", None)
         return bool(
             getattr(self.publish_form, "busy", False)
             or getattr(self.structure, "busy", False)
             or (dicas is not None and getattr(dicas, "busy", False))
             or (links is not None and getattr(links, "busy", False))
+            or (feedback is not None and getattr(feedback, "busy", False))
         )
 
     def _ensure_links_form(self) -> None:
@@ -1207,6 +1231,162 @@ class SuiteApp:
         self.dicas.hold_scroll = False
         self._render()
 
+    def _ensure_feedback_form(self) -> None:
+        form = getattr(self, "feedback_form", None)
+        if form is None or form.busy:
+            return
+        if not form.fingerprint:
+            self._fill_feedback_from_catalog()
+        self._feedback_load_remote()
+
+    def _fill_feedback_from_catalog(self) -> None:
+        form = self.feedback_form
+        info = self.catalog.feedback
+        form.url = info.url
+        form.versao = info.versao
+        form.dest_folder = config.PUBLISH_FOLDER_URL
+        form.local_path = ""
+        form.local_name = ""
+        form.introducao = info.introducao
+        form.confirmacao = info.confirmacao
+        form.entries = []
+        form.loaded_url = ""
+        form.fingerprint = self.publish_form.fingerprint or fingerprint_cache_file()
+        form.busy = False
+        form.conflict = False
+        form.notice = ""
+        form.notice_ok = False
+        form.progress = None
+        form.hold_scroll = False
+        if not form.message:
+            form.message = ""
+
+    def _feedback_load_remote(self) -> None:
+        """Compara a versao local com a do catalogo. Igual: mostra a copia. Diferente: baixa."""
+        form = self.feedback_form
+        if form.busy or (form.local_path or "").strip():
+            return
+        info = self.catalog.feedback
+        if not should_download_feedback(
+            url=info.url,
+            versao=info.versao,
+            saved_versao=read_saved_feedback_version(),
+            local_exists=config.FEEDBACK_FILE.is_file(),
+        ):
+            form.entries = load_local_feedback()
+            form.progress = None
+            return
+        form.entries = load_local_feedback()
+        form.busy = True
+        form.notice = ""
+        form.notice_ok = False
+        form.message = "Lendo feedback.json..."
+        form.progress = -1.0
+        self._render()
+        self.page.run_thread(self._feedback_sync_worker)
+
+    def _feedback_sync_worker(self) -> None:
+        status = sync_feedback(self.catalog)
+        form = self.feedback_form
+        form.busy = False
+        form.progress = None
+        if (form.local_path or "").strip():
+            self._render()
+            return
+        form.entries = load_local_feedback()
+        if status == "failed":
+            form.message = "Nao foi possivel ler o feedback."
+        else:
+            form.message = ""
+        self._render()
+
+    def _feedback_field(self, key: str, value: str) -> None:
+        form = self.feedback_form
+        if key == "url":
+            had_file = form.has_file
+            form.url = value or ""
+            form.notice = ""
+            form.notice_ok = False
+            if had_file != form.has_file:
+                self._render()
+            return
+        if key == "dest_folder":
+            form.dest_folder = value or ""
+            return
+        if key == "introducao":
+            form.introducao = value or ""
+            return
+        if key == "confirmacao":
+            form.confirmacao = value or ""
+
+    def _feedback_save(self) -> None:
+        if not self.can_publish or self._catalog_forms_busy():
+            return
+        if not (self.feedback_form.url or "").strip():
+            self.feedback_form.message = "Cole o link do feedback.json."
+            self.feedback_form.notice = ""
+            self.feedback_form.notice_ok = False
+            self._render()
+            return
+        self.feedback_form.busy = True
+        self.feedback_form.conflict = False
+        self.feedback_form.hold_scroll = True
+        self.feedback_form.notice = ""
+        self.feedback_form.notice_ok = False
+        self.feedback_form.message = "Salvando feedback..."
+        self.feedback_form.progress = -1.0
+        self._render()
+        self.page.run_thread(self._feedback_save_worker)
+
+    def _on_feedback_progress(self, pct: float, msg: str) -> None:
+        self.feedback_form.hold_scroll = True
+        self.feedback_form.progress = pct
+        self.feedback_form.message = msg
+        if self._confirm_open:
+            return
+        try:
+            self._render()
+        except Exception:
+            pass
+
+    def _feedback_save_worker(self) -> None:
+        result = save_feedback_pointer(
+            self.feedback_form,
+            expected_fingerprint=self.feedback_form.fingerprint or self.publish_form.fingerprint,
+            progress=self._on_feedback_progress,
+        )
+        self.feedback_form.busy = False
+        self.feedback_form.progress = None
+        self.feedback_form.hold_scroll = True
+        if result.conflict:
+            self.feedback_form.conflict = True
+            self.feedback_form.message = result.message
+            self._render()
+            self.feedback_form.hold_scroll = False
+            return
+        if not result.ok:
+            self.feedback_form.message = result.message
+            self._render()
+            self.feedback_form.hold_scroll = False
+            return
+        if result.catalog is not None:
+            self.catalog = result.catalog
+            self._apply_gerencia_filter()
+        fp = result.fingerprint or fingerprint_cache_file()
+        self.feedback_form.fingerprint = fp
+        self.publish_form.fingerprint = fp
+        self.structure = structure_from_catalog(self.catalog, fp)
+        self.feedback_form.versao = self.catalog.feedback.versao
+        self.feedback_form.url = self.catalog.feedback.url or self.feedback_form.url
+        self.feedback_form.local_path = ""
+        self.feedback_form.local_name = ""
+        self.feedback_form.notice = "Feedback salvo."
+        self.feedback_form.notice_ok = True
+        self.feedback_form.message = ""
+        self.feedback_form.conflict = False
+        self.feedback_form.hold_scroll = False
+        self._render()
+
     def _select_setor(self, setor_id: str) -> None:
         self._leave_app_screen()
         self.selected_setor = setor_id
@@ -1224,6 +1404,7 @@ class SuiteApp:
             return
         if self.storage.get_state(target.id).status != InstallStatus.INSTALLED:
             return
+        self.show_feedback = False
         self.show_tutorial = True
         self._render()
 
@@ -1231,10 +1412,42 @@ class SuiteApp:
         self.show_tutorial = False
         self._render()
 
+    def _open_feedback(self, app: AppInfo | None = None) -> None:
+        if not self.catalog.feedback.configured:
+            return
+        target = app
+        if target is None and self.selected_id:
+            target = self.apps_by_id.get(self.selected_id)
+        if target is None:
+            return
+        self.show_tutorial = False
+        self.show_feedback = True
+        self._feedback_screen = None
+        self._render()
+
+    def _close_feedback(self) -> None:
+        self.show_feedback = False
+        self._feedback_screen = None
+        self._render()
+
+    def _submit_feedback(self, texto: str) -> str:
+        result = submit_app_feedback(
+            app_id=self.selected_id or "",
+            texto=texto,
+            feedback_url=self.catalog.feedback.url,
+        )
+        if result.ok and result.catalog is not None:
+            self.catalog = result.catalog
+            self._apply_gerencia_filter()
+        if result.ok:
+            return ""
+        return result.message or "Nao foi possivel enviar."
+
     def _select_app(self, app_id: str) -> None:
         if self.selected_id != app_id:
             self._leave_app_screen()
         self.show_tutorial = False
+        self.show_feedback = False
         self.selected_id = app_id
         app = self.apps_by_id.get(app_id)
         if app is not None and app.setor:
@@ -1482,11 +1695,13 @@ class SuiteApp:
     def _publish_reopen(self) -> None:
         dicas = getattr(self, "dicas", None)
         links = getattr(self, "links_form", None)
+        feedback = getattr(self, "feedback_form", None)
         if (
             self.publish_form.busy
             or self.structure.busy
             or (dicas is not None and dicas.busy)
             or (links is not None and links.busy)
+            or (feedback is not None and feedback.busy)
         ):
             return
         self.publish_form.busy = True
@@ -1499,6 +1714,9 @@ class SuiteApp:
         if links is not None:
             links.busy = True
             links.message = "Relendo catalogo remoto..."
+        if feedback is not None:
+            feedback.busy = True
+            feedback.message = "Relendo catalogo remoto..."
         self._render()
         self.page.run_thread(self._publish_reopen_worker)
 
@@ -1524,6 +1742,13 @@ class SuiteApp:
                 self.links_form.message = ""
                 self._fill_links_from_catalog()
                 self.links_form.message = "Catalogo recarregado."
+            if getattr(self, "feedback_form", None) is not None:
+                self.feedback_form.fingerprint = ""
+                self.feedback_form.message = ""
+                self._fill_feedback_from_catalog()
+                self.feedback_form.message = "Catalogo recarregado."
+                if getattr(self, "catalog_tab", "") == "feedback":
+                    self._feedback_load_remote()
             self._reload_tips()
         else:
             self.publish_form.conflict = True
@@ -1539,6 +1764,10 @@ class SuiteApp:
                 self.links_form.busy = False
                 self.links_form.conflict = True
                 self.links_form.message = result.message or "Falha ao reler o catalogo."
+            if getattr(self, "feedback_form", None) is not None:
+                self.feedback_form.busy = False
+                self.feedback_form.conflict = True
+                self.feedback_form.message = result.message or "Falha ao reler o catalogo."
         self._render()
 
     def _on_publish_progress(self, pct: float, msg: str) -> None:
@@ -1551,6 +1780,22 @@ class SuiteApp:
             links.hold_scroll = True
             links.progress = pct
             links.message = msg
+            if self._confirm_open:
+                return
+            try:
+                self._render()
+            except Exception:
+                pass
+            return
+        feedback = getattr(self, "feedback_form", None)
+        if (
+            feedback is not None
+            and feedback.busy
+            and getattr(self, "catalog_tab", "") == "feedback"
+        ):
+            feedback.hold_scroll = True
+            feedback.progress = pct
+            feedback.message = msg
             if self._confirm_open:
                 return
             try:
@@ -1594,6 +1839,8 @@ class SuiteApp:
             return self.dicas
         if kind == "links" and getattr(self, "links_form", None) is not None:
             return self.links_form
+        if kind == "feedback" and getattr(self, "feedback_form", None) is not None:
+            return self.feedback_form
         return self.publish_form
 
     def _publish_pick(self, kind: str) -> None:
@@ -1621,6 +1868,8 @@ class SuiteApp:
         elif kind == "dicas":
             allowed = ["json"]
         elif kind == "links":
+            allowed = ["json"]
+        elif kind == "feedback":
             allowed = ["json"]
         elif (kind or "").startswith("tutorial_video:"):
             allowed = ["mp4"]
@@ -1682,6 +1931,21 @@ class SuiteApp:
             self.dicas.message = ""
             self.dicas.notice = ""
             self.dicas.notice_ok = False
+            self._render()
+            return
+        if kind == "feedback":
+            try:
+                entries = read_feedback_document(Path(path))
+            except (OSError, ValueError, UnicodeDecodeError):
+                self.feedback_form.message = "O arquivo nao e um feedback.json valido."
+                self._render()
+                return
+            self.feedback_form.entries = entries
+            self.feedback_form.local_path = path
+            self.feedback_form.local_name = picked_name or Path(path).name
+            self.feedback_form.message = ""
+            self.feedback_form.notice = ""
+            self.feedback_form.notice_ok = False
             self._render()
             return
         if kind == "app":
@@ -2848,6 +3112,14 @@ class SuiteApp:
                 links_layout=self._links_layout,
                 links_select=self._sess_links_sel,
                 links_edit=self._sess_links_edit,
+                feedback=self.feedback_form,
+                feedback_app_names={app.id: app.nome for app in self.catalog.apps},
+                on_feedback_save=self._feedback_save,
+                on_feedback_pick=lambda: self._publish_pick("feedback"),
+                on_feedback_field=self._feedback_field,
+                feedback_layout=self._feedback_layout,
+                feedback_select=self._sess_feedback_sel,
+                feedback_edit=self._sess_feedback_edit,
             )
             self.content_holder.content = shell
         elif self.selected_id is not None:
@@ -2856,6 +3128,24 @@ class SuiteApp:
                 self.content_holder.content = ft.Text(
                     "Aplicativo nao encontrado.", color=config.COLOR_TEXT
                 )
+            elif self.show_feedback and self.catalog.feedback.configured:
+                screen = getattr(self, "_feedback_screen", None)
+                intro = self.catalog.feedback.introducao
+                confirmacao = self.catalog.feedback.confirmacao
+                if screen is None or getattr(screen.app, "id", None) != app.id:
+                    screen = FeedbackView(
+                        self.page,
+                        app,
+                        self._close_feedback,
+                        self._submit_feedback,
+                        introducao=intro,
+                        confirmacao=confirmacao,
+                    )
+                    self._feedback_screen = screen
+                else:
+                    screen.set_introducao(intro, refresh=False)
+                    screen.set_confirmacao(confirmacao, refresh=False)
+                self.content_holder.content = screen.build()
             elif (
                 self.show_tutorial
                 and app.has_tutorial
@@ -2867,6 +3157,8 @@ class SuiteApp:
                     self._close_tutorial,
                 ).build()
             else:
+                if self.show_feedback and not self.catalog.feedback.configured:
+                    self.show_feedback = False
                 if self.show_tutorial and (
                     not app.has_tutorial
                     or self.storage.get_state(app.id).status != InstallStatus.INSTALLED
@@ -2883,6 +3175,8 @@ class SuiteApp:
                     on_update_app=self._request_app_update,
                     on_uninstall=self._request_uninstall,
                     on_tutorial=self._open_tutorial,
+                    on_feedback=self._open_feedback,
+                    feedback_enabled=self.catalog.feedback.configured,
                     on_status=self._set_detail_notice,
                     this_app_running=self._this_app_running(app.id),
                     work_busy=self.app_job_busy and self.app_job_app_id == app.id,

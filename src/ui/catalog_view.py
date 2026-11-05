@@ -1,4 +1,4 @@
-"""Tela Catálogo: abas Publicar, Estrutura, Links e Dicas."""
+"""Tela Catálogo: abas Publicar, Estrutura, Links, Dicas e Feedback."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -9,8 +9,10 @@ import config
 from models import CatalogData
 from services.catalog_publish import PublishFormState, StructureFormState
 from services.links import LinksFormState
+from services.feedback import FeedbackCatalogState
 from services.tips import DicasFormState
 from ui.dicas_view import bind_dicas_form
+from ui.feedback_catalog_view import bind_feedback_form, feedback_top_row
 from ui.links_form_view import bind_links_form
 from ui.publish_view import bind_publish_form
 from ui.structure_view import bind_structure_form
@@ -87,13 +89,45 @@ def bind_catalog_view(
     links_layout: ft.Column | None = None,
     links_select: ft.Container | None = None,
     links_edit: ft.Container | None = None,
+    feedback: FeedbackCatalogState | None = None,
+    feedback_app_names: dict[str, str] | None = None,
+    on_feedback_save: Callable[[], None] | None = None,
+    on_feedback_pick: Callable[[], None] | None = None,
+    on_feedback_field: Callable[[str, str], None] | None = None,
+    feedback_layout: ft.Column | None = None,
+    feedback_select: ft.Container | None = None,
+    feedback_edit: ft.Container | None = None,
 ) -> None:
     tab_row.controls = [
         _tab_chip("Publicar", selected=tab == "publish", on_click=lambda: on_tab("publish")),
         _tab_chip("Estrutura", selected=tab == "estrutura", on_click=lambda: on_tab("estrutura")),
         _tab_chip("Links", selected=tab == "links", on_click=lambda: on_tab("links")),
         _tab_chip("Dicas", selected=tab == "dicas", on_click=lambda: on_tab("dicas")),
+        _tab_chip("Feedback", selected=tab == "feedback", on_click=lambda: on_tab("feedback")),
     ]
+    if (
+        tab == "feedback"
+        and feedback is not None
+        and feedback_layout is not None
+        and feedback_select is not None
+        and feedback_edit is not None
+    ):
+        intro = bind_feedback_form(
+            feedback,
+            app_names=feedback_app_names or {},
+            on_save=on_feedback_save or (lambda: None),
+            on_pick=on_feedback_pick or (lambda: None),
+            on_field=on_feedback_field or (lambda _key, _value: None),
+            on_reopen=on_reopen,
+            select_holder=feedback_select,
+            edit_holder=feedback_edit,
+        )
+        feedback_layout.expand = True
+        feedback_layout.spacing = 12
+        feedback_edit.expand = True
+        feedback_layout.controls = [feedback_top_row(feedback_select, intro), feedback_edit]
+        session_host.content = feedback_layout
+        return
     if tab == "links" and links is not None and links_layout is not None and links_select is not None and links_edit is not None:
         bind_links_form(
             links,
