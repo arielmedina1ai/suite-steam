@@ -182,8 +182,65 @@ def apply_tip(balloon: ft.Control, dica: Dica, on_open_url: Callable[[str], None
     column.controls = [controls[0], _tip_body(dica.texto, on_open_url)]
 
 
-def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None, tip: Dica | None = None, on_open_url: Callable[[str], None] | None = None) -> ft.Control:
-    hero = ft.Container(border_radius=16, padding=20, gradient=ft.LinearGradient(begin=ft.Alignment.TOP_LEFT, end=ft.Alignment.BOTTOM_RIGHT, colors=[config.COLOR_PRIMARY_DARK, config.COLOR_PRIMARY]), content=ft.Row(spacing=24, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[_hero_banner(), ft.Column(spacing=6, expand=True, controls=[ft.Text(config.SECTOR_NAME, size=26, weight=ft.FontWeight.BOLD, color="white"), ft.Text(config.SECTOR_TAGLINE, size=14, color=config.COLOR_ACCENT), ft.Container(height=4), ft.Text(config.SECTOR_DESCRIPTION, size=14, color="#EAF3EE")])]))
+def _hero_name_row(
+    *,
+    feedback_enabled: bool,
+    on_feedback: Callable[[], None] | None,
+) -> ft.Control:
+    """Nome de app.name na linha do botao. O texto quebra; nao usa reticencias."""
+    name = ft.Text(
+        config.APP_NAME,
+        size=26,
+        weight=ft.FontWeight.BOLD,
+        color="white",
+        expand=True,
+        no_wrap=False,
+        overflow=ft.TextOverflow.VISIBLE,
+    )
+    controls: list[ft.Control] = [name]
+    if feedback_enabled:
+        controls.append(
+            ft.OutlinedButton(
+                "Feedback",
+                icon=ft.Icons.CHAT_BUBBLE_OUTLINE,
+                on_click=lambda _e: on_feedback() if callable(on_feedback) else None,
+            )
+        )
+    return ft.Row(
+        expand=True,
+        spacing=12,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=controls,
+    )
+
+
+def build_home(apps: list[AppInfo], on_select: Callable[[str], None], *, gerencia: GerenciaInfo | None, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None, tip: Dica | None = None, on_open_url: Callable[[str], None] | None = None, on_feedback: Callable[[], None] | None = None, feedback_enabled: bool = False) -> ft.Control:
+    hero = ft.Container(
+        border_radius=16,
+        padding=20,
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment.TOP_LEFT,
+            end=ft.Alignment.BOTTOM_RIGHT,
+            colors=[config.COLOR_PRIMARY_DARK, config.COLOR_PRIMARY],
+        ),
+        content=ft.Row(
+            spacing=24,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                _hero_banner(),
+                ft.Column(
+                    spacing=6,
+                    expand=True,
+                    controls=[
+                        _hero_name_row(feedback_enabled=feedback_enabled, on_feedback=on_feedback),
+                        ft.Text(config.SECTOR_TAGLINE, size=14, color=config.COLOR_ACCENT),
+                        ft.Container(height=4),
+                        ft.Text(config.SECTOR_DESCRIPTION, size=14, color="#EAF3EE"),
+                    ],
+                ),
+            ],
+        ),
+    )
     sections: list[ft.Control] = [hero]
     if gerencia is not None:
         block: list[ft.Control] = [ft.Text(gerencia.nome, size=20, weight=ft.FontWeight.W_600, color=config.COLOR_TEXT)]
