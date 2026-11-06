@@ -187,9 +187,12 @@ def _hero_name_row(
     feedback_enabled: bool,
     on_feedback: Callable[[], None] | None,
 ) -> ft.Control:
-    """Nome de app.name na linha do botao. O texto quebra; nao usa reticencias."""
+    """Nome do setor na linha do botao. O texto quebra; nao usa reticencias.
+
+    A cor do botao e a do FilledButton Baixar Atualizacao, sem estilo proprio.
+    """
     name = ft.Text(
-        config.APP_NAME,
+        config.SECTOR_NAME,
         size=26,
         weight=ft.FontWeight.BOLD,
         color="white",
@@ -200,7 +203,7 @@ def _hero_name_row(
     controls: list[ft.Control] = [name]
     if feedback_enabled:
         controls.append(
-            ft.OutlinedButton(
+            ft.FilledButton(
                 "Feedback",
                 icon=ft.Icons.CHAT_BUBBLE_OUTLINE,
                 on_click=lambda _e: on_feedback() if callable(on_feedback) else None,

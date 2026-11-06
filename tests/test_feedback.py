@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import flet as ft
 
 import config
-from models import AppInfo, CatalogData, FeedbackInfo, parse_catalog_dict
+from models import AppInfo, CatalogData, FeedbackInfo, SuiteUpdateInfo, parse_catalog_dict
 from services.catalog_publish import PublishFormState, PublishOutcome, StructureFormState
 from main import SuiteApp
 from services.feedback import (
@@ -41,6 +41,7 @@ from ui.feedback_catalog_view import _ENTRY_TITLE_WIDTH, bind_feedback_form, fee
 from services.sharepoint_manager import SharePointResult
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
+from ui.components import _update_banner
 from ui.feedback_view import FeedbackView
 from ui.home_view import build_home
 from ui.tutorial_view import TutorialView
@@ -933,7 +934,7 @@ def _hero_name_row(home):
         controls = getattr(node, "controls", None)
         if not isinstance(controls, list):
             continue
-        if any(getattr(child, "value", None) == config.APP_NAME for child in controls):
+        if any(getattr(child, "value", None) == config.SECTOR_NAME for child in controls):
             return node
     return None
 
@@ -962,7 +963,7 @@ class PlatformFeedbackTests(unittest.TestCase):
         hidden = self._home(enabled=False, on_feedback=lambda: None)
         self.assertNotIn("Feedback", _texts(hidden))
         hidden_row = _hero_name_row(hidden)
-        hidden_name = next(child for child in hidden_row.controls if getattr(child, "value", None) == config.APP_NAME)
+        hidden_name = next(child for child in hidden_row.controls if getattr(child, "value", None) == config.SECTOR_NAME)
         self.assertIsNone(hidden_name.max_lines)
         self.assertIsNot(hidden_name.no_wrap, True)
         self.assertEqual(hidden_name.overflow, ft.TextOverflow.VISIBLE)
@@ -974,8 +975,9 @@ class PlatformFeedbackTests(unittest.TestCase):
         row = _hero_name_row(home)
         self.assertIsInstance(row, ft.Row)
         self.assertEqual(row.vertical_alignment, ft.CrossAxisAlignment.CENTER)
-        name = next(child for child in row.controls if getattr(child, "value", None) == config.APP_NAME)
-        self.assertEqual(name.value, config.APP_NAME)
+        name = next(child for child in row.controls if getattr(child, "value", None) == config.SECTOR_NAME)
+        self.assertEqual(name.value, config.SECTOR_NAME)
+        self.assertNotEqual(name.value, config.APP_NAME)
         self.assertTrue(name.expand)
         self.assertIsNone(name.max_lines)
         self.assertIsNot(name.no_wrap, True)
@@ -983,12 +985,29 @@ class PlatformFeedbackTests(unittest.TestCase):
         self.assertNotEqual(name.overflow, ft.TextOverflow.ELLIPSIS)
         button = next(child for child in row.controls if getattr(child, "content", None) == "Feedback")
         self.assertEqual(button.icon, ft.Icons.CHAT_BUBBLE_OUTLINE)
-        self.assertIs(type(button), ft.OutlinedButton)
-        self.assertEqual([type(child) for child in row.controls], [ft.Text, ft.OutlinedButton])
+        download = _update_banner(
+            suite_update=SuiteUpdateInfo(versao="9", download_url="https://sharepoint.example/suite.exe"),
+            update_busy=False,
+            update_message="",
+            update_progress=None,
+            update_done=False,
+            update_failed=False,
+            on_download_update=lambda: None,
+        )
+        download_button = next(
+            node for node in _walk(download) if getattr(node, "content", None) == "Baixar Atualizacao"
+        )
+        self.assertIs(type(button), type(download_button))
+        self.assertIs(type(button), ft.FilledButton)
+        self.assertEqual(button.style, download_button.style)
+        self.assertEqual(button.bgcolor, download_button.bgcolor)
+        self.assertEqual(button.color, download_button.color)
+        self.assertEqual([type(child) for child in row.controls], [ft.Text, ft.FilledButton])
         column = _column_holding(home, row)
         self.assertEqual(column.controls[0], row)
         self.assertEqual(column.controls[1].value, config.SECTOR_TAGLINE)
         self.assertEqual(column.controls[3].value, config.SECTOR_DESCRIPTION)
+        self.assertNotIn(config.APP_NAME, _texts(column))
         self.assertNotIn(config.SECTOR_TAGLINE, [getattr(child, "value", None) for child in row.controls])
         self.assertNotIn(config.SECTOR_DESCRIPTION, [getattr(child, "value", None) for child in row.controls])
         self.assertEqual(_texts(home).count("Feedback"), 1)
