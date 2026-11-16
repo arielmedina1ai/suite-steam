@@ -73,8 +73,10 @@ from services.links import (
     set_item_field,
 )
 from services.feedback import (
+    PLATFORM_FEEDBACK_APP_ID,
     FeedbackCatalogState,
     load_local_feedback,
+    platform_feedback_app,
     read_feedback_document,
     read_saved_feedback_version,
     save_feedback_pointer,
@@ -137,6 +139,7 @@ class SuiteApp:
         self.selected_id: str | None = None
         self.show_tutorial = False
         self.show_feedback = False
+        self._feedback_subject_id = ""
         self.selected_setor: str | None = None
         self.show_favorites = False
         self.show_links = False
@@ -806,6 +809,7 @@ class SuiteApp:
         self.show_tutorial = False
         self.show_feedback = False
         self._feedback_screen = None
+        self._feedback_subject_id = ""
         self.run_error = ""
         self.detail_notice = ""
         self.detail_notice_app_id = None
@@ -1420,19 +1424,52 @@ class SuiteApp:
             target = self.apps_by_id.get(self.selected_id)
         if target is None:
             return
+        self._feedback_subject_id = target.id
         self.show_tutorial = False
         self.show_feedback = True
+        self._feedback_screen = None
+        self._render()
+
+    def _open_platform_feedback(self) -> None:
+        if not self.catalog.feedback.configured:
+            return
+        self.show_tutorial = False
+        self.show_feedback = True
+        self._feedback_subject_id = PLATFORM_FEEDBACK_APP_ID
         self._feedback_screen = None
         self._render()
 
     def _close_feedback(self) -> None:
         self.show_feedback = False
         self._feedback_screen = None
+        self._feedback_subject_id = ""
         self._render()
 
+    def _feedback_content(self, app: AppInfo) -> ft.Control:
+        screen = getattr(self, "_feedback_screen", None)
+        intro = self.catalog.feedback.introducao
+        confirmacao = self.catalog.feedback.confirmacao
+        if screen is None or getattr(screen.app, "id", None) != app.id:
+            screen = FeedbackView(
+                self.page,
+                app,
+                self._close_feedback,
+                self._submit_feedback,
+                introducao=intro,
+                confirmacao=confirmacao,
+            )
+            self._feedback_screen = screen
+        else:
+            screen.set_introducao(intro, refresh=False)
+            screen.set_confirmacao(confirmacao, refresh=False)
+        return screen.build()
+
     def _submit_feedback(self, texto: str) -> str:
+        subject = (getattr(self, "_feedback_subject_id", "") or "").strip()
+        if not subject:
+            subject = self.selected_id or ""
         result = submit_app_feedback(
-            app_id=self.selected_id or "",
+            app_id=subject,
             texto=texto,
             feedback_url=self.catalog.feedback.url,
         )
@@ -3129,23 +3166,7 @@ class SuiteApp:
                     "Aplicativo nao encontrado.", color=config.COLOR_TEXT
                 )
             elif self.show_feedback and self.catalog.feedback.configured:
-                screen = getattr(self, "_feedback_screen", None)
-                intro = self.catalog.feedback.introducao
-                confirmacao = self.catalog.feedback.confirmacao
-                if screen is None or getattr(screen.app, "id", None) != app.id:
-                    screen = FeedbackView(
-                        self.page,
-                        app,
-                        self._close_feedback,
-                        self._submit_feedback,
-                        introducao=intro,
-                        confirmacao=confirmacao,
-                    )
-                    self._feedback_screen = screen
-                else:
-                    screen.set_introducao(intro, refresh=False)
-                    screen.set_confirmacao(confirmacao, refresh=False)
-                self.content_holder.content = screen.build()
+                self.content_holder.content = self._feedback_content(app)
             elif (
                 self.show_tutorial
                 and app.has_tutorial
@@ -3227,6 +3248,16 @@ class SuiteApp:
                 installed_ids=installed_ids,
             )
         else:
+            if getattr(self, "show_feedback", False) and self.catalog.feedback.configured:
+                self._home_tip_balloon = None
+                self.content_holder.content = self._feedback_content(platform_feedback_app())
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+                return
+            if getattr(self, "show_feedback", False) and not self.catalog.feedback.configured:
+                self.show_feedback = False
             tip = getattr(self, "_current_tip", None) if self._home_is_current() else None
             home = build_home(
                 self.apps,
@@ -3237,6 +3268,8 @@ class SuiteApp:
                 installed_ids=installed_ids,
                 tip=tip,
                 on_open_url=self._open_tip_link,
+                on_feedback=self._open_platform_feedback,
+                feedback_enabled=self.catalog.feedback.configured,
             )
             self._home_tip_balloon = getattr(home, "_suite_tip", None)
             extras: list[ft.Control] = []

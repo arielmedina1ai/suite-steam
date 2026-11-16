@@ -15,17 +15,21 @@ sys.path.insert(0, str(ROOT / "src"))
 import flet as ft
 
 import config
-from models import AppInfo, CatalogData, FeedbackInfo, parse_catalog_dict
+from models import AppInfo, CatalogData, FeedbackInfo, SuiteUpdateInfo, parse_catalog_dict
 from services.catalog_publish import PublishFormState, PublishOutcome, StructureFormState
+from main import SuiteApp
 from services.feedback import (
+    PLATFORM_FEEDBACK_APP_ID,
     FeedbackCatalogState,
     FeedbackEntry,
+    FeedbackSendResult,
     feedback_app_label,
     feedback_entry_title,
     feedback_screen_numbers,
     feedback_sent_message,
     feedback_user_label,
     ordered_feedback_entries,
+    platform_feedback_app,
     publish_feedback_block,
     save_feedback_pointer,
     should_download_feedback,
@@ -37,7 +41,9 @@ from ui.feedback_catalog_view import _ENTRY_TITLE_WIDTH, bind_feedback_form, fee
 from services.sharepoint_manager import SharePointResult
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
+from ui.components import _update_banner
 from ui.feedback_view import FeedbackView
+from ui.home_view import build_home
 from ui.tutorial_view import TutorialView
 
 PASTED = (
@@ -921,3 +927,194 @@ class FeedbackVersionTests(unittest.TestCase):
                 )
             self.assertEqual(calls, [])
             self.assertEqual(version.read_text(encoding="utf-8"), "1")
+
+
+def _hero_name_row(home):
+    for node in _walk(home):
+        controls = getattr(node, "controls", None)
+        if not isinstance(controls, list):
+            continue
+        if any(getattr(child, "value", None) == config.SECTOR_NAME for child in controls):
+            return node
+    return None
+
+
+def _column_holding(root, child):
+    for node in _walk(root):
+        controls = getattr(node, "controls", None)
+        if isinstance(node, ft.Column) and isinstance(controls, list) and child in controls:
+            return node
+    return None
+
+
+class PlatformFeedbackTests(unittest.TestCase):
+    def _home(self, *, enabled: bool, on_feedback=None):
+        return build_home(
+            [AppInfo(id="relatorio", nome="Relatorio")],
+            lambda _app: None,
+            gerencia=None,
+            favorite_ids=set(),
+            on_toggle_favorite=lambda _app: None,
+            on_feedback=on_feedback,
+            feedback_enabled=enabled,
+        )
+
+    def test_home_button_sits_on_the_name_line_only_when_feedback_is_configured(self) -> None:
+        hidden = self._home(enabled=False, on_feedback=lambda: None)
+        self.assertNotIn("Feedback", _texts(hidden))
+        hidden_row = _hero_name_row(hidden)
+        hidden_name = next(child for child in hidden_row.controls if getattr(child, "value", None) == config.SECTOR_NAME)
+        self.assertIsNone(hidden_name.max_lines)
+        self.assertIsNot(hidden_name.no_wrap, True)
+        self.assertEqual(hidden_name.overflow, ft.TextOverflow.VISIBLE)
+        self.assertNotEqual(hidden_name.overflow, ft.TextOverflow.ELLIPSIS)
+        self.assertEqual(len(hidden_row.controls), 1)
+
+        opened: list[str] = []
+        home = self._home(enabled=True, on_feedback=lambda: opened.append("home"))
+        row = _hero_name_row(home)
+        self.assertIsInstance(row, ft.Row)
+        self.assertEqual(row.vertical_alignment, ft.CrossAxisAlignment.CENTER)
+        name = next(child for child in row.controls if getattr(child, "value", None) == config.SECTOR_NAME)
+        self.assertEqual(name.value, config.SECTOR_NAME)
+        self.assertNotEqual(name.value, config.APP_NAME)
+        self.assertTrue(name.expand)
+        self.assertIsNone(name.max_lines)
+        self.assertIsNot(name.no_wrap, True)
+        self.assertEqual(name.overflow, ft.TextOverflow.VISIBLE)
+        self.assertNotEqual(name.overflow, ft.TextOverflow.ELLIPSIS)
+        button = next(child for child in row.controls if getattr(child, "content", None) == "Feedback")
+        self.assertEqual(button.icon, ft.Icons.CHAT_BUBBLE_OUTLINE)
+        download = _update_banner(
+            suite_update=SuiteUpdateInfo(versao="9", download_url="https://sharepoint.example/suite.exe"),
+            update_busy=False,
+            update_message="",
+            update_progress=None,
+            update_done=False,
+            update_failed=False,
+            on_download_update=lambda: None,
+        )
+        download_button = next(
+            node for node in _walk(download) if getattr(node, "content", None) == "Baixar Atualizacao"
+        )
+        self.assertIs(type(button), type(download_button))
+        self.assertIs(type(button), ft.FilledButton)
+        self.assertEqual(button.style, download_button.style)
+        self.assertEqual(button.bgcolor, download_button.bgcolor)
+        self.assertEqual(button.color, download_button.color)
+        self.assertEqual([type(child) for child in row.controls], [ft.Text, ft.FilledButton])
+        column = _column_holding(home, row)
+        self.assertEqual(column.controls[0], row)
+        self.assertEqual(column.controls[1].value, config.SECTOR_TAGLINE)
+        self.assertEqual(column.controls[3].value, config.SECTOR_DESCRIPTION)
+        self.assertNotIn(config.APP_NAME, _texts(column))
+        self.assertNotIn(config.SECTOR_TAGLINE, [getattr(child, "value", None) for child in row.controls])
+        self.assertNotIn(config.SECTOR_DESCRIPTION, [getattr(child, "value", None) for child in row.controls])
+        self.assertEqual(_texts(home).count("Feedback"), 1)
+        button.on_click(None)
+        self.assertEqual(opened, ["home"])
+
+    def test_catalog_list_shows_app_name_for_the_platform(self) -> None:
+        subject = platform_feedback_app()
+        self.assertEqual(subject.id, PLATFORM_FEEDBACK_APP_ID)
+        self.assertEqual(subject.id, "suite")
+        self.assertEqual(subject.nome, config.APP_NAME)
+        entry = _entry("EMPRESA\\maria", "2026-11-01 09:00:00", "suite", "a home travou")
+        names = {"suite": "Nao e o app", "relatorio-producao": "Relatorio"}
+        self.assertEqual(feedback_app_label(entry, names), config.APP_NAME)
+        self.assertEqual(
+            feedback_entry_title(4, entry, names),
+            f"4 - maria - 2026-11-01 - {config.APP_NAME}",
+        )
+        other = _entry("EMPRESA\\joao", "2026-11-02 10:00:00", "relatorio-producao", "ok")
+        self.assertEqual(feedback_app_label(other, names), "Relatorio")
+
+        form = FeedbackCatalogState(url=PASTED, entries=[entry, other])
+        edit = ft.Container()
+        bind_feedback_form(
+            form,
+            app_names=names,
+            on_save=lambda: None,
+            on_pick=lambda: None,
+            on_field=lambda _key, _value: None,
+            on_reopen=lambda: None,
+            select_holder=ft.Container(),
+            edit_holder=edit,
+        )
+        labels = _texts(edit)
+        self.assertIn(f"1 - maria - 2026-11-01 - {config.APP_NAME}", labels)
+        self.assertNotIn("Nao e o app", " ".join(labels))
+        self.assertIn("2 - joao - 2026-11-02 - Relatorio", labels)
+
+    def test_platform_screen_reuses_the_app_feedback_flow_with_suite_id(self) -> None:
+        catalog = parse_catalog_dict(
+            {
+                "feedback": {
+                    "url": PASTED,
+                    "versao": "2",
+                    "introducao": "Conte como foi.",
+                    "confirmacao": "Obrigado.",
+                },
+                "apps": [{"id": "relatorio", "nome": "Relatorio"}],
+            }
+        )
+        app = SuiteApp.__new__(SuiteApp)
+        app.catalog = catalog
+        app.page = _Page()
+        app.selected_id = None
+        app.show_tutorial = False
+        app.show_feedback = False
+        app._feedback_screen = None
+        app._feedback_subject_id = ""
+        app.renders = 0
+        app._render = lambda: setattr(app, "renders", app.renders + 1)
+        app._apply_gerencia_filter = lambda: None
+        app._close_feedback = lambda: None
+
+        SuiteApp._open_platform_feedback(app)
+        self.assertTrue(app.show_feedback)
+        self.assertIsNone(app.selected_id)
+        self.assertEqual(app._feedback_subject_id, "suite")
+        self.assertEqual(app.renders, 1)
+
+        screen = SuiteApp._feedback_content(app, platform_feedback_app())
+        labels = _texts(screen)
+        self.assertIn(f"Feedback de {config.APP_NAME}", labels)
+        self.assertIn("Conte como foi.", labels)
+        self.assertIn("Enviar", labels)
+        self.assertIn("Voltar", labels)
+        self.assertNotIn(f"Feedback de {config.SECTOR_NAME}", labels)
+
+        captured: dict[str, str] = {}
+
+        def fake_submit(**kwargs):
+            captured.update(kwargs)
+            return FeedbackSendResult(ok=True, catalog=catalog)
+
+        with patch("main.submit_app_feedback", fake_submit):
+            self.assertEqual(SuiteApp._submit_feedback(app, "a home travou"), "")
+        self.assertEqual(captured["app_id"], "suite")
+        self.assertEqual(captured["texto"], "a home travou")
+        self.assertEqual(captured["feedback_url"], PASTED)
+
+        closed = SuiteApp.__new__(SuiteApp)
+        closed.catalog = CatalogData()
+        closed.show_feedback = False
+        closed.renders = 0
+        closed._render = lambda: setattr(closed, "renders", closed.renders + 1)
+        SuiteApp._open_platform_feedback(closed)
+        self.assertFalse(closed.show_feedback)
+        self.assertEqual(closed.renders, 0)
+
+        detail = AppInfo(id="relatorio", nome="Relatorio")
+        app.selected_id = "relatorio"
+        app.apps_by_id = {"relatorio": detail}
+        app._feedback_screen = None
+        SuiteApp._open_feedback(app, detail)
+        self.assertEqual(app._feedback_subject_id, "relatorio")
+        app_screen = SuiteApp._feedback_content(app, detail)
+        self.assertIn("Feedback de Relatorio", _texts(app_screen))
+        self.assertNotIn(f"Feedback de {config.APP_NAME}", _texts(app_screen))
+        with patch("main.submit_app_feedback", fake_submit):
+            SuiteApp._submit_feedback(app, "do aplicativo")
+        self.assertEqual(captured["app_id"], "relatorio")

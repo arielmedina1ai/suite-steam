@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import config
-from models import CatalogData
+from models import AppInfo, CatalogData
 from services.catalog_check import as_sao_paulo, sao_paulo_now
 from services.catalog_publish import (
     PublishOutcome,
@@ -32,6 +32,9 @@ from services.sharepoint_manager import (
 )
 from services.tips import bump_dicas_version
 from services.windows_identity import current_windows_login
+
+# Item da plataforma no feedback.json. A lista mostra app.name, nao um app do catalogo.
+PLATFORM_FEEDBACK_APP_ID = "suite"
 
 _READ_ERROR = "Nao foi possivel ler o feedback."
 _SEND_ERROR = "Nao foi possivel enviar."
@@ -635,10 +638,18 @@ def ordered_feedback_entries(entries: list[FeedbackEntry]) -> list[FeedbackEntry
     return [item for _index, item in ranked]
 
 
+def platform_feedback_app() -> AppInfo:
+    """Assunto da tela aberta na home. O titulo usa app.name do settings."""
+    return AppInfo(id=PLATFORM_FEEDBACK_APP_ID, nome=config.APP_NAME)
+
+
 def feedback_app_label(entry: FeedbackEntry, names: dict[str, str] | None = None) -> str:
-    """Nome do app no catalogo. Sem nome, fica o app_id."""
-    found = ((names or {}).get(entry.app_id) or "").strip()
-    return found or entry.app_id
+    """Nome do app no catalogo. A plataforma mostra app.name. Sem nome, fica o app_id."""
+    app_id = (entry.app_id or "").strip()
+    if app_id == PLATFORM_FEEDBACK_APP_ID:
+        return config.APP_NAME
+    found = ((names or {}).get(app_id) or "").strip()
+    return found or app_id
 
 
 def save_feedback_pointer(
