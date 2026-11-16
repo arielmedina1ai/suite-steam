@@ -117,7 +117,13 @@ from ui.components import build_sidebar
 from ui.feedback_view import FeedbackView
 from ui.tutorial_view import TutorialView
 from ui.catalog_view import bind_catalog_view, session_holder
-from ui.home_view import apply_tip, build_favoritos_view, build_home, build_setor_view
+from ui.home_view import (
+    apply_tip,
+    build_catalog_sync_failure_card,
+    build_favoritos_view,
+    build_home,
+    build_setor_view,
+)
 from ui.links_view import build_links_view
 from ui.progress_util import bar_value, label as progress_label
 from ui.publish_view import GERAL_KEY, NEW_APP_KEY
@@ -190,6 +196,9 @@ class SuiteApp:
         self._home_tip_balloon: ft.Control | None = None
         self._confirm_open = False
         self.sync_message = ""
+        self.sync_from_cache = False
+        self.sync_catalog_failure = False
+        self.sync_detail_open = False
         self.sync_notice = ""
         self._sync_notice_gen = 0
         self._catalog_sync_lock = threading.Lock()
@@ -382,6 +391,9 @@ class SuiteApp:
         err = set_start_with_windows(enabled) if startup_supported() else ""
         if err:
             self.sync_message = err
+            self.sync_catalog_failure = False
+            self.sync_from_cache = False
+            self.sync_detail_open = False
         self._render()
 
     def _show_sync_screen(self) -> None:
@@ -425,6 +437,23 @@ class SuiteApp:
         )
         self.page.update()
 
+    def _reset_catalog_sync_banner(self) -> None:
+        self.sync_message = ""
+        self.sync_from_cache = False
+        self.sync_catalog_failure = False
+        self.sync_detail_open = False
+
+    def _remember_catalog_sync_failure(self, message: str, *, from_cache: bool) -> None:
+        """Guarda o texto longo. A home mostra a frase curta com o detalhe fechado."""
+        self.sync_message = message
+        self.sync_from_cache = bool(from_cache)
+        self.sync_catalog_failure = True
+        self.sync_detail_open = False
+
+    def _toggle_sync_detail(self, _e=None) -> None:
+        self.sync_detail_open = not bool(getattr(self, "sync_detail_open", False))
+        self._render()
+
     def _sync_catalog_worker(self, initial: bool = False, *, automatic: bool = False) -> None:
         self.sync_busy = True
         if automatic:
@@ -439,7 +468,10 @@ class SuiteApp:
             if result is None:
                 # Excecao: nao troca o catalogo. A checagem automatica conta o dia
                 # para nao repetir em loop.
-                self.sync_message = "Falha ao buscar atualizacoes."
+                self._remember_catalog_sync_failure(
+                    "Falha ao buscar atualizacoes.",
+                    from_cache=False,
+                )
                 self._finish_catalog_sync(show_notice=False, automatic=automatic)
                 return
             # Abertura sempre aplica o resultado. Fora dela, aplica se deu certo
@@ -448,11 +480,17 @@ class SuiteApp:
                 self.catalog = result.catalog
                 self._apply_gerencia_filter()
             if result.ok:
-                self.sync_message = ""
+                self._reset_catalog_sync_banner()
             elif automatic:
-                self.sync_message = "Falha ao buscar atualizacoes."
+                self._remember_catalog_sync_failure(
+                    "Falha ao buscar atualizacoes.",
+                    from_cache=result.from_cache,
+                )
             else:
-                self.sync_message = result.message or "Falha ao buscar atualizacoes."
+                self._remember_catalog_sync_failure(
+                    result.message or "Falha ao buscar atualizacoes.",
+                    from_cache=result.from_cache,
+                )
             if initial:
                 self.selected_id = None
                 self.selected_setor = None
@@ -650,7 +688,7 @@ class SuiteApp:
                 return False
             self.sync_busy = True
             self.check_updates_busy = True
-            self.sync_message = ""
+            self._reset_catalog_sync_banner()
             self.sync_notice = ""
             self._sync_notice_gen += 1
         self._render()
@@ -3273,7 +3311,16 @@ class SuiteApp:
             )
             self._home_tip_balloon = getattr(home, "_suite_tip", None)
             extras: list[ft.Control] = []
-            if self.sync_message:
+            if self.sync_message and getattr(self, "sync_catalog_failure", False):
+                extras.append(
+                    build_catalog_sync_failure_card(
+                        self.sync_message,
+                        from_cache=bool(getattr(self, "sync_from_cache", False)),
+                        expanded=bool(getattr(self, "sync_detail_open", False)),
+                        on_toggle=self._toggle_sync_detail,
+                    )
+                )
+            elif self.sync_message:
                 extras.append(
                     ft.Container(
                         bgcolor=config.COLOR_SURFACE,

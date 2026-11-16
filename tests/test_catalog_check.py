@@ -10,12 +10,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import flet as ft
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+import config
 from catalog.provider import CatalogSyncResult
 from main import SuiteApp
 from models import AppInfo, CatalogData, SuiteUpdateInfo
+from ui.home_view import catalog_sync_failure_phrase
 from services import catalog_check
 from services.catalog_check import (
     ZONE_NAME,
@@ -343,6 +347,9 @@ class AutomaticSyncTests(unittest.TestCase):
             self.assertEqual(app.catalog.apps[0].id, "atual")
             self.assertEqual(app.sync_message, "Falha ao buscar atualizacoes.")
             self.assertNotIn("powershell", app.sync_message.lower())
+            self.assertTrue(app.sync_catalog_failure)
+            self.assertTrue(app.sync_from_cache)
+            self.assertFalse(app.sync_detail_open)
             self.assertEqual(app.sync_notice, "")
             self.assertEqual(app.publish_form.message, "publico")
             self.assertEqual(app.structure.message, "estrutura")
@@ -367,6 +374,9 @@ class AutomaticSyncTests(unittest.TestCase):
             self.assertIs(app.catalog, kept)
             self.assertEqual(app.sync_message, "Falha ao buscar atualizacoes.")
             self.assertNotIn("powershell", app.sync_message.lower())
+            self.assertTrue(app.sync_catalog_failure)
+            self.assertFalse(app.sync_from_cache)
+            self.assertFalse(app.sync_detail_open)
             self.assertEqual(app.sync_notice, "")
             self.assertEqual(app.publish_form.message, "publico")
             self.assertEqual(app.structure.message, "estrutura")
@@ -389,6 +399,9 @@ class AutomaticSyncTests(unittest.TestCase):
                 SuiteApp._sync_catalog_worker(app, False, automatic=False)
             self.assertIs(app.catalog, kept)
             self.assertIn("detalhe", app.sync_message)
+            self.assertTrue(app.sync_catalog_failure)
+            self.assertFalse(app.sync_from_cache)
+            self.assertFalse(app.sync_detail_open)
             self.assertEqual(app.preferences.get_last_auto_catalog_check(), "")
 
     def test_progress_does_not_write_the_line_onto_the_catalog_shell(self) -> None:
@@ -699,6 +712,186 @@ class ConsiderTests(unittest.TestCase):
             self.assertFalse(SuiteApp._start_catalog_sync(app, automatic=True))
             self.assertEqual(len(app.page.threads), 1)
             self.assertEqual(app.downloads, [])
+
+
+class _IdList:
+    def __init__(self, ids: list[str]) -> None:
+        self._ids = list(ids)
+
+    def list_ids(self) -> list[str]:
+        return list(self._ids)
+
+
+def _text_values(control) -> list[str]:
+    found = []
+    for node in _walk(control):
+        value = getattr(node, "value", None)
+        if isinstance(value, str) and value:
+            found.append(value)
+    return found
+
+
+def _sync_toggle(app: SuiteApp):
+    for node in _walk(app.content_holder.content):
+        if isinstance(node, ft.TextButton) and node.content in {"Saiba mais", "Ocultar"}:
+            return node
+    return None
+
+
+_DENIED = "O login nao tem permissao para ler o catalog.json."
+_GENERIC = "Nao foi possivel sincronizar o catalogo."
+_CACHE = " A copia salva nesta maquina continua em uso."
+
+
+class CatalogSyncPhraseTests(unittest.TestCase):
+    def test_short_phrase_follows_the_log_and_the_cache(self) -> None:
+        for marker in ("Access is denied", "E_ACCESSDENIED", "0x80070005"):
+            log = f"Falha ao sincronizar catalogo: {marker} UniqueId C:\\Users\\alguem\\x.ps1"
+            self.assertEqual(catalog_sync_failure_phrase(log), _DENIED)
+            self.assertEqual(catalog_sync_failure_phrase(log + " Usando cache."), _DENIED + _CACHE)
+        self.assertEqual(
+            catalog_sync_failure_phrase("Falha ao sincronizar catalogo: timeout", from_cache=True),
+            _GENERIC + _CACHE,
+        )
+        self.assertEqual(
+            catalog_sync_failure_phrase("catalog.remote_url nao configurado. Usando cache local."),
+            _GENERIC + _CACHE,
+        )
+        self.assertEqual(
+            catalog_sync_failure_phrase("Usando cache", from_cache=True),
+            _GENERIC + _CACHE,
+        )
+        self.assertEqual(catalog_sync_failure_phrase("Falha ao sincronizar catalogo: timeout"), _GENERIC)
+        self.assertEqual(catalog_sync_failure_phrase("access is denied"), _GENERIC)
+
+
+class HomeSyncFailureTests(unittest.TestCase):
+    def _home(self, tmp: str) -> SuiteApp:
+        app = _app(PreferencesStore(Path(tmp) / "preferences.json"))
+        app.sidebar_holder = _Holder()
+        app.favorites = _Favorites()
+        app.storage = _Storage()
+        app.can_publish = False
+        app.show_publish = False
+        app.show_favorites = False
+        app.show_links = False
+        app.show_tutorial = False
+        app.show_feedback = False
+        app.update_busy = False
+        app.update_message = ""
+        app.update_progress = None
+        app.update_failed = False
+        app.update_done = False
+        app._running_pids = {}
+        app._running_cache_at = 0.0
+        app._current_tip = None
+        app.selected_id = None
+        SuiteApp._apply_gerencia_filter(app)
+        app._render = lambda: SuiteApp._render(app)  # type: ignore[method-assign]
+        return app
+
+    def test_home_expands_the_log_and_a_new_search_starts_closed(self) -> None:
+        log = (
+            "Falha ao sincronizar catalogo (Access is denied. "
+            "(Exception from HRESULT: 0x80070005 (E_ACCESSDENIED)) "
+            "Invoke-PnPSPRestMethod UniqueId C:\\Users\\alguem\\script.ps1). Usando cache."
+        )
+        phrase = _DENIED + _CACHE
+        result = CatalogSyncResult(
+            catalog=CatalogData(apps=[AppInfo(id="remoto", nome="Remoto")]),
+            message=log,
+            ok=False,
+            from_cache=True,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._home(tmp)
+            with (
+                patch("main.SharePointCatalogProvider", return_value=_Provider(result)),
+                patch("main.baixar_do_sharepoint") as download,
+            ):
+                SuiteApp._sync_catalog_worker(app, False, automatic=False)
+            self.assertEqual(app.sync_message, log)
+            self.assertFalse(app.sync_detail_open)
+            download.assert_not_called()
+
+            values = _text_values(app.content_holder.content)
+            self.assertIn(phrase, values)
+            self.assertNotIn(log, values)
+            card = _sync_toggle(app)
+            self.assertIsNotNone(card)
+            self.assertEqual(card.content, "Saiba mais")
+            self.assertEqual(_sync_card(app).bgcolor, config.COLOR_SURFACE)
+            self.assertFalse(any(isinstance(node, ft.AlertDialog) for node in _walk(app.content_holder.content)))
+
+            card.on_click(None)
+            self.assertIn(log, _text_values(app.content_holder.content))
+            self.assertEqual(_sync_toggle(app).content, "Ocultar")
+
+            app.favorites = _IdList(["atual"])
+            app.show_favorites = True
+            SuiteApp._render(app)
+            self.assertNotIn(phrase, _text_values(app.content_holder.content))
+            self.assertNotIn(log, _text_values(app.content_holder.content))
+            self.assertIsNone(_sync_toggle(app))
+
+            app.show_favorites = False
+            app.catalog.apps[0].setor = "financeiro"
+            app.selected_setor = "financeiro"
+            SuiteApp._render(app)
+            self.assertNotIn(phrase, _text_values(app.content_holder.content))
+            self.assertNotIn(log, _text_values(app.content_holder.content))
+            self.assertIsNone(_sync_toggle(app))
+
+            app.selected_setor = None
+            SuiteApp._render(app)
+            self.assertEqual(_sync_toggle(app).content, "Ocultar")
+            self.assertIn(log, _text_values(app.content_holder.content))
+
+            _sync_toggle(app).on_click(None)
+            self.assertEqual(_sync_toggle(app).content, "Saiba mais")
+            self.assertNotIn(log, _text_values(app.content_holder.content))
+
+            _sync_toggle(app).on_click(None)
+            later = "Falha ao sincronizar catalogo: timeout no SharePoint."
+            later_result = CatalogSyncResult(
+                catalog=CatalogData(apps=[AppInfo(id="remoto", nome="Remoto")]),
+                message=later,
+                ok=False,
+            )
+            with patch("main.SharePointCatalogProvider", return_value=_Provider(later_result)):
+                self.assertTrue(SuiteApp._start_catalog_sync(app, automatic=False))
+                self.assertEqual(app.sync_message, "")
+                self.assertFalse(app.sync_detail_open)
+                self.assertIsNone(_sync_toggle(app))
+                app.page.threads[-1]()
+            self.assertEqual(app.sync_message, later)
+            self.assertFalse(app.sync_detail_open)
+            shown = _text_values(app.content_holder.content)
+            self.assertIn(_GENERIC, shown)
+            self.assertFalse(any(_CACHE.strip() in value for value in shown))
+            self.assertNotIn(later, shown)
+            self.assertEqual(_sync_toggle(app).content, "Saiba mais")
+
+    def test_startup_error_keeps_its_own_text(self) -> None:
+        message = "Nao foi possivel ligar o inicio automatico: Access is denied"
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._home(tmp)
+            app.sync_message = message
+            app.sync_catalog_failure = False
+            SuiteApp._render(app)
+            values = _text_values(app.content_holder.content)
+            self.assertIn(message, values)
+            self.assertNotIn(_DENIED, values)
+            self.assertIsNone(_sync_toggle(app))
+
+
+def _sync_card(app: SuiteApp):
+    for node in _walk(app.content_holder.content):
+        if not isinstance(node, ft.Container):
+            continue
+        if any(value.startswith(_DENIED) or value.startswith(_GENERIC) for value in _text_values(node)):
+            return node
+    return None
 
 
 if __name__ == "__main__":

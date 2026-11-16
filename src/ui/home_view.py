@@ -422,6 +422,63 @@ def build_favoritos_view(
     return column
 
 
+_CATALOG_SYNC_DENIED_MARKERS = ("Access is denied", "E_ACCESSDENIED", "0x80070005")
+CATALOG_SYNC_PHRASE_DENIED = "O login nao tem permissao para ler o catalog.json."
+CATALOG_SYNC_PHRASE_GENERIC = "Nao foi possivel sincronizar o catalogo."
+CATALOG_SYNC_PHRASE_CACHE = " A copia salva nesta maquina continua em uso."
+
+
+def catalog_sync_failure_phrase(message: str, *, from_cache: bool = False) -> str:
+    """Frase curta do Inicio. O log longo fica atras de Saiba mais."""
+    text = message or ""
+    if any(marker in text for marker in _CATALOG_SYNC_DENIED_MARKERS):
+        phrase = CATALOG_SYNC_PHRASE_DENIED
+    else:
+        phrase = CATALOG_SYNC_PHRASE_GENERIC
+    if from_cache or "Usando cache" in text:
+        phrase += CATALOG_SYNC_PHRASE_CACHE
+    return phrase
+
+
+def build_catalog_sync_failure_card(
+    message: str,
+    *,
+    from_cache: bool = False,
+    expanded: bool = False,
+    on_toggle: Callable[..., None],
+) -> ft.Control:
+    """Card do Inicio: frase curta, e o texto longo so enquanto estiver aberto."""
+    controls: list[ft.Control] = [
+        ft.Text(
+            catalog_sync_failure_phrase(message, from_cache=from_cache),
+            size=12,
+            color="#B9CEC3",
+        ),
+        ft.TextButton(
+            content="Ocultar" if expanded else "Saiba mais",
+            style=ft.ButtonStyle(
+                color="#8AA797",
+                padding=ft.Padding.symmetric(horizontal=0, vertical=0),
+                text_style=ft.TextStyle(size=12),
+            ),
+            on_click=on_toggle,
+        ),
+    ]
+    if expanded:
+        controls.append(ft.Text(message or "", size=12, color="#B9CEC3", selectable=True))
+    return ft.Container(
+        bgcolor=config.COLOR_SURFACE,
+        border_radius=8,
+        padding=12,
+        content=ft.Column(
+            spacing=4,
+            tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.START,
+            controls=controls,
+        ),
+    )
+
+
 def build_setor_view(setor: SetorInfo, apps: list[AppInfo], on_select: Callable[[str], None], *, favorite_ids: set[str], on_toggle_favorite: Callable[[str], None], installed_ids: set[str] | None = None) -> ft.Control:
     header_controls: list[ft.Control] = [ft.Text(setor.nome, size=26, weight=ft.FontWeight.BOLD, color=config.COLOR_TEXT)]
     if setor.descricao:
