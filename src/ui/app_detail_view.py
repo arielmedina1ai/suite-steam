@@ -20,6 +20,12 @@ _BUSY_CAPTION = {
 }
 # Texto escuro sobre COLOR_ACCENT, para o botao Abrindo continuar legivel.
 _OPENING_TEXT = "#142018"
+_UPDATE_LABEL = "Atualizar versao"
+
+
+def _primary_action_style() -> ft.ButtonStyle:
+    """Mesmo preenchimento do Executar em repouso: fundo primario e texto branco."""
+    return ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
 
 
 class AppDetailView:
@@ -108,10 +114,11 @@ class AppDetailView:
             icon=ft.Icons.MENU_BOOK,
             on_click=self._on_tutorial,
         )
-        self.update_button = ft.OutlinedButton(
-            "Atualizar versao",
+        self.update_button = ft.FilledButton(
+            _UPDATE_LABEL,
             icon=ft.Icons.SYSTEM_UPDATE,
             visible=False,
+            style=_primary_action_style(),
             on_click=self._on_update,
         )
         self.uninstall_button = ft.OutlinedButton(
@@ -183,10 +190,10 @@ class AppDetailView:
             ],
         )
         action_controls: list[ft.Control] = [
+            self.update_button,
             self.action_button,
             self.feedback_button,
             self.tutorial_button,
-            self.update_button,
             self.uninstall_button,
         ]
         actions = ft.Row(
@@ -292,13 +299,14 @@ class AppDetailView:
             else:
                 self.action_button.content = "Executar"
                 self.action_button.disabled = self.work_busy or this
-                self.action_button.style = ft.ButtonStyle(
-                    bgcolor=config.COLOR_PRIMARY,
-                    color="white",
-                )
+                self.action_button.style = _primary_action_style()
             needs_update = self._has_version_update(state)
             self.update_button.visible = needs_update
-            self.update_button.disabled = True if opening else self.work_busy
+            # Abrindo... pinta so o Executar. Atualizar fica no visual normal
+            # e so desativa quando um download, atualizacao ou desinstalacao corre.
+            self.update_button.content = _UPDATE_LABEL
+            self.update_button.style = _primary_action_style()
+            self.update_button.disabled = self.work_busy
             self.uninstall_button.visible = True
             self.uninstall_button.disabled = True if opening else (self.work_busy or this)
             local_name = Path(state.local_path).name if state.local_path else "?"
@@ -316,8 +324,11 @@ class AppDetailView:
             self.action_button.content = "Baixar / Instalar"
             self.action_button.icon = ft.Icons.DOWNLOAD
             self.action_button.disabled = self.work_busy
-            self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
+            self.action_button.style = _primary_action_style()
             self.update_button.visible = False
+            self.update_button.content = _UPDATE_LABEL
+            self.update_button.style = _primary_action_style()
+            self.update_button.disabled = self.work_busy
             self.uninstall_button.visible = False
             self.local_info.value = ""
         self.feedback_button.visible = self.feedback_enabled
@@ -354,11 +365,13 @@ class AppDetailView:
             self._start_download()
 
     def _on_update(self, e: ft.ControlEvent) -> None:
-        if self.work_busy or self.opening:
+        if self.work_busy:
             return
         if self.on_update_app:
             self.on_update_app(self.app)
             return
+        self.opening = False
+        self._refresh_action_buttons()
         self._start_download()
 
     def _on_uninstall(self, e: ft.ControlEvent) -> None:
@@ -414,7 +427,7 @@ class AppDetailView:
         self.action_button.disabled = busy or (installed and self.this_app_running)
         self.feedback_button.disabled = busy or self.opening
         self.tutorial_button.disabled = busy or self.opening
-        self.update_button.disabled = busy or self.opening
+        self.update_button.disabled = busy
         self.uninstall_button.disabled = busy or self.opening or self.this_app_running
         if busy:
             self.status_text.value = ""
