@@ -226,6 +226,7 @@ class SuiteApp:
         self._exiting = False
         self._tray: TrayController | None = None
         self.run_error = ""
+        self.opening_app_id: str | None = None
 
         self.sidebar_holder = ft.Container()
         self.content_holder = ft.Container(
@@ -2791,35 +2792,51 @@ class SuiteApp:
         self._render()
 
     def _run_catalog_app(self, app: AppInfo) -> None:
-        self._refresh_running(force=True)
-        if self._this_app_running(app.id):
-            self.run_error = "Este aplicativo ja esta em execucao."
-            self._render()
+        if self.opening_app_id:
             return
-        state = self.storage.get_state(app.id)
-        if not state.local_path:
-            self.run_error = "Arquivo nao encontrado. Use Baixar / Instalar."
-            self._render()
+        if self.app_job_busy and self.app_job_app_id == app.id:
             return
-        try:
-            launch_file(state.local_path, app_id=app.id, app_name=app.nome)
-        except RunError as exc:
-            self.run_error = str(exc)
-            self._render()
-            return
+        self.opening_app_id = app.id
         self.run_error = ""
-        self._refresh_running(force=True)
+        if self.detail_notice_app_id == app.id:
+            self.detail_notice = ""
+            self.detail_notice_app_id = None
         self._render()
+        self.page.run_thread(lambda: self._open_catalog_app_worker(app))
 
-        def _nudge() -> None:
-            time.sleep(0.5)
+    def _open_catalog_app_worker(self, app: AppInfo) -> None:
+        launched = False
+        try:
             self._refresh_running(force=True)
+            if self._this_app_running(app.id):
+                self.run_error = "Este aplicativo ja esta em execucao."
+                return
+            state = self.storage.get_state(app.id)
+            if not state.local_path:
+                self.run_error = "Arquivo nao encontrado. Use Baixar / Instalar."
+                return
+            try:
+                launch_file(state.local_path, app_id=app.id, app_name=app.nome)
+            except RunError as exc:
+                self.run_error = str(exc)
+                return
+            self.run_error = ""
+            launched = True
+            self._refresh_running(force=True)
+        finally:
+            if self.opening_app_id == app.id:
+                self.opening_app_id = None
             self._render()
+            if launched:
+                def _nudge() -> None:
+                    time.sleep(0.5)
+                    self._refresh_running(force=True)
+                    self._render()
 
-        self.page.run_thread(_nudge)
+                self.page.run_thread(_nudge)
 
     def _request_app_update(self, app: AppInfo) -> None:
-        if self.app_job_busy or self.update_busy:
+        if self.opening_app_id or self.app_job_busy or self.update_busy:
             return
         self._refresh_running(force=True)
         self.app_job_busy = True
@@ -2831,7 +2848,7 @@ class SuiteApp:
         self.page.run_thread(lambda: self._update_catalog_app_worker(app))
 
     def _request_uninstall(self, app: AppInfo) -> None:
-        if self.app_job_busy or self.update_busy or self._confirm_open:
+        if self.opening_app_id or self.app_job_busy or self.update_busy or self._confirm_open:
             return
         self._refresh_running(force=True)
         if self._this_app_running(app.id):
@@ -2847,7 +2864,7 @@ class SuiteApp:
         )
 
     def _uninstall_confirmed(self, app: AppInfo) -> None:
-        if self.app_job_busy or self.update_busy:
+        if self.opening_app_id or self.app_job_busy or self.update_busy:
             return
         self.app_job_busy = True
         self.app_job_app_id = app.id
@@ -3241,6 +3258,7 @@ class SuiteApp:
                     work_busy=self.app_job_busy and self.app_job_app_id == app.id,
                     work_progress=self.app_job_progress if self.app_job_app_id == app.id else None,
                     work_message=self._detail_work_message(app.id),
+                    opening=self.opening_app_id == app.id,
                 ).build()
         elif getattr(self, "show_links", False):
             try:
