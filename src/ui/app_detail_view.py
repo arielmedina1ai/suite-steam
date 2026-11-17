@@ -10,7 +10,16 @@ from models import AppInfo, InstallStatus
 from services.download_manager import DownloadManager, DownloadOutcome
 from services.storage import Storage
 from ui.components import app_badge, app_icon, media_src
-from ui.progress_util import bar_value, label as progress_label
+from ui.progress_util import bar_value
+
+# Texto curto da faixa fixa. O detalhe longo do download nao entra na tela.
+_BUSY_CAPTION = {
+    "download": "Baixando. Pode aguardar.",
+    "update": "Atualizando. Pode aguardar.",
+    "uninstall": "Desinstalando. Pode aguardar.",
+}
+# Texto escuro sobre COLOR_ACCENT, para o botao Abrindo continuar legivel.
+_OPENING_TEXT = "#142018"
 
 
 class AppDetailView:
@@ -35,6 +44,7 @@ class AppDetailView:
         work_busy: bool = False,
         work_progress: float | None = None,
         work_message: str = "",
+        opening: bool = False,
     ) -> None:
         self.page = page
         self.app = app
@@ -54,6 +64,8 @@ class AppDetailView:
         self.work_busy = work_busy
         self.work_progress = work_progress
         self.work_message = work_message
+        self.opening = opening
+        self.work_action = self._infer_work_action()
 
         self.progress = ft.ProgressBar(
             value=bar_value(work_progress) if work_busy else 0,
@@ -61,8 +73,25 @@ class AppDetailView:
             color=config.COLOR_ACCENT,
             bgcolor="#0A0F0C",
         )
+        self.progress_caption = ft.Text(
+            self._busy_caption() if work_busy else "",
+            size=13,
+            color="#B9CEC3",
+        )
+        # Faixa fixa: logo acima dos botoes de acao, fora da coluna que rola.
+        self.progress_strip = ft.Container(
+            visible=work_busy,
+            bgcolor=config.COLOR_SURFACE,
+            border_radius=10,
+            padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+            content=ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[self.progress_caption, self.progress],
+            ),
+        )
         self.status_text = ft.Text(
-            progress_label(work_progress, work_message) if work_busy or work_message else "",
+            "" if work_busy or opening else (work_message or ""),
             size=13,
             color="#B9CEC3",
         )
@@ -165,7 +194,8 @@ class AppDetailView:
             wrap=True,
             controls=action_controls,
         )
-        return ft.Column(
+        self.actions = actions
+        body = ft.Column(
             expand=True,
             scroll=ft.ScrollMode.AUTO,
             spacing=20,
@@ -183,11 +213,22 @@ class AppDetailView:
                 ),
                 ft.Text(self.app.descricao or "Sem descricao.", size=15, color="#D6E5DC"),
                 ft.Divider(color="#22332B"),
+            ],
+        )
+        # Nome, imagem e descricao rolam. A faixa fica colada nos botoes.
+        self.action_dock = ft.Column(
+            spacing=12,
+            controls=[
+                self.progress_strip,
                 actions,
                 self.local_info,
-                self.progress,
                 self.status_text,
             ],
+        )
+        return ft.Column(
+            expand=True,
+            spacing=16,
+            controls=[body, self.action_dock],
         )
 
     def _on_feedback(self, _e) -> None:
@@ -212,20 +253,54 @@ class AppDetailView:
     def _has_version_update(self, state) -> bool:
         return str(state.versao or "") != str(self.app.versao or "")
 
+    def _infer_work_action(self) -> str:
+        if not self.work_busy:
+            return ""
+        msg = (self.work_message or "").casefold()
+        if "desinstal" in msg:
+            return "uninstall"
+        if self.storage.get_state(self.app.id).status == InstallStatus.INSTALLED:
+            return "update"
+        return "download"
+
+    def _busy_caption(self) -> str:
+        return _BUSY_CAPTION.get(self.work_action, _BUSY_CAPTION["download"])
+
+    def _sync_progress_strip(self) -> None:
+        busy = bool(self.work_busy)
+        self.progress_strip.visible = busy
+        self.progress.visible = busy
+        if not busy:
+            return
+        self.progress.value = bar_value(self.work_progress)
+        self.progress_caption.value = self._busy_caption()
+
     def _refresh_action_buttons(self) -> None:
         state = self.storage.get_state(self.app.id)
         installed = state.status == InstallStatus.INSTALLED
         this = self.this_app_running
+        opening = bool(self.opening) and installed and not self.work_busy
         if installed:
-            self.action_button.content = "Executar"
             self.action_button.icon = ft.Icons.PLAY_ARROW
-            self.action_button.disabled = self.work_busy or this
-            self.action_button.style = ft.ButtonStyle(bgcolor=config.COLOR_PRIMARY, color="white")
+            if opening:
+                self.action_button.content = "Abrindo..."
+                self.action_button.disabled = False
+                self.action_button.style = ft.ButtonStyle(
+                    bgcolor=config.COLOR_ACCENT,
+                    color=_OPENING_TEXT,
+                )
+            else:
+                self.action_button.content = "Executar"
+                self.action_button.disabled = self.work_busy or this
+                self.action_button.style = ft.ButtonStyle(
+                    bgcolor=config.COLOR_PRIMARY,
+                    color="white",
+                )
             needs_update = self._has_version_update(state)
             self.update_button.visible = needs_update
-            self.update_button.disabled = self.work_busy
+            self.update_button.disabled = True if opening else self.work_busy
             self.uninstall_button.visible = True
-            self.uninstall_button.disabled = self.work_busy or this
+            self.uninstall_button.disabled = True if opening else (self.work_busy or this)
             local_name = Path(state.local_path).name if state.local_path else "?"
             installed_ver = state.versao or "?"
             catalog_ver = self.app.versao
@@ -246,18 +321,21 @@ class AppDetailView:
             self.uninstall_button.visible = False
             self.local_info.value = ""
         self.feedback_button.visible = self.feedback_enabled
-        self.feedback_button.disabled = self.work_busy
+        self.feedback_button.disabled = self.work_busy or self.opening
         self.tutorial_button.visible = installed and self.app.has_tutorial
-        self.tutorial_button.disabled = self.work_busy
-        if this and not self.work_busy:
+        self.tutorial_button.disabled = self.work_busy or self.opening
+        if self.work_busy or self.opening:
+            self.status_text.value = ""
+        elif this:
             if installed and self._has_version_update(state):
                 self.status_text.value = (
                     "Em execucao. Atualizar versao encerra o processo, instala e reabre."
                 )
             else:
                 self.status_text.value = f"{self.app.nome} ja esta em execucao."
-        elif self.work_message and not self.work_busy:
+        elif self.work_message:
             self.status_text.value = self.work_message
+        self._sync_progress_strip()
 
     def _safe_update(self) -> None:
         try:
@@ -266,7 +344,7 @@ class AppDetailView:
             pass
 
     def _on_action(self, e: ft.ControlEvent) -> None:
-        if self.work_busy:
+        if self.work_busy or self.opening:
             return
         if self._current_status() == InstallStatus.INSTALLED:
             if self.this_app_running:
@@ -276,7 +354,7 @@ class AppDetailView:
             self._start_download()
 
     def _on_update(self, e: ft.ControlEvent) -> None:
-        if self.work_busy:
+        if self.work_busy or self.opening:
             return
         if self.on_update_app:
             self.on_update_app(self.app)
@@ -284,7 +362,7 @@ class AppDetailView:
         self._start_download()
 
     def _on_uninstall(self, e: ft.ControlEvent) -> None:
-        if self.work_busy or self.this_app_running:
+        if self.work_busy or self.opening or self.this_app_running:
             return
         if self.on_uninstall:
             self.on_uninstall(self.app)
@@ -292,6 +370,7 @@ class AppDetailView:
         self._uninstall_local()
 
     def _uninstall_local(self) -> None:
+        self.work_action = "uninstall"
         self._set_busy(True)
         self._apply_progress(-1.0, "Desinstalando...")
         try:
@@ -300,8 +379,10 @@ class AppDetailView:
         except Exception as exc:
             msg = f"Erro ao desinstalar: {exc}"
         self.progress.visible = False
+        self.progress_strip.visible = False
         self.status_text.value = msg
         self.work_message = msg
+        self.work_action = ""
         self._set_busy(False)
         self._refresh_action_buttons()
         if self.on_status:
@@ -311,28 +392,47 @@ class AppDetailView:
         self._safe_update()
 
     def _execute(self) -> None:
+        if self.opening:
+            return
+        self.opening = True
+        self.status_text.value = ""
+        self._refresh_action_buttons()
+        self._safe_update()
         if self.on_run:
             self.on_run(self.app)
             return
+        self.opening = False
+        self._refresh_action_buttons()
         self.status_text.value = "Nao foi possivel iniciar o aplicativo."
         self._safe_update()
 
     def _set_busy(self, busy: bool) -> None:
         self.work_busy = busy
+        if busy and not self.work_action:
+            self.work_action = self._infer_work_action()
         installed = self._current_status() == InstallStatus.INSTALLED
         self.action_button.disabled = busy or (installed and self.this_app_running)
-        self.feedback_button.disabled = busy
-        self.tutorial_button.disabled = busy
-        self.update_button.disabled = busy
-        self.uninstall_button.disabled = busy or self.this_app_running
+        self.feedback_button.disabled = busy or self.opening
+        self.tutorial_button.disabled = busy or self.opening
+        self.update_button.disabled = busy or self.opening
+        self.uninstall_button.disabled = busy or self.opening or self.this_app_running
+        if busy:
+            self.status_text.value = ""
+        self._sync_progress_strip()
 
     def _apply_progress(self, pct: float | None, msg: str) -> None:
-        self.progress.visible = True
-        self.progress.value = bar_value(pct)
-        self.status_text.value = progress_label(pct, msg)
+        self.work_progress = pct
+        self.work_message = msg
+        self.work_busy = True
+        if not self.work_action:
+            self.work_action = self._infer_work_action()
+        self.status_text.value = ""
+        self._sync_progress_strip()
         self._safe_update()
 
     def _start_download(self) -> None:
+        installed = self._current_status() == InstallStatus.INSTALLED
+        self.work_action = "update" if installed else "download"
         self._set_busy(True)
         self._apply_progress(
             -1.0,
@@ -350,8 +450,10 @@ class AppDetailView:
         else:
             msg = result.message or "Erro no download."
         self.progress.visible = False
+        self.progress_strip.visible = False
         self.status_text.value = msg
         self.work_message = msg
+        self.work_action = ""
         self._set_busy(False)
         self._refresh_action_buttons()
         if self.on_status:
