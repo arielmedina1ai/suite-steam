@@ -2804,16 +2804,25 @@ class SuiteApp:
         self._render()
         self.page.run_thread(lambda: self._open_catalog_app_worker(app))
 
+    def _open_still_pending(self, app: AppInfo) -> bool:
+        return self.opening_app_id == app.id and not self.app_job_busy
+
     def _open_catalog_app_worker(self, app: AppInfo) -> None:
         launched = False
         try:
+            if not self._open_still_pending(app):
+                return
             self._refresh_running(force=True)
+            if not self._open_still_pending(app):
+                return
             if self._this_app_running(app.id):
                 self.run_error = "Este aplicativo ja esta em execucao."
                 return
             state = self.storage.get_state(app.id)
             if not state.local_path:
                 self.run_error = "Arquivo nao encontrado. Use Baixar / Instalar."
+                return
+            if not self._open_still_pending(app):
                 return
             try:
                 launch_file(state.local_path, app_id=app.id, app_name=app.nome)
@@ -2836,8 +2845,11 @@ class SuiteApp:
                 self.page.run_thread(_nudge)
 
     def _request_app_update(self, app: AppInfo) -> None:
-        if self.opening_app_id or self.app_job_busy or self.update_busy:
+        if self.app_job_busy or self.update_busy:
             return
+        if self.opening_app_id and self.opening_app_id != app.id:
+            return
+        self.opening_app_id = None
         self._refresh_running(force=True)
         self.app_job_busy = True
         self.app_job_app_id = app.id

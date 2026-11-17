@@ -104,7 +104,11 @@ class AppDetailPresentationTests(unittest.TestCase):
         self.assertEqual(view.action_button.content, "Abrindo...")
         self.assertEqual(view.action_button.style.bgcolor, config.COLOR_ACCENT)
         self.assertFalse(view.action_button.disabled)
-        self.assertTrue(view.update_button.disabled)
+        self.assertEqual(view.update_button.content, "Atualizar versao")
+        self.assertEqual(view.update_button.style.bgcolor, config.COLOR_PRIMARY)
+        self.assertEqual(view.update_button.style.color, "white")
+        self.assertNotEqual(view.update_button.style.bgcolor, config.COLOR_ACCENT)
+        self.assertFalse(view.update_button.disabled)
         self.assertTrue(view.uninstall_button.disabled)
         self.assertTrue(view.feedback_button.disabled)
         self.assertTrue(view.tutorial_button.disabled)
@@ -185,6 +189,11 @@ class AppDetailPresentationTests(unittest.TestCase):
             self.assertTrue(updating.progress_strip.visible)
             self.assertTrue(updating.action_button.disabled)
             self.assertTrue(updating.update_button.disabled)
+            self.assertEqual(updating.update_button.content, "Atualizar versao")
+            self.assertEqual(updating.update_button.style.bgcolor, config.COLOR_PRIMARY)
+            self.assertEqual(updating.update_button.style.color, "white")
+            self.assertIs(updating.actions.controls[0], updating.update_button)
+            self.assertIs(updating.actions.controls[1], updating.action_button)
             self.assertTrue(updating.uninstall_button.disabled)
             self.assertTrue(updating.feedback_button.disabled)
             self.assertTrue(updating.tutorial_button.disabled)
@@ -253,6 +262,159 @@ class AppDetailPresentationTests(unittest.TestCase):
         self.assertIs(view.action_dock.controls[1], view.actions)
         self.assertEqual(getattr(built.controls[0], "scroll", None), ft.ScrollMode.AUTO)
         self.assertNotIn(view.action_button, list(_walk(built.controls[0])))
+
+    def test_update_button_leads_with_the_run_style_only_when_needed(self) -> None:
+        page = _Page()
+        current = AppInfo(
+            id="app",
+            nome="Relatorio",
+            versao="1.0.0",
+            tutorial_markdown_url="https://x/t.md",
+        )
+        newer = AppInfo(
+            id="app",
+            nome="Relatorio",
+            versao="2.0.0",
+            tutorial_markdown_url="https://x/t.md",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            storage = self._installed(root, versao="1.0.0")
+            same = AppDetailView(page, current, storage, object(), feedback_enabled=True)
+            same.build()
+            self.assertFalse(same.update_button.visible)
+            self.assertEqual(
+                _visible_action_labels(same),
+                ["Executar", "Feedback", "Tutorial", "Desinstalar"],
+            )
+            self.assertIs(same.actions.controls[0], same.update_button)
+            self.assertIs(same.actions.controls[1], same.action_button)
+
+            detail = AppDetailView(page, newer, storage, object(), feedback_enabled=True)
+            detail.build()
+            self.assertTrue(detail.update_button.visible)
+            self.assertFalse(detail.update_button.disabled)
+            self.assertEqual(detail.update_button.content, "Atualizar versao")
+            self.assertEqual(detail.update_button.icon, ft.Icons.SYSTEM_UPDATE)
+            self.assertIsInstance(detail.update_button, ft.FilledButton)
+            self.assertIs(type(detail.update_button), type(detail.action_button))
+            self.assertEqual(detail.action_button.content, "Executar")
+            self.assertEqual(detail.update_button.style.bgcolor, config.COLOR_PRIMARY)
+            self.assertEqual(detail.update_button.style.color, "white")
+            self.assertEqual(
+                detail.update_button.style.bgcolor,
+                detail.action_button.style.bgcolor,
+            )
+            self.assertEqual(detail.update_button.style.color, detail.action_button.style.color)
+            self.assertEqual(
+                detail.update_button.style.overlay_color,
+                detail.action_button.style.overlay_color,
+            )
+            self.assertEqual(
+                detail.update_button.style.elevation,
+                detail.action_button.style.elevation,
+            )
+            self.assertEqual(detail.update_button.elevation, detail.action_button.elevation)
+            self.assertEqual(
+                _visible_action_labels(detail),
+                ["Atualizar versao", "Executar", "Feedback", "Tutorial", "Desinstalar"],
+            )
+            self.assertIs(detail.action_dock.controls[0], detail.progress_strip)
+            self.assertIs(detail.action_dock.controls[1], detail.actions)
+            self.assertFalse(detail.progress_strip.visible)
+
+            fresh = Storage(root / "other-apps", root / "other.json")
+            download = AppDetailView(page, newer, fresh, object())
+            download.build()
+        self.assertFalse(download.update_button.visible)
+        self.assertEqual(download.action_button.content, "Baixar / Instalar")
+        self.assertEqual(download.update_button.style.bgcolor, config.COLOR_PRIMARY)
+        self.assertEqual(download.update_button.style.color, "white")
+        self.assertEqual(_visible_action_labels(download), ["Baixar / Instalar"])
+        self.assertIs(download.actions.controls[0], download.update_button)
+        self.assertIs(download.actions.controls[1], download.action_button)
+
+    def test_opening_does_not_turn_the_update_button_into_abrindo(self) -> None:
+        page = _Page()
+        app = AppInfo(id="app", nome="Relatorio", versao="2.0.0")
+        seen: dict = {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            storage = self._installed(Path(tmp), versao="1.0.0")
+            view = AppDetailView(
+                page,
+                app,
+                storage,
+                object(),
+                opening=True,
+            )
+            view.build()
+            self.assertTrue(view.update_button.visible)
+            self.assertEqual(view.action_button.content, "Abrindo...")
+            self.assertEqual(view.action_button.style.bgcolor, config.COLOR_ACCENT)
+            self.assertEqual(view.update_button.content, "Atualizar versao")
+            self.assertEqual(view.update_button.style.bgcolor, config.COLOR_PRIMARY)
+            self.assertEqual(view.update_button.style.color, "white")
+            self.assertFalse(view.update_button.disabled)
+            self.assertFalse(view.progress_strip.visible)
+            self.assertIs(view.action_dock.controls[0], view.progress_strip)
+            self.assertIs(view.actions.controls[0], view.update_button)
+
+            def on_run(_app) -> None:
+                seen["action"] = idle.action_button.content
+                seen["action_bg"] = idle.action_button.style.bgcolor
+                seen["update"] = idle.update_button.content
+                seen["update_bg"] = idle.update_button.style.bgcolor
+                seen["update_color"] = idle.update_button.style.color
+                seen["update_disabled"] = idle.update_button.disabled
+
+            idle = AppDetailView(page, app, storage, object(), on_run=on_run)
+            idle.build()
+            self.assertFalse(idle.update_button.disabled)
+            self.assertEqual(idle.action_button.style.bgcolor, config.COLOR_PRIMARY)
+            idle.action_button.on_click(None)
+
+            started: list[str] = []
+            view.on_update_app = lambda item: started.append(item.id)
+            view.update_button.on_click(None)
+            self.assertEqual(started, [app.id])
+
+            busy = AppDetailView(
+                page,
+                app,
+                storage,
+                object(),
+                on_update_app=lambda item: started.append("busy"),
+                opening=True,
+                work_busy=True,
+                work_message="Preparando atualizacao...",
+            )
+            busy.update_button.on_click(None)
+
+        self.assertEqual(seen["action"], "Abrindo...")
+        self.assertEqual(seen["action_bg"], config.COLOR_ACCENT)
+        self.assertEqual(seen["update"], "Atualizar versao")
+        self.assertEqual(seen["update_bg"], config.COLOR_PRIMARY)
+        self.assertEqual(seen["update_color"], "white")
+        self.assertFalse(seen["update_disabled"])
+        self.assertEqual(idle.update_button.content, "Atualizar versao")
+        self.assertEqual(idle.update_button.style.bgcolor, config.COLOR_PRIMARY)
+        self.assertEqual(started, [app.id])
+        self.assertTrue(busy.update_button.disabled)
+        self.assertEqual(busy.update_button.style.bgcolor, config.COLOR_PRIMARY)
+        self.assertEqual(busy.update_button.content, "Atualizar versao")
+        self.assertEqual(busy.action_button.content, "Executar")
+
+
+def _visible_action_labels(view) -> list[str]:
+    labels = []
+    for child in view.actions.controls:
+        if getattr(child, "visible", True) is False:
+            continue
+        content = getattr(child, "content", None)
+        if isinstance(content, str):
+            labels.append(content)
+    return labels
 
 
 class OpenCatalogAppTests(unittest.TestCase):
@@ -333,6 +495,36 @@ class OpenCatalogAppTests(unittest.TestCase):
             SuiteApp._run_catalog_app(app, info)
         self.assertEqual(len(page.threads), 1)
         self.assertNotIn("launch", log)
+
+    def test_update_during_opening_cancels_the_launch(self) -> None:
+        app, page, log = self._app()
+        app.update_busy = False
+        info = AppInfo(id="a", nome="Relatorio")
+
+        def launch(*_args, **_kwargs):
+            log.append("launch")
+            return object()
+
+        with patch("main.launch_file", launch):
+            SuiteApp._run_catalog_app(app, info)
+            SuiteApp._request_app_update(app, info)
+            page.threads[0]()
+
+        self.assertNotIn("launch", log)
+        self.assertIsNone(app.opening_app_id)
+        self.assertTrue(app.app_job_busy)
+        self.assertEqual(app.app_job_app_id, "a")
+        self.assertEqual(app.app_job_message, "Preparando atualizacao...")
+        self.assertEqual(len(page.threads), 2)
+
+    def test_update_waits_while_another_app_is_opening(self) -> None:
+        app, page, _log = self._app()
+        app.update_busy = False
+        app.opening_app_id = "outro"
+        SuiteApp._request_app_update(app, AppInfo(id="a", nome="Relatorio"))
+        self.assertEqual(app.opening_app_id, "outro")
+        self.assertFalse(app.app_job_busy)
+        self.assertEqual(page.threads, [])
 
 
 if __name__ == "__main__":
