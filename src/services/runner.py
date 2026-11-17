@@ -7,8 +7,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from services.win_exe import INVALID_EXE_MESSAGE, is_windows_pe
-
 
 class RunError(Exception):
     pass
@@ -39,8 +37,6 @@ def launch_file(
     p = Path(path)
     if not p.exists():
         raise RunError(f"Arquivo nao encontrado: {p}")
-    if p.suffix.lower() == ".exe" and not is_windows_pe(p):
-        raise RunError(INVALID_EXE_MESSAGE)
 
     try:
         if sys.platform.startswith("win"):

@@ -815,11 +815,7 @@ class TutorialVersionTests(unittest.TestCase):
             def fake_app(link, pasta_destino, nome_arquivo, progress=None):
                 path = Path(pasta_destino) / nome_arquivo
                 path.parent.mkdir(parents=True, exist_ok=True)
-                pe = bytearray(68)
-                pe[0:2] = b"MZ"
-                pe[0x3C:0x40] = (64).to_bytes(4, "little")
-                pe[64:68] = b"PE\x00\x00"
-                path.write_bytes(bytes(pe))
+                path.write_bytes(b"exe")
                 return SharePointResult(ok=True, path=path, message="Download concluido.")
 
             def fake_tutorial(link, pasta_destino, nome_arquivo, progress=None):
