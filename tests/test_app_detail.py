@@ -112,9 +112,11 @@ class AppDetailPresentationTests(unittest.TestCase):
         self.assertEqual(view.status_text.value, "")
         self.assertIsNone(getattr(built, "scroll", None))
         body = _scroll_columns(built)
-        self.assertEqual(len(body), 1)
-        self.assertIs(built.controls[2], body[0])
+        self.assertEqual(body, [built.controls[0]])
+        self.assertIs(view.action_dock.controls[0], view.progress_strip)
+        self.assertIs(view.action_dock.controls[1], view.actions)
         self.assertNotIn(view.progress, list(_walk(body[0])))
+        self.assertNotIn(view.action_button, list(_walk(body[0])))
 
     def test_missing_run_restores_the_button_and_the_error(self) -> None:
         page = _Page()
@@ -143,11 +145,13 @@ class AppDetailPresentationTests(unittest.TestCase):
         self.assertEqual(view.status_text.value, "")
         self.assertTrue(view.action_button.disabled)
         self.assertTrue(view.feedback_button.disabled)
-        self.assertIs(built.controls[1], view.progress_strip)
+        self.assertIs(view.action_dock.controls[0], view.progress_strip)
+        self.assertIs(view.action_dock.controls[1], view.actions)
         body = _scroll_columns(built)
-        self.assertEqual(body, [built.controls[2]])
+        self.assertEqual(body, [built.controls[0]])
         self.assertNotIn(view.progress, list(_walk(body[0])))
         self.assertNotIn(view.progress_caption, list(_walk(body[0])))
+        self.assertNotIn(view.action_button, list(_walk(body[0])))
 
         view._apply_progress(0.4, "Baixando lote (3 arquivo(s)) — login unico...")
         self.assertEqual(view.progress_caption.value, "Baixando. Pode aguardar.")
@@ -185,8 +189,11 @@ class AppDetailPresentationTests(unittest.TestCase):
             self.assertTrue(updating.feedback_button.disabled)
             self.assertTrue(updating.tutorial_button.disabled)
             self.assertEqual(updating.status_text.value, "")
-            self.assertIs(built.controls[1], updating.progress_strip)
-            self.assertNotIn(updating.progress, list(_walk(_scroll_columns(built)[0])))
+            self.assertIs(updating.action_dock.controls[0], updating.progress_strip)
+            self.assertIs(updating.action_dock.controls[1], updating.actions)
+            scroll = _scroll_columns(built)[0]
+            self.assertNotIn(updating.progress, list(_walk(scroll)))
+            self.assertNotIn(updating.action_button, list(_walk(scroll)))
 
             removing = AppDetailView(
                 page,
@@ -242,8 +249,10 @@ class AppDetailPresentationTests(unittest.TestCase):
             view.status_text.value,
             "O arquivo baixado nao e um executavel valido. Baixe de novo.",
         )
-        self.assertIs(built.controls[1], view.progress_strip)
-        self.assertEqual(getattr(built.controls[2], "scroll", None), ft.ScrollMode.AUTO)
+        self.assertIs(view.action_dock.controls[0], view.progress_strip)
+        self.assertIs(view.action_dock.controls[1], view.actions)
+        self.assertEqual(getattr(built.controls[0], "scroll", None), ft.ScrollMode.AUTO)
+        self.assertNotIn(view.action_button, list(_walk(built.controls[0])))
 
 
 class OpenCatalogAppTests(unittest.TestCase):

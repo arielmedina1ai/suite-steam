@@ -78,7 +78,7 @@ class AppDetailView:
             size=13,
             color="#B9CEC3",
         )
-        # Faixa fixa: fica fora da coluna que rola, logo abaixo do nome.
+        # Faixa fixa: logo acima dos botoes de acao, fora da coluna que rola.
         self.progress_strip = ft.Container(
             visible=work_busy,
             bgcolor=config.COLOR_SURFACE,
@@ -194,11 +194,13 @@ class AppDetailView:
             wrap=True,
             controls=action_controls,
         )
+        self.actions = actions
         body = ft.Column(
             expand=True,
             scroll=ft.ScrollMode.AUTO,
             spacing=20,
             controls=[
+                header,
                 image,
                 ft.Container(
                     padding=ft.Padding.only(top=4),
@@ -211,6 +213,13 @@ class AppDetailView:
                 ),
                 ft.Text(self.app.descricao or "Sem descricao.", size=15, color="#D6E5DC"),
                 ft.Divider(color="#22332B"),
+            ],
+        )
+        # Nome, imagem e descricao rolam. A faixa fica colada nos botoes.
+        self.action_dock = ft.Column(
+            spacing=12,
+            controls=[
+                self.progress_strip,
                 actions,
                 self.local_info,
                 self.status_text,
@@ -219,11 +228,7 @@ class AppDetailView:
         return ft.Column(
             expand=True,
             spacing=16,
-            controls=[
-                header,
-                self.progress_strip,
-                body,
-            ],
+            controls=[body, self.action_dock],
         )
 
     def _on_feedback(self, _e) -> None:
