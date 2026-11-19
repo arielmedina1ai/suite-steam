@@ -16,7 +16,7 @@ import flet as ft
 import config
 from main import SuiteApp
 from models import AppInfo, InstallStatus
-from services.runner import RunError
+from services.runner import RunError, RunningApp
 from services.storage import Storage
 from ui.app_detail_view import AppDetailView
 
@@ -405,6 +405,72 @@ class AppDetailPresentationTests(unittest.TestCase):
         self.assertEqual(busy.update_button.content, "Atualizar versao")
         self.assertEqual(busy.action_button.content, "Executar")
 
+    def test_running_lock_clears_text_and_unlocks_without_moving_update(self) -> None:
+        page = _Page()
+        same = AppInfo(
+            id="app",
+            nome="Relatorio",
+            versao="1.0.0",
+            tutorial_markdown_url="https://x/t.md",
+        )
+        newer = AppInfo(id="app", nome="Relatorio", versao="2.0.0")
+        with tempfile.TemporaryDirectory() as tmp:
+            storage = self._installed(Path(tmp), versao="1.0.0")
+            running = AppDetailView(
+                page,
+                same,
+                storage,
+                object(),
+                this_app_running=True,
+                feedback_enabled=True,
+            )
+            running.build()
+            self.assertEqual(running.action_button.content, "Executar")
+            self.assertTrue(running.action_button.disabled)
+            self.assertTrue(running.uninstall_button.disabled)
+            self.assertEqual(running.status_text.value, "Relatorio ja esta em execucao.")
+            self.assertFalse(running.progress_strip.visible)
+            self.assertEqual(
+                _visible_action_labels(running),
+                ["Executar", "Feedback", "Tutorial", "Desinstalar"],
+            )
+
+            updating = AppDetailView(page, newer, storage, object(), this_app_running=True)
+            updating.build()
+            self.assertTrue(updating.action_button.disabled)
+            self.assertTrue(updating.uninstall_button.disabled)
+            self.assertFalse(updating.update_button.disabled)
+            self.assertEqual(updating.update_button.content, "Atualizar versao")
+            self.assertEqual(updating.update_button.style.bgcolor, config.COLOR_PRIMARY)
+            self.assertEqual(updating.update_button.style.color, "white")
+            self.assertEqual(
+                updating.status_text.value,
+                "Em execucao. Atualizar versao encerra o processo, instala e reabre.",
+            )
+            self.assertFalse(updating.progress_strip.visible)
+            self.assertEqual(
+                _visible_action_labels(updating),
+                ["Atualizar versao", "Executar", "Desinstalar"],
+            )
+            self.assertIs(updating.action_dock.controls[0], updating.progress_strip)
+
+            idle = AppDetailView(page, newer, storage, object(), this_app_running=False)
+            idle.build()
+        self.assertEqual(idle.action_button.content, "Executar")
+        self.assertFalse(idle.action_button.disabled)
+        self.assertFalse(idle.uninstall_button.disabled)
+        self.assertFalse(idle.update_button.disabled)
+        self.assertEqual(idle.update_button.content, "Atualizar versao")
+        self.assertEqual(idle.update_button.style.bgcolor, config.COLOR_PRIMARY)
+        self.assertEqual(idle.status_text.value, "")
+        self.assertFalse(idle.progress_strip.visible)
+        self.assertEqual(
+            _visible_action_labels(idle),
+            ["Atualizar versao", "Executar", "Desinstalar"],
+        )
+        self.assertIs(idle.actions.controls[0], idle.update_button)
+        self.assertIs(idle.actions.controls[1], idle.action_button)
+
 
 def _visible_action_labels(view) -> list[str]:
     labels = []
@@ -516,6 +582,24 @@ class OpenCatalogAppTests(unittest.TestCase):
         self.assertEqual(app.app_job_app_id, "a")
         self.assertEqual(app.app_job_message, "Preparando atualizacao...")
         self.assertEqual(len(page.threads), 2)
+
+    def test_execute_keeps_the_launched_process_handle(self) -> None:
+        app, page, log = self._app()
+        info = AppInfo(id="a", nome="Relatorio")
+        running = RunningApp(
+            app_id="a",
+            app_name="Relatorio",
+            popen=SimpleNamespace(wait=lambda: 0, poll=lambda: None),
+        )
+
+        with patch("main.launch_file", return_value=running):
+            SuiteApp._run_catalog_app(app, info)
+            page.threads[0]()
+
+        self.assertEqual(log[-1], ("render", None, ""))
+        self.assertIs(app._launched_handles["a"], running)
+        self.assertEqual(len(page.threads), 3)
+        self.assertEqual(app.run_error, "")
 
     def test_update_waits_while_another_app_is_opening(self) -> None:
         app, page, _log = self._app()

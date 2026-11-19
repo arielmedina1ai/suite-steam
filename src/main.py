@@ -217,6 +217,9 @@ class SuiteApp:
         self.update_done = False
         self._running_pids: dict[str, list[int]] = {}
         self._running_cache_at = 0.0
+        # Processo devolvido pelo clique em Executar (ou pelo reabrir da atualizacao).
+        self._launched_handles: dict[str, object] = {}
+        self._launched_lock = threading.Lock()
         self.app_job_busy = False
         self.app_job_app_id: str | None = None
         self.app_job_progress: float | None = None
@@ -318,6 +321,8 @@ class SuiteApp:
             self._hide_to_tray()
         elif kind == "MINIMIZE":
             self._minimize_window()
+        elif kind == "FOCUS":
+            self._recheck_running_on_focus()
 
     def _minimize_window(self) -> None:
         """Minimiza de verdade e permanece na barra de tarefas.
@@ -354,6 +359,7 @@ class SuiteApp:
                 self.page.update()
             except Exception:
                 pass
+            self._recheck_running_on_focus()
 
     async def _show_from_tray_async(self) -> None:
         try:
@@ -365,6 +371,7 @@ class SuiteApp:
             await self.page.window.to_front()
         except Exception:
             pass
+        self._recheck_running_on_focus()
 
     def _quit_app(self) -> None:
         self._exiting = True
@@ -832,6 +839,93 @@ class SuiteApp:
     def _this_app_running(self, app_id: str) -> bool:
         self._refresh_running()
         return bool(self._running_pids.get(app_id))
+
+    def _running_app_ids(self) -> set[str]:
+        pids = getattr(self, "_running_pids", None) or {}
+        return {app_id for app_id, rows in pids.items() if rows}
+
+    def _recheck_running_on_focus(self) -> None:
+        """A janela ganhou foco. Reconfere o que a tela ainda trata como em execucao.
+
+        Sem timer. Se o processo sumiu, a proxima pintura tira o texto e
+        libera Executar e os outros botoes travados so por isso.
+        """
+        if getattr(self, "_exiting", False):
+            return
+        shown = self._running_app_ids()
+        if not shown and not self._running_text_is_stale():
+            return
+        self._refresh_running(force=True)
+        self._publish_running_recheck(shown)
+
+    def _running_text_is_stale(self) -> bool:
+        if getattr(self, "run_error", "") != _ALREADY_RUNNING_ERROR:
+            return False
+        selected = getattr(self, "selected_id", None)
+        pids = getattr(self, "_running_pids", None) or {}
+        return not (selected and pids.get(selected))
+
+    def _clear_stale_running_text(self) -> bool:
+        if not self._running_text_is_stale():
+            return False
+        self.run_error = ""
+        return True
+
+    def _publish_running_recheck(self, shown: set[str]) -> None:
+        cleared = self._clear_stale_running_text()
+        if shown != self._running_app_ids() or cleared:
+            self._render()
+
+    def _remember_launched(self, running) -> None:
+        """Guarda o processo que o Suite abriu e solta a trava quando ele sair."""
+        app_id = str(getattr(running, "app_id", "") or "")
+        if not app_id or not _launched_can_wait(running):
+            return
+        handles, lock = self._launched_state()
+        with lock:
+            handles[app_id] = running
+        self.page.run_thread(lambda: self._on_launched_process_exit(running))
+
+    def _launched_state(self) -> tuple[dict[str, object], threading.Lock]:
+        handles = getattr(self, "_launched_handles", None)
+        lock = getattr(self, "_launched_lock", None)
+        if not isinstance(handles, dict):
+            handles = {}
+            self._launched_handles = handles
+        if lock is None:
+            lock = threading.Lock()
+            self._launched_lock = lock
+        return handles, lock
+
+    def _forget_launched_if_current(self, app_id: str, running) -> bool:
+        handles, lock = self._launched_state()
+        with lock:
+            if handles.get(app_id) is not running:
+                return False
+            del handles[app_id]
+            return True
+
+    def _on_launched_process_exit(self, running) -> None:
+        """O processo que o Executar abriu terminou.
+
+        Vale so para o handle que o Suite mesmo iniciou. Se a varredura
+        ainda ve o app, a saida de um launcher curto nao libera a trava.
+        O foco da janela segue como respaldo.
+        """
+        try:
+            _wait_launched(running)
+        except Exception:
+            return
+        if getattr(self, "_exiting", False):
+            return
+        app_id = str(getattr(running, "app_id", "") or "")
+        if not self._forget_launched_if_current(app_id, running):
+            return
+        shown = self._running_app_ids()
+        self._refresh_running(force=True)
+        # Launcher curto pode morrer e deixar o app filho. Se a varredura
+        # ainda ve este id, o conjunto nao perde o app e a trava continua.
+        self._publish_running_recheck(shown)
 
     def _running_app_names(self) -> str:
         self._refresh_running()
@@ -2816,7 +2910,7 @@ class SuiteApp:
             if not self._open_still_pending(app):
                 return
             if self._this_app_running(app.id):
-                self.run_error = "Este aplicativo ja esta em execucao."
+                self.run_error = _ALREADY_RUNNING_ERROR
                 return
             state = self.storage.get_state(app.id)
             if not state.local_path:
@@ -2825,12 +2919,13 @@ class SuiteApp:
             if not self._open_still_pending(app):
                 return
             try:
-                launch_file(state.local_path, app_id=app.id, app_name=app.nome)
+                launched_proc = launch_file(state.local_path, app_id=app.id, app_name=app.nome)
             except RunError as exc:
                 self.run_error = str(exc)
                 return
             self.run_error = ""
             launched = True
+            self._remember_launched(launched_proc)
             self._refresh_running(force=True)
         finally:
             if self.opening_app_id == app.id:
@@ -2947,7 +3042,10 @@ class SuiteApp:
                 self.app_job_message = "Reabrindo o aplicativo..."
                 self._render()
                 try:
-                    launch_file(new_state.local_path, app_id=app.id, app_name=app.nome)
+                    launched_proc = launch_file(
+                        new_state.local_path, app_id=app.id, app_name=app.nome
+                    )
+                    self._remember_launched(launched_proc)
                     time.sleep(0.4)
                 except RunError as exc:
                     self.run_error = str(exc)
@@ -3404,6 +3502,31 @@ class SuiteApp:
             self.page.update()
         except Exception:
             pass
+
+
+_ALREADY_RUNNING_ERROR = "Este aplicativo ja esta em execucao."
+
+
+def _launched_can_wait(running) -> bool:
+    if running is None:
+        return False
+    if callable(getattr(running, "wait", None)):
+        return True
+    popen = getattr(running, "popen", None)
+    return callable(getattr(popen, "wait", None))
+
+
+def _wait_launched(running) -> None:
+    wait = getattr(running, "wait", None)
+    if callable(wait):
+        wait()
+        return
+    popen = getattr(running, "popen", None)
+    popen_wait = getattr(popen, "wait", None)
+    if callable(popen_wait):
+        popen_wait()
+        return
+    raise RuntimeError("processo sem espera")
 
 
 def _window_event_name(e) -> str:
